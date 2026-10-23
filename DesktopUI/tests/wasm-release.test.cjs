@@ -5,7 +5,7 @@ const fs = require("node:fs/promises"),
 test("release WASM removes local source paths while retaining executable sections and exported functions", async () => {
   const { stripWasmDebug } = await import("../scripts/wasm-release.mjs");
   const published = await fs.readFile(
-    path.join(__dirname, "../src/ui-layout.wasm"),
+    path.join(__dirname, "../src/features/editor/ui-layout.wasm"),
   );
   const leb = (n) => {
     const bytes = [];

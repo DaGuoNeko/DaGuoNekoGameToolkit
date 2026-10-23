@@ -1,7 +1,7 @@
 const { test } = require("node:test"),
   assert = require("node:assert/strict"),
   path = require("node:path");
-const { windowCall } = require("../electron/ore-native.cjs");
+const { windowCall } = require("../electron/domains/client/ore-native.cjs");
 test("OreUI window helper classifies native assertion details for manual handling", async () => {
   const exec = async () => ({
     stdout: JSON.stringify({

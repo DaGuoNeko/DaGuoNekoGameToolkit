@@ -4,14 +4,14 @@ const fs = require("node:fs/promises"),
   path = require("node:path"),
   os = require("node:os"),
   net = require("node:net");
-const { AutomationRouter } = require("../electron/automation-router.cjs");
-const { AutomationBridge } = require("../electron/automation-bridge.cjs");
+const { AutomationRouter } = require("../electron/domains/automation/automation-router.cjs");
+const { AutomationBridge } = require("../electron/domains/automation/automation-bridge.cjs");
 const {
   allocateMcp,
   ownedEndpoint,
   parseListeners,
   withMcdk,
-} = require("../electron/mcp-endpoint.cjs");
+} = require("../electron/domains/automation/mcp-endpoint.cjs");
 const { Client } = require("@modelcontextprotocol/sdk/client/index.js");
 const {
   StdioClientTransport,
@@ -333,7 +333,11 @@ test("authenticated loopback bridge + real SDK stdio client supports offline too
   const client = new Client({ name: "test", version: "1" });
   const transport = new StdioClientTransport({
     command: process.execPath,
-    args: [path.resolve("electron/automation-stdio.cjs"), "--data-dir", root],
+    args: [
+      path.resolve("electron/domains/automation/automation-stdio.cjs"),
+      "--data-dir",
+      root,
+    ],
     stderr: "pipe",
   });
   t.after(() => client.close());

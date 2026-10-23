@@ -3,17 +3,17 @@ const fs = require("node:fs/promises"),
   crypto = require("node:crypto");
 const { EventEmitter } = require("node:events");
 const { Launcher, validateConfig, atomicWrite } = require("./services.cjs");
-const { SessionHistory } = require("./history.cjs");
-const { resolvePaths, profileDefaults } = require("./profiles.cjs");
-const { discoverGames } = require("./discovery.cjs");
-const { folderFor } = require("./world-path.cjs");
-const { reloadDefaults } = require("./reload-options.cjs");
-const { menuPlayerName } = require("./menu-name.cjs");
-const { allocateMcp } = require("./mcp-endpoint.cjs");
-const { normalizeActions } = require("./world-actions.cjs");
+const { SessionHistory } = require("./domains/game/history.cjs");
+const { resolvePaths, profileDefaults } = require("./domains/profiles/profiles.cjs");
+const { discoverGames } = require("./domains/game/discovery.cjs");
+const { folderFor } = require("./domains/worlds/world-path.cjs");
+const { reloadDefaults } = require("./domains/reload/reload-options.cjs");
+const { menuPlayerName } = require("./domains/client/menu-name.cjs");
+const { allocateMcp } = require("./domains/automation/mcp-endpoint.cjs");
+const { normalizeActions } = require("./domains/worlds/world-actions.cjs");
 const { applyWindowSize } = require("./window-size.cjs");
-const { quickTestMods } = require("./quick-test.cjs");
-const { sourceSelection } = require("./reload-sources.cjs");
+const { quickTestMods } = require("./domains/reload/quick-test.cjs");
+const { sourceSelection } = require("./domains/reload/reload-sources.cjs");
 class Sessions extends EventEmitter {
   constructor(
     store,

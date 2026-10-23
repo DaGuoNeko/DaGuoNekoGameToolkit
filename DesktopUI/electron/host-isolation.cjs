@@ -3,9 +3,9 @@ const fs = require("node:fs/promises"),
   crypto = require("node:crypto"),
   os = require("node:os");
 const { reserveIsolation } = require("./isolation-spawn.cjs");
-const { folderFor } = require("./world-path.cjs");
-const { readWorldInfo } = require("./world-info.cjs");
-const template = require("./world-template.cjs");
+const { folderFor } = require("./domains/worlds/world-path.cjs");
+const { readWorldInfo } = require("./domains/worlds/world-info.cjs");
+const template = require("./domains/worlds/world-template.cjs");
 const GAME_HASH =
   "489a164d5f37048fcebf941bfefba4a50ee0dabfbb7f2f2169c09600b2a4579c";
 const MCDK_HASH =

@@ -3,11 +3,11 @@ const { test } = require("node:test"),
   fs = require("node:fs/promises"),
   path = require("node:path"),
   os = require("node:os");
-const { WorldLibrary } = require("../electron/worlds.cjs");
+const { WorldLibrary } = require("../electron/domains/worlds/worlds.cjs");
 const { WorkspaceStore } = require("../electron/services.cjs");
-const { Profiles } = require("../electron/profiles.cjs");
+const { Profiles } = require("../electron/domains/profiles/profiles.cjs");
 const { zip, levelData } = require("./fixtures/zip.cjs");
-const { folderFor } = require("../electron/world-path.cjs");
+const { folderFor } = require("../electron/domains/worlds/world-path.cjs");
 async function setup(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-world-import-"));
   t.after(async () => {
@@ -69,7 +69,7 @@ test("linked directories use the same files on both sides and recycle/purge neve
     await fs.readFile(path.join(source, "db/progress"), "utf8"),
     "game save",
   );
-  const { readJoinRoom } = require("../electron/client-join-room.cjs");
+  const { readJoinRoom } = require("../electron/domains/client/client-join-room.cjs");
   assert.equal(
     (await readJoinRoom(worlds, w.id)).source,
     "level.dat/LevelName",

@@ -9,7 +9,7 @@ Build from DesktopUI:
 npm run build
 ```
 
-The checked-in `src/ui-layout.wasm` is embedded in the renderer bundle by esbuild's binary loader. No compiler is required on the user's machine. CSP permits WebAssembly compilation only; JavaScript eval remains disabled. The module imports no functions and has fixed static arrays for at most 20,000 nodes, with parents preceding children. The renderer creates its own isolated instance. Source/build intermediates under native/ are excluded from the app package.
+The checked-in `src/features/editor/ui-layout.wasm` is embedded in the renderer bundle by esbuild's binary loader. No compiler is required on the user's machine. CSP permits WebAssembly compilation only; JavaScript eval remains disabled. The module imports no functions and has fixed static arrays for at most 20,000 nodes, with parents preceding children. The renderer creates its own isolated instance. Source/build intermediates under native/ are excluded from the app package.
 
 The checked-in module has optional DWARF/source-map metadata removed to avoid publishing local build paths. The bundle step reapplies this filter through `scripts/wasm-release.mjs` to cover local rebuilds. Executable sections are retained byte for byte. Regression tests add synthetic debug metadata and verify that filtering preserves module behavior.
 

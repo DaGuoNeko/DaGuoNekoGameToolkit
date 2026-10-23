@@ -5,7 +5,7 @@ const fs = require("node:fs/promises"),
   assert = require("node:assert/strict");
 const jsonc = require("jsonc-parser");
 const { WorkspaceStore } = require("../electron/services.cjs");
-const { Profiles } = require("../electron/profiles.cjs");
+const { Profiles } = require("../electron/domains/profiles/profiles.cjs");
 (async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-mod-remove-ui-"));
   let app;

@@ -3,10 +3,10 @@ const { test } = require("node:test"),
   fs = require("node:fs/promises"),
   path = require("node:path"),
   os = require("node:os");
-const { buildScene } = require("../src/ui-document.cjs"),
-  { withEngineTree, enginePath } = require("../src/ui-runtime-tree.cjs");
-const { EditorEngine } = require("../electron/editor-engine.cjs"),
-  { UiDocuments } = require("../electron/ui-editor.cjs");
+const { buildScene } = require("../shared/ui-document.cjs"),
+  { withEngineTree, enginePath } = require("../shared/ui-runtime-tree.cjs");
+const { EditorEngine } = require("../electron/domains/editor/editor-engine.cjs"),
+  { UiDocuments } = require("../electron/domains/editor/ui-editor.cjs");
 test("engine tree exposes inherited nodes read-only and preserves source write paths", () => {
   const source = buildScene(
     '{"namespace":"x","main":{"type":"screen","controls":[{"own":{"type":"label","text":"draft"}}]}}',

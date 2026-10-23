@@ -7,11 +7,11 @@ const test = require("node:test"),
 const {
   inspectWorldPacks,
   prepareWorldPacks,
-} = require("../electron/world-packs.cjs");
-const { WorldLibrary } = require("../electron/worlds.cjs");
+} = require("../electron/domains/worlds/world-packs.cjs");
+const { WorldLibrary } = require("../electron/domains/worlds/worlds.cjs");
 const { WorkspaceStore } = require("../electron/services.cjs");
-const { Profiles } = require("../electron/profiles.cjs");
-const { AUTO_IMPORT_PROFILE } = require("../src/world-import-model.cjs");
+const { Profiles } = require("../electron/domains/profiles/profiles.cjs");
+const { AUTO_IMPORT_PROFILE } = require("../shared/world-import-model.cjs");
 const { zip, levelData } = require("./fixtures/zip.cjs");
 const { Sessions } = require("../electron/sessions.cjs");
 const { EventEmitter } = require("node:events");

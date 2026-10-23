@@ -8,8 +8,8 @@ const {
   Launcher,
   validateConfig,
 } = require("../electron/services.cjs");
-const { WorldLibrary } = require("../electron/worlds.cjs");
-const { folderFor, managedId } = require("../electron/world-path.cjs");
+const { WorldLibrary } = require("../electron/domains/worlds/worlds.cjs");
+const { folderFor, managedId } = require("../electron/domains/worlds/world-path.cjs");
 async function setup(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-world-test-"));
   t.after(async () => {

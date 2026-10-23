@@ -7,8 +7,8 @@ const { spawn } = require("node:child_process");
 const { once } = require("node:events");
 const { EventEmitter } = require("node:events");
 const { PassThrough } = require("node:stream");
-const { mergeRuntime } = require("../src/runtime-state.cjs");
-const { discoverGames } = require("../electron/discovery.cjs");
+const { mergeRuntime } = require("../shared/runtime-state.cjs");
+const { discoverGames } = require("../electron/domains/game/discovery.cjs");
 const {
   WorkspaceStore,
   Launcher,

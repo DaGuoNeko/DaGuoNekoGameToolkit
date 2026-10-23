@@ -15,34 +15,34 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { WorkspaceStore, Launcher } = require("./services.cjs");
-const { discoverGames } = require("./discovery.cjs");
-const { formatLine } = require("./history.cjs");
-const { GameLogs } = require("./game-logs.cjs");
+const { discoverGames } = require("./domains/game/discovery.cjs");
+const { formatLine } = require("./domains/game/history.cjs");
+const { GameLogs } = require("./domains/game/game-logs.cjs");
 const { DebugController } = require("./debug/controller.cjs");
 const { InspectorWindow, inspectorMethods } = require("./inspector-window.cjs");
-const { WorldLibrary } = require("./worlds.cjs");
-const { assertWorldMutation } = require("./world-mutation.cjs");
-const { WorldActions } = require("./world-actions.cjs");
+const { WorldLibrary } = require("./domains/worlds/worlds.cjs");
+const { assertWorldMutation } = require("./domains/worlds/world-mutation.cjs");
+const { WorldActions } = require("./domains/worlds/world-actions.cjs");
 let worldActions;
-const { GameTitles } = require("./game-titles.cjs");
+const { GameTitles } = require("./domains/game/game-titles.cjs");
 let gameTitles;
-const { Profiles } = require("./profiles.cjs");
+const { Profiles } = require("./domains/profiles/profiles.cjs");
 const { Sessions } = require("./sessions.cjs");
-const { ReloadSources } = require("./reload-sources.cjs");
+const { ReloadSources } = require("./domains/reload/reload-sources.cjs");
 let reloadSources;
 const { HostIsolation } = require("./host-isolation.cjs");
-const { MenuName } = require("./menu-name.cjs");
-const { AutomationRouter } = require("./automation-router.cjs");
+const { MenuName } = require("./domains/client/menu-name.cjs");
+const { AutomationRouter } = require("./domains/automation/automation-router.cjs");
 const {
   AutomationBridge,
   installAutomation,
-} = require("./automation-bridge.cjs");
+} = require("./domains/automation/automation-bridge.cjs");
 let automation;
-const { ClientJoiner } = require("./client-join.cjs");
+const { ClientJoiner } = require("./domains/client/client-join.cjs");
 let clientJoiner;
 const { Rooms } = require("./network/rooms.cjs");
 let rooms;
-const { TracyProfiler, assertPortFree } = require("./tracy-profiler.cjs");
+const { TracyProfiler, assertPortFree } = require("./domains/performance/tracy-profiler.cjs");
 let tracyProfiler;
 const execFile = require("node:util").promisify(
   require("node:child_process").execFile,
@@ -60,7 +60,7 @@ protocol.registerSchemesAsPrivileged([
   },
 ]);
 const store = new WorkspaceStore(dataRoot);
-const { GameProcesses } = require("./game-processes.cjs");
+const { GameProcesses } = require("./domains/game/game-processes.cjs");
 const gameProcesses = new GameProcesses({
   paths: async () => {
     await store.queue;
@@ -82,13 +82,13 @@ const gameProcesses = new GameProcesses({
   },
 });
 const profiles = new Profiles(store);
-const { UiDocuments } = require("./ui-editor.cjs");
+const { UiDocuments } = require("./domains/editor/ui-editor.cjs");
 const uiDocuments = new UiDocuments(dataRoot);
-const { EditorEngine } = require("./editor-engine.cjs");
+const { EditorEngine } = require("./domains/editor/editor-engine.cjs");
 let editorEngine;
-const { ModLibrary } = require("./mod-library.cjs");
+const { ModLibrary } = require("./domains/profiles/mod-library.cjs");
 const modLibrary = new ModLibrary(store, profiles);
-const { GameOptions } = require("./game-options.cjs");
+const { GameOptions } = require("./domains/game/game-options.cjs");
 const gameOptions = new GameOptions(
   dataRoot,
   path.join(

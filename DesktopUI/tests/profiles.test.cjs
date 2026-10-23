@@ -10,8 +10,8 @@ const {
   Profiles,
   WORLD_KEYS,
   profileDefaults,
-} = require("../electron/profiles.cjs");
-const { WorldLibrary } = require("../electron/worlds.cjs");
+} = require("../electron/domains/profiles/profiles.cjs");
+const { WorldLibrary } = require("../electron/domains/worlds/worlds.cjs");
 const { Sessions } = require("../electron/sessions.cjs");
 const { validateConfig } = require("../electron/services.cjs");
 async function setup(t) {
@@ -500,7 +500,7 @@ test("host startup rejects external games but accepts owned isolated menu client
   assert.equal(manager.session.worldId, world.id);
 });
 test("world metadata reader preserves imported mode, seed and gamerules without modifying bytes", () => {
-  const { readWorldInfo } = require("../electron/world-info.cjs");
+  const { readWorldInfo } = require("../electron/domains/worlds/world-info.cjs");
   const tag = (type, name, data) => {
     const n = Buffer.from(name),
       h = Buffer.alloc(3);

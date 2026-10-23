@@ -2,7 +2,7 @@ const { test } = require("node:test"),
   assert = require("node:assert/strict"),
   net = require("node:net"),
   { once } = require("node:events");
-const { EditorRpc } = require("../electron/editor-rpc.cjs");
+const { EditorRpc } = require("../electron/domains/editor/editor-rpc.cjs");
 const frame = (v) => {
   const data = Buffer.from(JSON.stringify(v)),
     header = Buffer.alloc(4);

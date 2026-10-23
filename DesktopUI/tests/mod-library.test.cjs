@@ -4,10 +4,10 @@ const fs = require("node:fs/promises"),
   path = require("node:path"),
   os = require("node:os");
 const { WorkspaceStore } = require("../electron/services.cjs");
-const { Profiles } = require("../electron/profiles.cjs");
-const { ModLibrary } = require("../electron/mod-library.cjs");
-const { modRows, setModOption } = require("../src/mod-selection.cjs");
-const { modKey, withoutMod, removeModJson } = require("../src/mod-removal.cjs");
+const { Profiles } = require("../electron/domains/profiles/profiles.cjs");
+const { ModLibrary } = require("../electron/domains/profiles/mod-library.cjs");
+const { modRows, setModOption } = require("../shared/mod-selection.cjs");
+const { modKey, withoutMod, removeModJson } = require("../shared/mod-removal.cjs");
 async function setup(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-mod-library-"));
   t.after(async () => {

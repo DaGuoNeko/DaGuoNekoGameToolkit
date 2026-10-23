@@ -8,7 +8,7 @@ const {
   TracyProfiler,
   assertPortFree,
   parseConnections,
-} = require("../electron/tracy-profiler.cjs");
+} = require("../electron/domains/performance/tracy-profiler.cjs");
 async function fixture(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-tracy-")),
     exe = path.join(root, "tracy-profiler.exe");

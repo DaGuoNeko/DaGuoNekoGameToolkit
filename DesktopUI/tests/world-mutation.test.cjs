@@ -1,6 +1,6 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { assertWorldMutation } = require("../electron/world-mutation.cjs");
+const { assertWorldMutation } = require("../electron/domains/worlds/world-mutation.cjs");
 
 function fixture() {
   const game = "C:\\dgn-fixture\\Minecraft.Windows.exe";

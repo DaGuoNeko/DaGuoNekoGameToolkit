@@ -5,7 +5,7 @@ const path = require("node:path");
 const os = require("node:os");
 const { randomUUID } = require("node:crypto");
 const { Sessions } = require("../electron/sessions.cjs");
-const { SessionHistory } = require("../electron/history.cjs");
+const { SessionHistory } = require("../electron/domains/game/history.cjs");
 
 async function fixture(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-history-delete-"));

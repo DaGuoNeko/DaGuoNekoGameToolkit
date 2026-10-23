@@ -6,9 +6,9 @@ const {
   hostIdentity,
   selectRoom,
   scripts,
-} = require("../electron/ore-join.cjs");
-const { OreCdp } = require("../electron/ore-cdp.cjs");
-const { checkEngine } = require("../electron/ore-native.cjs");
+} = require("../electron/domains/client/ore-join.cjs");
+const { OreCdp } = require("../electron/domains/client/ore-cdp.cjs");
+const { checkEngine } = require("../electron/domains/client/ore-native.cjs");
 const target = {
   owner: "Host",
   name: "含空格 世界",

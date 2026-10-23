@@ -7,8 +7,8 @@ const {
   GameProcesses,
   developmentBuild,
   queryProcesses,
-} = require("../electron/game-processes.cjs");
-const { GameOptions } = require("../electron/game-options.cjs");
+} = require("../electron/domains/game/game-processes.cjs");
+const { GameOptions } = require("../electron/domains/game/game-options.cjs");
 async function fixture(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-process-"));
   t.after(async () => {

@@ -4,7 +4,7 @@ const { test } = require("node:test"),
   path = require("node:path"),
   os = require("node:os");
 const { WorkspaceStore } = require("../electron/services.cjs");
-const { validateReloadKeys } = require("../electron/reload-options.cjs");
+const { validateReloadKeys } = require("../electron/domains/reload/reload-options.cjs");
 async function fixture(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-global-keys-"));
   t.after(async () => {

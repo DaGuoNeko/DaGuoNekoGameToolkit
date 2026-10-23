@@ -4,8 +4,8 @@ const fs = require("node:fs/promises"),
   os = require("node:os"),
   assert = require("node:assert/strict");
 const { WorkspaceStore } = require("../electron/services.cjs");
-const { Profiles } = require("../electron/profiles.cjs");
-const { WorldLibrary } = require("../electron/worlds.cjs");
+const { Profiles } = require("../electron/domains/profiles/profiles.cjs");
+const { WorldLibrary } = require("../electron/domains/worlds/worlds.cjs");
 (async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-rooms-ui-"));
   let app;

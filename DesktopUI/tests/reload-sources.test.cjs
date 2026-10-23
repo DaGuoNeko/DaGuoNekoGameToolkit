@@ -6,11 +6,11 @@ const { test } = require("node:test"),
   { EventEmitter } = require("node:events"),
   { PassThrough } = require("node:stream");
 const { WorkspaceStore } = require("../electron/services.cjs"),
-  { Profiles } = require("../electron/profiles.cjs"),
-  { WorldLibrary } = require("../electron/worlds.cjs"),
+  { Profiles } = require("../electron/domains/profiles/profiles.cjs"),
+  { WorldLibrary } = require("../electron/domains/worlds/worlds.cjs"),
   { Sessions } = require("../electron/sessions.cjs"),
-  { ModLibrary } = require("../electron/mod-library.cjs"),
-  { ReloadSources } = require("../electron/reload-sources.cjs");
+  { ModLibrary } = require("../electron/domains/profiles/mod-library.cjs"),
+  { ReloadSources } = require("../electron/domains/reload/reload-sources.cjs");
 async function fixture(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-reload-sources-"));
   let sessions;

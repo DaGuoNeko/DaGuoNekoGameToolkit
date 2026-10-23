@@ -1,6 +1,6 @@
 const { test } = require("node:test"),
   assert = require("node:assert/strict");
-const { TracyWindow } = require("../electron/tracy-window.cjs");
+const { TracyWindow } = require("../electron/domains/performance/tracy-window.cjs");
 function fixture() {
   const native = Object.create(TracyWindow.prototype),
     moves = [],

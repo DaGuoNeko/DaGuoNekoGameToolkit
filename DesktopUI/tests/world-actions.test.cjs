@@ -8,9 +8,9 @@ const {
   WorldActions,
   normalizeActions,
   actionCode,
-} = require("../electron/world-actions.cjs");
+} = require("../electron/domains/worlds/world-actions.cjs");
 const { WorkspaceStore } = require("../electron/services.cjs");
-const { WorldLibrary } = require("../electron/worlds.cjs");
+const { WorldLibrary } = require("../electron/domains/worlds/worlds.cjs");
 const { spawnSync } = require("node:child_process");
 const command = (id = "one", extra = {}) => ({
   id,

@@ -5,8 +5,8 @@ const { _electron: electron } = require("playwright"),
   assert = require("node:assert/strict");
 const { spawnSync } = require("node:child_process");
 const { WorkspaceStore } = require("../electron/services.cjs"),
-  { Profiles } = require("../electron/profiles.cjs"),
-  { WorldLibrary } = require("../electron/worlds.cjs");
+  { Profiles } = require("../electron/domains/profiles/profiles.cjs"),
+  { WorldLibrary } = require("../electron/domains/worlds/worlds.cjs");
 (async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-multi-ui-"));
   let app;

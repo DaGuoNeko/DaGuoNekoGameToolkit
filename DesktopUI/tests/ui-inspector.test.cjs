@@ -7,11 +7,11 @@ const {
   mergePage,
   mergeReveal,
   flattenTree,
-} = require("../src/ui-inspector-model.cjs");
+} = require("../shared/ui-inspector-model.cjs");
 const { buildMutation } = require("../electron/debug/ui-mutation.cjs");
 const live = require("../electron/debug/ui-live.cjs");
-const { diffCache, applyCache } = require("../src/inspector-cache.cjs");
-const { withVisibility } = require("../src/ui-inspector-model.cjs");
+const { diffCache, applyCache } = require("../shared/inspector-cache.cjs");
+const { withVisibility } = require("../shared/ui-inspector-model.cjs");
 test("selection cache patches omit unchanged trees and visibility changes preserve other parent pages", () => {
   const pages = {
     "": { nodes: [{ path: "/root", visible: true }] },
@@ -76,7 +76,7 @@ test("native picker accepts selection events only, ignores properties/errors, an
 const {
   propertyRows,
   readableValue,
-} = require("../src/ui-inspector-model.cjs");
+} = require("../shared/ui-inspector-model.cjs");
 test("live inspector scripts return bounded visible pages, combined selection and fresh visibility toggles", () => {
   const script = `import json,sys,types\ngui=types.ModuleType('gui')\nstate={'visible':True,'selected':None}\ndef get_visible(s,p):return state['visible']\ndef set_visible(s,p,v):state['visible']=v\ndef select(v):state['selected']=json.loads(v)\ngui.get_visible=get_visible;gui.set_visible=set_visible\ngui.get_control_def_type=lambda s,p:10\ngui.get_root_children_names=lambda s:['root']\ngui.get_children_name_from_parent=lambda s,p:[]\ngui.nud_set_selected_controls=select;gui.nud_get_controls_data=lambda p:None\nsys.modules['gui']=gui;sys.modules['_gui']=gui\nexec(${JSON.stringify(live.visibleChildren("hud", "", 0))})\nchildren=_result\nexec(${JSON.stringify(live.selectionCode("hud", "/root", true, true))})\nselection=_result\nexec(${JSON.stringify(live.toggleVisibilityCode("hud", "/root"))})\nfirst=_result\nexec(${JSON.stringify(live.toggleVisibilityCode("hud", "/root"))})\nprint(json.dumps({'children':children,'selection':selection,'selected':state['selected'],'first':first,'second':_result}))`;
   const run = spawnSync("python", ["-c", script], {

@@ -1,12 +1,12 @@
 const test = require("node:test"),
   assert = require("node:assert/strict");
 const { spawnSync } = require("node:child_process");
-const { normalizeBiome } = require("../src/biome-model.cjs");
+const { normalizeBiome } = require("../shared/biome-model.cjs");
 const {
   biomePlan,
   biomeProbeCode,
   biomeBatchCode,
-} = require("../electron/biome-actions.cjs");
+} = require("../electron/domains/worlds/biome-actions.cjs");
 const base = {
   biome: "minecraft:desert",
   shape: "chunk",

@@ -1,6 +1,6 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { colorLog, palette } = require("../src/log-colors.cjs");
+const { colorLog, palette } = require("../shared/log-colors.cjs");
 test("official log palette and precedence distinguish tags, numbers, URLs and whole-line errors", () => {
   const text =
     "[INFO][Engine][Client] value=12.5e-2 (0xFF) <Player> https://example.test/a?q=12";

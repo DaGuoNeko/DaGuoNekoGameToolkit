@@ -4,13 +4,13 @@ const crypto = require("node:crypto"),
   path = require("node:path");
 const { EasyTier, freePort, delay } = require("./easytier.cjs");
 const p = require("./protocol.cjs");
-const { resolvePaths, profileDefaults } = require("../profiles.cjs");
+const { resolvePaths, profileDefaults } = require("../domains/profiles/profiles.cjs");
 const { atomicWrite } = require("../services.cjs");
-const { OreJoin, hostIdentity } = require("../ore-join.cjs");
-const { checkEngine } = require("../ore-native.cjs");
-const { readJoinRoom } = require("../client-join-room.cjs");
-const { proofCode } = require("../client-join-proof.cjs");
-const { menuPlayerName } = require("../menu-name.cjs");
+const { OreJoin, hostIdentity } = require("../domains/client/ore-join.cjs");
+const { checkEngine } = require("../domains/client/ore-native.cjs");
+const { readJoinRoom } = require("../domains/client/client-join-room.cjs");
+const { proofCode } = require("../domains/client/client-join-proof.cjs");
+const { menuPlayerName } = require("../domains/client/menu-name.cjs");
 const {
   VERSION: SCRIPT_SYNC,
   ScriptSyncHost,

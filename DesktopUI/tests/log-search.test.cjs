@@ -4,10 +4,10 @@ const fs = require("node:fs/promises"),
   path = require("node:path"),
   os = require("node:os"),
   crypto = require("node:crypto");
-const { logQuery, highlightTokens } = require("../src/log-search.cjs");
-const { colorLog } = require("../src/log-colors.cjs");
-const { SessionHistory } = require("../electron/history.cjs");
-const { importantMessage } = require("../src/log-search.cjs");
+const { logQuery, highlightTokens } = require("../shared/log-search.cjs");
+const { colorLog } = require("../shared/log-colors.cjs");
+const { SessionHistory } = require("../electron/domains/game/history.cjs");
+const { importantMessage } = require("../shared/log-search.cjs");
 
 test("literal search/highlight preserves text and colors across token boundaries, Unicode and metacharacters", () => {
   for (const query of ["[Json][error]", "中文", "a.*[b]", '<img src="x">']) {

@@ -1,9 +1,9 @@
 const { test } = require("node:test"),
   assert = require("node:assert/strict");
-const { locateMenu } = require("../electron/client-join-menu.cjs");
-const { ClientJoiner } = require("../electron/client-join.cjs");
-const { OreJoin } = require("../electron/ore-join.cjs");
-const { proofCode } = require("../electron/client-join-proof.cjs");
+const { locateMenu } = require("../electron/domains/client/client-join-menu.cjs");
+const { ClientJoiner } = require("../electron/domains/client/client-join.cjs");
+const { OreJoin } = require("../electron/domains/client/ore-join.cjs");
+const { proofCode } = require("../electron/domains/client/client-join-proof.cjs");
 function frame(lines) {
   return {
     hwnd: 88,

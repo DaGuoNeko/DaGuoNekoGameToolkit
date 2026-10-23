@@ -295,6 +295,7 @@ const { randomUUID } = require("node:crypto");
     const searchSummary = await page
       .locator(".log-search-summary")
       .boundingBox();
+    const sourceBar = await page.locator(".reload-sources").boundingBox();
     assert.ok(
       compact.height >
         viewport.height -
@@ -302,7 +303,8 @@ const { randomUUID } = require("node:crypto");
           cardStrip.height -
           reloadBar.height -
           searchBar.height -
-          searchSummary.height,
+          searchSummary.height -
+          (sourceBar?.height || 0),
     );
     const line = await page
       .locator(".log-line")

@@ -5,7 +5,7 @@ const fs = require("node:fs/promises"),
   os = require("node:os"),
   crypto = require("node:crypto");
 const { WorkspaceStore } = require("../electron/services.cjs");
-const { SessionHistory } = require("../electron/history.cjs");
+const { SessionHistory } = require("../electron/domains/game/history.cjs");
 (async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-log-search-ui-"));
   let app;

@@ -1,7 +1,7 @@
 const { test } = require("node:test"),
   assert = require("node:assert/strict"),
   { EventEmitter } = require("node:events");
-const { GameTitles, titleFor } = require("../electron/game-titles.cjs");
+const { GameTitles, titleFor } = require("../electron/domains/game/game-titles.cjs");
 test("game titles identify world/player and never label an unjoined menu as the host world", () => {
   assert.equal(
     titleFor({ role: "world", worldName: "测试地图", userName: "玩家甲" }),

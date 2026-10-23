@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs/promises"),
   path = require("node:path"),
   os = require("node:os");
-const { readJoinRoom } = require("../electron/client-join-room.cjs");
+const { readJoinRoom } = require("../electron/domains/client/client-join-room.cjs");
 function level(name) {
   const string = (s) => {
     const b = Buffer.from(s);

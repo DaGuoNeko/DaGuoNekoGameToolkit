@@ -23,7 +23,7 @@ if (process.platform === "win32") {
 }
 await mkdir("dist", { recursive: true });
 await build({
-  entryPoints: ["src/main.jsx"],
+  entryPoints: ["src/app/main.jsx"],
   bundle: true,
   minify: true,
   outfile: "dist/app.js",
@@ -79,7 +79,7 @@ await copyFile(
   "runtime/automation/content-log-owner.ps1",
 );
 await build({
-  entryPoints: ["electron/automation-stdio.cjs"],
+  entryPoints: ["electron/domains/automation/automation-stdio.cjs"],
   bundle: true,
   outfile: "dist/toolbox-mcp.cjs",
   platform: "node",

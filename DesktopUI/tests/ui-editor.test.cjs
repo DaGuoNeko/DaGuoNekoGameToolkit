@@ -8,8 +8,8 @@ const {
   edit,
   buildScene,
   changeNode,
-} = require("../src/ui-document.cjs");
-const { UiDocuments } = require("../electron/ui-editor.cjs");
+} = require("../shared/ui-document.cjs");
+const { UiDocuments } = require("../electron/domains/editor/ui-editor.cjs");
 const raw =
   '\uFEFF{\r\n // 保留注释\r\n "namespace":"test", "main":{"type":"screen","unknown":42,"controls":[{"box":{"type":"panel","size":[100,40]}}]},\r\n}\r\n';
 test("JsonUI edits preserve BOM, comments, unknown fields and structural undo inputs", () => {
@@ -69,7 +69,9 @@ test("inheritance, static variables, missing definitions and inherited children 
 });
 test("C++ WASM geometry: anchors, visibility, hit order and bounded input", async () => {
   const { instance } = await WebAssembly.instantiate(
-    await fs.readFile(path.join(__dirname, "../src/ui-layout.wasm")),
+    await fs.readFile(
+      path.join(__dirname, "../src/features/editor/ui-layout.wasm"),
+    ),
   );
   const k = instance.exports;
   const scene = buildScene(

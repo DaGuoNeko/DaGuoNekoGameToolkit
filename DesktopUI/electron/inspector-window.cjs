@@ -1,7 +1,7 @@
 const { BrowserWindow } = require("electron");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
-const { applyCache } = require("../src/inspector-cache.cjs");
+const { applyCache } = require("../shared/inspector-cache.cjs");
 
 const inspectorMethods = new Set([
   "bootstrap",

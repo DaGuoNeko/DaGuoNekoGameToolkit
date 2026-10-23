@@ -2,7 +2,7 @@ const test = require("node:test"),
   assert = require("node:assert/strict"),
   path = require("node:path");
 const { EventEmitter } = require("node:events");
-const { MenuName, menuPlayerName } = require("../electron/menu-name.cjs");
+const { MenuName, menuPlayerName } = require("../electron/domains/client/menu-name.cjs");
 function fixture() {
   const events = new EventEmitter();
   let sessions = [];

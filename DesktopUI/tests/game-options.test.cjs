@@ -7,8 +7,8 @@ const {
   GameOptions,
   patchOptions,
   valuesOf,
-} = require("../electron/game-options.cjs");
-const { validateOverrides } = require("../src/game-options-model.cjs");
+} = require("../electron/domains/game/game-options.cjs");
+const { validateOverrides } = require("../shared/game-options-model.cjs");
 async function fixture(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-options-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));

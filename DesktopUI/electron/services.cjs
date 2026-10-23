@@ -7,10 +7,10 @@ const { stripVTControlCharacters, promisify } = require("node:util");
 const { spawn, execFile } = require("node:child_process");
 const jsonc = require("jsonc-parser");
 const exec = promisify(execFile);
-const { SessionHistory } = require("./history.cjs");
-const { managedId, LIBRARY_NAME } = require("./world-path.cjs");
-const { reloadDefaults, validateReloadKeys } = require("./reload-options.cjs");
-const { GameProcesses } = require("./game-processes.cjs");
+const { SessionHistory } = require("./domains/game/history.cjs");
+const { managedId, LIBRARY_NAME } = require("./domains/worlds/world-path.cjs");
+const { reloadDefaults, validateReloadKeys } = require("./domains/reload/reload-options.cjs");
+const { GameProcesses } = require("./domains/game/game-processes.cjs");
 const { windowSizeDefaults, validateWindowSize } = require("./window-size.cjs");
 
 const defaults = {

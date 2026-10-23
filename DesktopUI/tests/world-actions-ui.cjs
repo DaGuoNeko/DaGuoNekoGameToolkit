@@ -5,7 +5,7 @@ const fs = require("node:fs/promises"),
 const { spawnSync } = require("node:child_process");
 const assert = require("node:assert/strict");
 const { WorkspaceStore } = require("../electron/services.cjs");
-const { WorldLibrary } = require("../electron/worlds.cjs");
+const { WorldLibrary } = require("../electron/domains/worlds/worlds.cjs");
 (async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-actions-ui-"));
   let app;

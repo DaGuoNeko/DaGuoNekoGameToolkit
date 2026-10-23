@@ -8,8 +8,7 @@ DesktopUI/test-results/
 DesktopUI/native/*/build/
 /NVIDIA Corporation/
 
-# Private local handoffs and cross-project research (never publish).
-/AGENTS.md
+# Machine handoffs stay outside the repo; ignore accidental legacy copies.
 /开发注意事项与工具迁移指南.md
 /DesktopUI/CONTENT_LOG_TRACKING.md
 

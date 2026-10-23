@@ -75,7 +75,7 @@ const { spawnSync } = require("node:child_process");
     const level = await fs.readFile(path.join(world, "level.dat"));
     assert.ok(level.length > 8);
     assert.equal(level.readUInt32LE(4), level.length - 8);
-    const info = require("../electron/world-info.cjs").readWorldInfo(level);
+    const info = require("../electron/domains/worlds/world-info.cjs").readWorldInfo(level);
     assert.equal(info.gameMode, 1);
     assert.equal(info.worldType, 1);
     const cpp = JSON.parse(
