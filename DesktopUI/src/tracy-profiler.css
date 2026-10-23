@@ -1,0 +1,49 @@
+.tracy-main {
+  padding: 12px 18px !important;
+  overflow: hidden !important;
+}
+.tracy-main > .page-container {
+  height: 100%;
+  max-width: none;
+}
+.tracy-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  gap: 8px;
+}
+.tracy-heading,
+.tracy-toolbar,
+.tracy-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.tracy-heading h1 {
+  font-size: 22px;
+  margin: 0;
+}
+.tracy-toolbar .select {
+  min-width: 210px;
+}
+.tracy-status,
+.tracy-hint {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0;
+}
+.tracy-viewport {
+  flex: 1;
+  min-height: 120px;
+  background: #202020;
+  border-radius: 6px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+.tracy-placeholder {
+  color: #aaa;
+  padding: 20px;
+}

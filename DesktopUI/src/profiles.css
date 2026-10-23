@@ -1,0 +1,84 @@
+.profiles-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 22px 0;
+}
+.profiles-toolbar input {
+  max-width: 340px;
+  min-width: 0;
+}
+.profile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  gap: 18px;
+}
+.profile-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+}
+.profile-cover {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 22px;
+  color: var(--muted);
+  background: linear-gradient(
+    125deg,
+    hsl(var(--accent-hue) 45% 45% / 0.2),
+    hsl(var(--accent-hue) 45% 45% / 0.04)
+  );
+}
+.profile-cover span {
+  font-size: 12px;
+}
+.profile-content {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.profile-content h2 {
+  font-size: 19px;
+  overflow-wrap: anywhere;
+  margin: 0 0 16px;
+}
+.profile-content dl {
+  margin: 0 0 20px;
+}
+.profile-content dl > div {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+.profile-content dt {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.profile-content dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.profile-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: auto;
+}
+.profile-actions .button {
+  font-size: 12px;
+  padding: 8px 12px;
+}
+.purge-targets {
+  max-height: 220px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}

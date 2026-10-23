@@ -1,0 +1,292 @@
+.debug-session {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+.debug-session > .field {
+  flex: 1;
+}
+.debug-badge {
+  white-space: nowrap;
+  color: var(--muted);
+}
+.debug-badge.ready {
+  color: #279869;
+}
+.debug-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
+  margin: 20px 0;
+  overflow: auto;
+}
+.debug-tabs > button {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  padding: 16px;
+  white-space: nowrap;
+  cursor: pointer;
+  border-bottom: 3px solid transparent;
+}
+.debug-tabs > button[aria-selected="true"] {
+  border-bottom-color: hsl(var(--accent-hue) 65% 50%);
+  color: var(--text);
+}
+.debug-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: stretch;
+}
+.debug-card {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  overflow: hidden;
+  margin: 16px 0;
+}
+.debug-card > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--line);
+}
+.debug-card h2 {
+  font-size: 16px;
+}
+.debug-card > header > .select-control {
+  width: 180px;
+}
+.debug-card > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+  border-top: 1px solid var(--line);
+}
+.debug-editor {
+  display: block;
+  width: 100%;
+  min-height: 200px;
+  height: clamp(200px, calc(100vh - 540px), 600px);
+  border: 0;
+  border-radius: 0;
+  padding: 20px;
+  resize: vertical;
+  font-family: Consolas, "Microsoft YaHei UI", monospace;
+  line-height: 1.7;
+  background: transparent;
+}
+.debug-results {
+  height: calc(clamp(200px, calc(100vh - 540px), 600px) + 75px);
+  min-height: 275px;
+  overflow: auto;
+  padding: 16px;
+}
+.debug-result {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+.debug-result small {
+  color: var(--muted);
+}
+.debug-result pre,
+.debug-json {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: Consolas, "Microsoft YaHei UI", monospace;
+  line-height: 1.7;
+}
+.debug-error {
+  color: var(--danger);
+}
+.debug-json {
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  max-height: 340px;
+  overflow: auto;
+}
+.debug-form {
+  padding: 20px;
+}
+.debug-form > .toolbar {
+  margin: 16px 0;
+}
+.debug-function-list {
+  max-height: 650px;
+  overflow: auto;
+  padding: 16px;
+}
+.debug-function-list h3 {
+  margin: 12px 0;
+}
+.debug-function-list > button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 12px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+.debug-function-list > button:hover,
+.debug-function-list > .selected,
+.ui-tree .selected {
+  background: var(--line);
+}
+.debug-function-list small {
+  display: block;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.debug-argument {
+  display: flex;
+  gap: 8px;
+}
+.debug-argument > .select-control {
+  width: 150px;
+}
+.debug-argument > input {
+  flex: 1;
+  min-width: 0;
+}
+.debug-tree-scroll {
+  height: 650px;
+  overflow: auto;
+  padding: 12px;
+}
+.ui-tree {
+  list-style: none;
+  margin: 0;
+  padding-left: 16px;
+}
+.ui-tree > li > div {
+  display: flex;
+  align-items: center;
+}
+.ui-tree button {
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  padding: 8px;
+}
+.ui-node {
+  text-align: left;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.ui-node small {
+  display: block;
+  color: var(--muted);
+}
+.profile-options {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.profile-options > .field {
+  flex: 1;
+  min-width: 150px;
+}
+.profile-report {
+  margin-top: 24px;
+}
+.profile-table-scroll {
+  max-height: 550px;
+  overflow: auto;
+}
+.profile-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.profile-table th,
+.profile-table td {
+  text-align: left;
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.profile-table th {
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+}
+.profile-table td:first-child {
+  max-width: 500px;
+  overflow-wrap: anywhere;
+}
+.profile-table small {
+  display: block;
+  color: var(--muted);
+}
+.profile-bars {
+  margin: 20px 0;
+}
+.profile-bars > div {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) 2fr 110px;
+  align-items: center;
+  gap: 14px;
+  margin: 9px 0;
+  font-size: 12px;
+}
+.profile-bars span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.profile-bars i {
+  display: block;
+  background: hsl(var(--accent-hue) 65% 50%);
+  height: 12px;
+  border-radius: 4px;
+}
+.native-call-tree {
+  margin-top: 24px;
+}
+.native-call-tree details {
+  margin: 8px 0 8px 12px;
+}
+.profile-children {
+  padding-left: 15px;
+}
+summary {
+  cursor: pointer;
+}
+@media (max-width: 1050px) {
+  .debug-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .debug-editor {
+    height: 320px;
+    min-height: 250px;
+  }
+  .debug-results {
+    height: 300px;
+    min-height: 200px;
+  }
+  .debug-tabs > button {
+    padding: 14px 10px;
+  }
+}
+.reload-sources {
+  margin: 12px 0 20px;
+  overflow-wrap: anywhere;
+}
+.reload-sources details {
+  margin: 8px 0;
+}
+.reload-sources li {
+  margin: 6px 0;
+}

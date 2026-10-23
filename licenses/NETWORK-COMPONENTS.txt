@@ -1,0 +1,21 @@
+EasyTier network integration
+
+Pinned runtime: EasyTier v2.7.0-8b7f1f01 (upstream pre-release).
+Official release: https://github.com/EasyTier/EasyTier/releases/tag/v2.7.0
+Corresponding source: https://github.com/EasyTier/EasyTier/tree/v2.7.0
+Source archive: https://github.com/EasyTier/EasyTier/archive/refs/tags/v2.7.0.zip
+
+The redistributable toolbox package contains its own network helper and a hash
+manifest. On first use the user obtains the original networking components from
+the pinned official EasyTier Windows archive. The ZIP and every extracted
+runtime file are checked against fixed SHA-256 values. No EasyTier web server
+or GUI is installed by this integration.
+
+The upstream archive includes Npcap Packet.dll. Its original license is supplied
+as Npcap-Packet-LICENSE.txt. It is not redistributed in the toolbox ZIP. Local
+development/test copies obtained from the upstream archive are not release assets.
+EasyTier, Wintun and WinDivert license texts are included alongside this notice.
+
+Only TCP transport through the configured Sakura Frp endpoint is enabled.
+No Npcap capture driver is installed or used by this integration.
+Sakura Frp is installed and operated separately by the host; it is not bundled.

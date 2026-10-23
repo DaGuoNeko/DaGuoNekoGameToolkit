@@ -1,0 +1,49 @@
+.game-options-toolbar {
+  flex-wrap: wrap;
+}
+.game-options-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.game-option {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+  min-width: 0;
+}
+.game-option .field {
+  margin-bottom: 8px;
+}
+.game-option-current {
+  margin: 6px 0;
+  font-size: 13px;
+}
+.game-option code {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.game-option-number {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.game-option-number > input {
+  min-width: 0;
+  flex: 1;
+}
+.game-option-number > label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.game-option-number input[type="checkbox"] {
+  width: 16px;
+}
+@media (max-width: 1000px) {
+  .game-options-grid {
+    grid-template-columns: 1fr;
+  }
+}

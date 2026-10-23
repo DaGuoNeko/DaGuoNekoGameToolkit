@@ -1,0 +1,106 @@
+.mod-library-toolbar,
+.mod-selection-toolbar,
+.mod-library-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.mod-library-toolbar input {
+  flex: 1;
+  min-width: 180px;
+}
+.mod-library-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  gap: 8px;
+}
+.mod-library-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 10px 12px;
+  min-width: 0;
+}
+.mod-library-info {
+  flex: 1;
+  min-width: 0;
+}
+.mod-library-info h3 {
+  margin: 0 0 3px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.mod-library-info p {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--muted);
+  margin: 0;
+}
+.mod-library-info small {
+  color: var(--muted);
+  font-size: 10px;
+}
+.mod-library-status {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+  margin-top: 3px;
+}
+.mod-library-actions {
+  margin: 8px 0 0;
+  gap: 6px;
+}
+.mod-library-actions .button {
+  font-size: 11px;
+  padding: 5px 8px;
+  min-height: 28px;
+}
+.mod-pick-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  align-items: stretch;
+  gap: 8px;
+  max-height: 480px;
+  overflow-y: auto;
+  padding: 2px;
+}
+.mod-library-card.pick-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+}
+.mod-library-card.enabled {
+  border-color: hsl(var(--accent-hue) 50% 50% / 0.55);
+}
+.mod-library-card > input {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+.mod-library-card .check-row {
+  flex-shrink: 0;
+  font-size: 11px;
+  gap: 4px;
+  margin: 0;
+}
+.mod-library-card .check-row input {
+  width: 14px;
+  height: 14px;
+}
+.mod-library-card.pick-row .icon-button {
+  width: 26px;
+  min-width: 26px;
+  height: 26px;
+  min-height: 26px;
+  padding: 4px;
+}

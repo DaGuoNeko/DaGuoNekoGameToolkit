@@ -1,0 +1,381 @@
+.ui-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  gap: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface);
+}
+.ue-toolbar,
+.ue-options {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+.ue-toolbar .button,
+.ue-options .button,
+.ue-properties .button {
+  padding: 5px 9px;
+  min-height: 28px;
+  font-size: 12px;
+}
+.ue-file {
+  flex: 1;
+  color: var(--muted);
+  min-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ue-options {
+  font-size: 12px;
+}
+.ue-options label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ue-options input[type="checkbox"] {
+  width: auto;
+}
+.ue-options select {
+  padding: 4px;
+  max-width: 200px;
+}
+.ue-native {
+  margin-left: auto;
+  color: #468cb9;
+  font-size: 11px;
+}
+.ue-workspace {
+  display: grid;
+  grid-template-columns: minmax(180px, 22%) minmax(240px, 1fr) minmax(
+      240px,
+      26%
+    );
+  flex: 1;
+  min-height: 0;
+}
+.ue-left,
+.ue-properties,
+.ue-center {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ue-left {
+  border-right: 1px solid var(--line);
+}
+.ue-properties {
+  border-left: 1px solid var(--line);
+}
+.ui-editor header {
+  padding: 7px 10px;
+  background: var(--selected);
+  font-size: 12px;
+  flex-shrink: 0;
+  display: flex;
+  justify-content: space-between;
+}
+.ue-left > input {
+  margin: 6px;
+  width: calc(100% - 12px);
+  padding: 5px 8px;
+  font-size: 12px;
+}
+.ue-tree-scroll {
+  flex: 1;
+  min-height: 100px;
+  overflow: auto;
+}
+.ue-tree-row {
+  position: absolute;
+  height: 28px;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+}
+.ue-tree-row.selected {
+  background: #358de633;
+}
+.ue-tree-row button {
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  height: 28px;
+  color: var(--text);
+}
+.ue-tree-name {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ue-tree-name small {
+  margin-left: 8px;
+  font-size: 10px;
+  color: var(--muted);
+}
+.ue-library {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 3px;
+  padding: 6px;
+  max-height: 230px;
+  overflow: auto;
+}
+.ue-library button {
+  background: var(--input);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-size: 11px;
+  padding: 8px 2px;
+  color: var(--text);
+}
+.ue-library b {
+  display: block;
+  font-size: 23px;
+  font-weight: 400;
+  height: 30px;
+}
+.ue-library button:hover {
+  border-color: #358de6;
+}
+.ue-tip {
+  padding: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.ue-canvas-host {
+  flex: 1;
+  position: relative;
+  min-height: 200px;
+  overflow: hidden;
+  background-color: #141a23;
+  background-image:
+    linear-gradient(#ffffff06 1px, transparent 1px),
+    linear-gradient(90deg, #ffffff06 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+.ue-canvas-host canvas {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+.ue-canvas-hint {
+  position: absolute;
+  bottom: 9px;
+  left: 12px;
+  color: #8493a7;
+  font-size: 10px;
+  pointer-events: none;
+}
+.ue-canvas-error {
+  position: absolute;
+  top: 10px;
+  color: #f99;
+  padding: 12px;
+}
+.ue-texture-errors {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  color: #eac185;
+  max-height: 90px;
+  overflow: auto;
+  background: #242934;
+  font-size: 10px;
+  white-space: pre-wrap;
+}
+.ue-document-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+}
+.ue-document-bar span:last-child {
+  margin-left: auto;
+}
+.ue-document-bar button,
+.ue-property-tabs button {
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  padding: 5px;
+  font-size: 12px;
+}
+.ue-warnings {
+  max-height: 110px;
+  overflow: auto;
+  padding: 6px 10px;
+  font-size: 11px;
+  background: #bd7c0912;
+  color: var(--muted);
+}
+.ue-property-tabs {
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 8px;
+}
+.ue-property-body {
+  overflow: auto;
+  padding: 10px;
+  min-height: 0;
+}
+.ue-node-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+.ue-field {
+  display: grid;
+  grid-template-columns: 75px minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+.ue-field input,
+.ue-field select {
+  width: 100%;
+  padding: 5px 6px;
+  min-width: 0;
+  font-size: 12px;
+}
+.ue-field input[type="checkbox"] {
+  width: 16px;
+}
+.ue-field small {
+  color: var(--danger);
+  grid-column: 1/-1;
+}
+.ue-property-body pre {
+  font-size: 11px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ue-code {
+  flex: 1;
+  min-height: 0;
+  padding: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ue-code p {
+  font-size: 12px;
+  width: 100%;
+  margin: 0;
+}
+.ue-code textarea {
+  flex: 1 1 100%;
+  height: calc(100% - 95px);
+  min-height: 150px;
+  font:
+    12px/1.5 Consolas,
+    monospace;
+  resize: none;
+}
+.ue-welcome {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+  color: var(--muted);
+}
+.ue-welcome small {
+  margin-top: 24px;
+}
+.ue-notice {
+  padding: 4px 12px;
+  background: #39865218;
+  font-size: 12px;
+  cursor: pointer;
+}
+.editor-main {
+  overflow: hidden !important;
+  padding: 10px !important;
+}
+.editor-main > .page-container {
+  height: 100%;
+  max-width: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.editor-main .error-box {
+  flex-shrink: 0;
+}
+.ue-preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--line);
+  padding: 5px 10px;
+  font-size: 11px;
+}
+.ue-preview-actions span {
+  color: var(--muted);
+}
+.ue-live-wrap {
+  flex: 1;
+  min-height: 200px;
+  display: flex;
+  flex-direction: column;
+  background: #151a21;
+  color: #a6b5c8;
+}
+.ue-native-host {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+}
+.ue-game-area {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+.ue-live-toolbar,
+.ue-live-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  font-size: 11px;
+}
+.ue-live-toolbar label {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.ue-live-toolbar input {
+  width: auto;
+}

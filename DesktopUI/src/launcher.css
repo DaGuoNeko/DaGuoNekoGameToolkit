@@ -1,0 +1,464 @@
+.launcher-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+.launcher-meta > span {
+  flex: 1;
+  min-width: 180px;
+}
+.launch-summary {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 30px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  margin: 25px 0 32px;
+}
+.launch-summary > div {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.launch-summary p {
+  margin-top: 8px;
+}
+.mod-directory {
+  display: flex;
+  gap: 10px;
+  margin: 10px 0;
+}
+.mod-directory input {
+  flex: 1;
+}
+.mod-directory {
+  align-items: center;
+  flex-wrap: wrap;
+}
+.mod-directory > input {
+  min-width: 200px;
+}
+.mod-directory .check-row {
+  white-space: nowrap;
+  margin: 0;
+}
+.mod-directory input[type="checkbox"] {
+  flex: none;
+}
+.discovery-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0 24px;
+}
+.discovery-row > .field {
+  flex: 1;
+  min-width: 260px;
+  margin: 0;
+}
+.discovery-row > p {
+  flex-basis: 100%;
+}
+.log-line {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 28px;
+}
+.log-line > span {
+  flex: 1;
+}
+.logs-page > .toolbar {
+  margin: 16px 0;
+}
+.logs-page > p {
+  margin: 12px 0;
+  line-height: 1.6;
+}
+.logs-page .history-toolbar > .select-control {
+  width: auto;
+  flex: 1;
+  max-width: 500px;
+  min-width: 230px;
+}
+.logs-page .log-console {
+  height: clamp(260px, 52vh, 680px);
+}
+.log-line .button {
+  flex-shrink: 0;
+}
+.config-source {
+  min-height: 430px;
+  font-family: Consolas, "Microsoft YaHei UI", monospace;
+  font-size: 12px;
+  line-height: 1.7;
+  tab-size: 2;
+}
+.log-console {
+  background: #121314;
+  color: var(--log-normal, #b3b3b3);
+  color-scheme: dark;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  height: min(65vh, 760px);
+  overflow: auto;
+  font-family: Consolas, "Microsoft YaHei UI", monospace;
+  font-size: 12px;
+  line-height: 1.3;
+}
+.log-line {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 1px 0;
+  line-height: 1.3;
+}
+.log-line time {
+  color: #929292;
+  white-space: nowrap;
+}
+.log-line span {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.log-text .log-token-normal {
+  color: var(--log-normal);
+}
+.log-text .log-token-tags {
+  color: var(--log-tags);
+}
+.log-text .log-token-number {
+  color: var(--log-number);
+}
+.log-text .log-token-brackets {
+  color: var(--log-brackets);
+}
+.log-text .log-token-angle {
+  color: var(--log-angle);
+}
+.log-text .log-token-punctuation {
+  color: var(--log-punctuation);
+}
+.log-text .log-token-url {
+  color: var(--log-url);
+}
+.log-text .log-token-error {
+  color: var(--log-error);
+}
+.log-text .log-token-debug {
+  color: var(--log-debug);
+}
+.log-text .log-token-mcp {
+  color: var(--log-mcp);
+}
+.log-console > .muted {
+  color: #929292;
+}
+.log-console .button {
+  background: #252525;
+  border-color: #454545;
+  color: #cfcfcf;
+}
+.log-console .button:hover:not(:disabled) {
+  background: #333;
+}
+.toolbar > input {
+  min-width: 100px;
+  flex: 1;
+}
+.toolbar > .select-control {
+  width: 150px;
+}
+.section > p + p {
+  margin-top: 12px;
+}
+.logs-main {
+  min-height: 0;
+  overflow: hidden;
+}
+.logs-main .page-container {
+  height: 100%;
+  max-width: none;
+  padding: 12px 18px 16px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.logs-page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.logs-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.logs-heading h1 {
+  font-size: 18px;
+  letter-spacing: 0;
+}
+.logs-session-name,
+.logs-count {
+  font-size: 12px;
+  color: var(--muted);
+}
+.logs-count {
+  flex: 1;
+  text-align: right;
+}
+.logs-heading .button {
+  padding: 6px 12px;
+  min-height: 32px;
+}
+.log-search-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.log-search-bar > input {
+  flex: 1;
+  min-width: 180px;
+  min-height: 32px;
+}
+.log-search-bar > .select-control {
+  width: 150px;
+}
+.log-search-bar .button,
+.log-search-summary .button {
+  min-height: 30px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.log-search-bar [aria-pressed="true"] {
+  background: var(--selected);
+  border-color: var(--muted);
+}
+.log-search-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  min-height: 30px;
+  margin-bottom: 4px;
+  font-size: 11px;
+}
+.log-search-summary > span {
+  flex: 1;
+}
+.log-text mark {
+  color: #111;
+  background: #ffe082;
+  border-radius: 2px;
+}
+.log-line.log-search-current {
+  box-shadow: inset 3px 0 #ffb74d;
+  background: #ffffff12;
+}
+.log-search-current mark {
+  color: #111;
+  background: #ffb74d;
+}
+.log-important-hint {
+  font-size: 11px;
+  margin: 0 0 6px;
+}
+.log-line .log-repeat-count {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: #ffffff1a;
+  color: #ffd180;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.logs-workspace {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+.log-session-cards {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  flex-shrink: 0;
+  padding: 2px 1px 5px;
+  margin-bottom: 4px;
+}
+.log-session-tile {
+  flex: 0 0 210px;
+  min-width: 0;
+  position: relative;
+}
+.log-session-card {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  text-align: left;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1.3;
+}
+.log-session-tile:has(.session-remove) .log-session-card {
+  padding-right: 28px;
+}
+.session-remove {
+  position: absolute;
+  right: 3px;
+  top: 4px;
+  width: 23px;
+  height: 23px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 18px;
+}
+.session-remove:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--selected);
+}
+.log-session-card[aria-pressed="true"] {
+  border-color: hsl(var(--accent-hue) 60% 50%);
+  background: var(--selected);
+  box-shadow: inset 0 0 0 1px hsl(var(--accent-hue) 60% 50% / 0.3);
+}
+.log-session-card > span,
+.log-session-card strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-card-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.session-card-title > span {
+  flex-shrink: 0;
+}
+.log-session-card small {
+  color: var(--muted);
+}
+.session-running {
+  color: #39885b;
+}
+.logs-workspace.settings-open {
+  grid-template-columns: minmax(0, 1fr) 290px;
+}
+.logs-main .log-console {
+  overflow-anchor: none;
+  height: auto;
+  min-height: 0;
+  min-width: 0;
+  margin: 0;
+  border-radius: 8px;
+}
+.logs-follow-status {
+  font-size: 11px;
+  margin-bottom: 6px;
+}
+.logs-page .reload-toolbar {
+  margin: 0 0 6px;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.logs-page .reload-toolbar .button {
+  padding: 4px 10px;
+  min-height: 28px;
+  font-size: 12px;
+}
+.logs-page .reload-toolbar .muted {
+  font-size: 11px;
+}
+.log-settings {
+  min-height: 0;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--surface);
+}
+.log-channel-buttons {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.logs-heading .log-channel-buttons .button {
+  min-height: 30px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.log-settings[hidden] {
+  display: none;
+}
+.log-settings > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.log-settings > header h2 {
+  font-size: 14px;
+}
+.log-settings section {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+  margin-top: 14px;
+}
+.log-settings h3 {
+  margin-bottom: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.log-settings .toolbar,
+.log-settings-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.log-settings .toolbar > input,
+.log-settings .toolbar > .select-control,
+.log-settings .history-toolbar > .select-control {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  flex: none;
+}
+.log-settings .muted {
+  font-size: 11px;
+  line-height: 1.7;
+  margin-top: 12px;
+}
+.log-settings .button {
+  min-height: 32px;
+  padding: 6px 10px;
+}
+@media (max-width: 1050px) {
+  .logs-workspace.settings-open {
+    grid-template-columns: minmax(0, 1fr) 250px;
+  }
+  .logs-session-name {
+    display: none;
+  }
+}
