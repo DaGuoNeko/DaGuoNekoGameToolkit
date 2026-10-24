@@ -1,0 +1,63 @@
+name: Release Windows client
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to retry (for example v0.1.1)
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: DesktopUI
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          package-manager-cache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify tag and release notes
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          $manifest = Get-Content -Raw package.json | ConvertFrom-Json
+          if ($env:RELEASE_TAG -ne "v$($manifest.version)" -or $manifest.version -notmatch '^\d+\.\d+\.\d+$') { throw 'Version/tag mismatch' }
+          if (-not (Test-Path "../docs/releases/$($manifest.version).md")) { throw 'Missing release notes' }
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+      - name: Update UI acceptance
+        run: node tests/update-ui.cjs
+      - run: npm run package
+      - name: Packaged client acceptance
+        run: |
+          $env:DGN_GAME_TEST_EXE = (Resolve-Path 'release/DaGuoNeko-Game-Toolkit-win32-x64/DaGuoNeko-Game-Toolkit.exe').Path
+          node tests/distribution-ui.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged client acceptance failed' }
+      - name: Publish complete release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/publish-release.mjs

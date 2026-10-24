@@ -32,6 +32,7 @@ import { ReloadSettings } from "../features/settings/reload-settings.jsx";
 import { GameOptionsPage } from "../features/settings/game-options.jsx";
 import { UiEditorPage } from "../features/editor/ui-editor.jsx";
 import { AutomationSettings } from "../features/settings/automation-settings.jsx";
+import { UpdatePanel } from "../features/settings/update-panel.jsx";
 import { TracyPage } from "../features/performance/tracy-profiler.jsx";
 import { RoomsPage } from "../features/rooms/rooms.jsx";
 
@@ -116,6 +117,8 @@ function App() {
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
     [confirm, setConfirm] = useState(null);
+  const [updateNotice, setUpdateNotice] = useState(null);
+  const updateNoticeVersion = useRef("");
   const loadTicket = useRef(0);
   const profileDraft = useRef(null);
   profileDraft.current = { snapshot, form, raw };
@@ -164,6 +167,16 @@ function App() {
     });
     const offState = window.toolkit.onSession(receive);
     const offLog = window.toolkit.onLogs(receive);
+    const offUpdate = window.toolkit.onUpdate((value) => {
+      if (
+        value.phase === "available" &&
+        value.latestVersion &&
+        updateNoticeVersion.current !== value.latestVersion
+      ) {
+        updateNoticeVersion.current = value.latestVersion;
+        setUpdateNotice(value);
+      }
+    });
     api("bootstrap")
       .then((value) => {
         setSettings(value.settings);
@@ -174,8 +187,13 @@ function App() {
         receive(value);
         document.documentElement.dataset.theme = value.dark ? "dark" : "light";
         if (value.projects[0]) loadProject(value.projects[0].id);
+        return api("update.auth.state");
       })
+      .then(() => api("update.check", { automatic: true }))
       .catch(report);
+    const updateTimer = setInterval(() => {
+      api("update.check", { automatic: true }).catch(() => {});
+    }, 6 * 60 * 60 * 1000);
     const preventDrop = (event) => {
       if (Array.from(event.dataTransfer?.types || []).includes("Files"))
         event.preventDefault();
@@ -183,9 +201,11 @@ function App() {
     window.addEventListener("dragover", preventDrop);
     window.addEventListener("drop", preventDrop);
     return () => {
+      clearInterval(updateTimer);
       offTheme();
       offState();
       offLog();
+      offUpdate();
       window.removeEventListener("dragover", preventDrop);
       window.removeEventListener("drop", preventDrop);
       loadTicket.current++;
@@ -673,6 +693,7 @@ function App() {
                   save={saveSettings}
                   report={report}
                 />
+                <UpdatePanel version={version} report={report} />
                 <Section title="外观">
                   <Field label="界面主题">
                     <Select
@@ -829,6 +850,41 @@ function App() {
           }
         >
           <ErrorBox>{error}</ErrorBox>
+        </Modal>
+      )}
+      {updateNotice && (
+        <Modal
+          title="发现新版本"
+          description={`当前 ${version} · 最新 ${updateNotice.latestVersion}`}
+          onClose={() => setUpdateNotice(null)}
+          footer={
+            <>
+              <Button onClick={() => setUpdateNotice(null)}>稍后处理</Button>
+              <Button
+                onClick={() =>
+                  api("update.open-release").catch(report)
+                }
+              >
+                查看更新条目
+              </Button>
+              <Button
+                primary
+                onClick={() => {
+                  setUpdateNotice(null);
+                  go("settings");
+                }}
+              >
+                去设置下载
+              </Button>
+            </>
+          }
+        >
+          <p>已授权 GitHub 的成员可以在设置页下载并安装更新。</p>
+          {updateNotice.notes && (
+            <pre style={{ whiteSpace: "pre-wrap", maxHeight: 300, overflow: "auto" }}>
+              {updateNotice.notes}
+            </pre>
+          )}
         </Modal>
       )}
       {confirm && (

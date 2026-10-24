@@ -36,7 +36,17 @@ test("source layout keeps renderer, shared, and Electron domain boundaries", () 
   });
   assert.deepEqual(
     domains.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort(),
-    ["automation", "client", "editor", "game", "performance", "profiles", "reload", "worlds"],
+    [
+      "automation",
+      "client",
+      "editor",
+      "game",
+      "performance",
+      "profiles",
+      "reload",
+      "update",
+      "worlds",
+    ],
   );
   for (const domain of domains.filter((entry) => entry.isDirectory())) {
     for (const file of listFiles(path.join(appRoot, "electron", "domains", domain.name))) {

@@ -1,9 +1,10 @@
 import { build } from "esbuild";
-import { mkdir, copyFile, readFile } from "node:fs/promises";
+import { mkdir, copyFile, readFile, writeFile } from "node:fs/promises";
 import { stripWasmDebug } from "./wasm-release.mjs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import path from "node:path";
+import updateConfig from "../electron/domains/update/update-config.cjs";
 if (process.platform === "win32") {
   await promisify(execFile)(
     path.join(
@@ -73,10 +74,19 @@ await build({
 });
 await copyFile("assets/icon.ico", "dist/icon.ico");
 await mkdir("runtime/automation", { recursive: true });
+await writeFile(
+  "runtime/update-config.json",
+  JSON.stringify(updateConfig, null, 2) + "\n",
+  "utf8",
+);
 await copyFile("electron/ore-window.ps1", "runtime/automation/ore-window.ps1");
 await copyFile(
   "electron/content-log-owner.ps1",
   "runtime/automation/content-log-owner.ps1",
+);
+await copyFile(
+  "electron/update-helper.ps1",
+  "runtime/automation/update-helper.ps1",
 );
 await build({
   entryPoints: ["electron/domains/automation/automation-stdio.cjs"],

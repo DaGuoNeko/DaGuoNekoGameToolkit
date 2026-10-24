@@ -50,6 +50,8 @@ const occupied = processes.some(
 const outputRoot = occupied ? path.join(root, "build-" + Date.now()) : root;
 if (occupied) console.log("现有程序正在运行，新包输出到：" + outputRoot);
 const manifest = JSON.parse(await readFile("package.json", "utf8"));
+const sourceCommit = (await exec("git", ["rev-parse", "HEAD"])).stdout.trim();
+const sourceDirty = !!(await exec("git", ["status", "--porcelain"])).stdout.trim();
 const applicationFiles = new Set([
   "/package.json",
   "/dist",
@@ -66,8 +68,10 @@ const applicationFiles = new Set([
 const runtimeFiles = new Set([
   "mcdk.exe",
   "README.md",
+  "update-config.json",
   "automation/ore-window.ps1",
   "automation/content-log-owner.ps1",
+  "automation/update-helper.ps1",
   "native/koffi.node",
   "native/mcdev-tracy-bridge.dll",
   "native/menu-name-helper.exe",
@@ -193,6 +197,8 @@ for (const directory of outputs) {
       {
         product: manifest.productName,
         version: manifest.version,
+        sourceCommit,
+        sourceDirty,
         platform: "win32",
         arch: "x64",
         packagedAt: new Date().toISOString(),

@@ -20,6 +20,7 @@ DesktopUI/native/*/build/
 /DesktopUI/runtime/network/manifest.json
 /DesktopUI/native/network-helper/RuntimeHashes.cs
 /DesktopUI/runtime/automation/
+/DesktopUI/runtime/update-config.json
 
 # Local IDE / tooling data
 .vs/

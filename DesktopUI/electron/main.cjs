@@ -43,7 +43,9 @@ let clientJoiner;
 const { Rooms } = require("./network/rooms.cjs");
 let rooms;
 const { TracyProfiler, assertPortFree } = require("./domains/performance/tracy-profiler.cjs");
+const { UpdateService } = require("./domains/update/update-service.cjs");
 let tracyProfiler;
+let updateService;
 const execFile = require("node:util").promisify(
   require("node:child_process").execFile,
 );
@@ -440,6 +442,31 @@ async function dispatch(method, args, source = win) {
         await automation.setEnabled(result.settings.AutomationEnabled);
       settingsChanged();
       return result.settings;
+    }
+    case "update.state":
+      return updateService.snapshot();
+    case "update.auth.state":
+      return updateService.authState();
+    case "update.auth.begin": {
+      const state = await updateService.authorize();
+      if (state.verificationUri) await shell.openExternal(state.verificationUri);
+      return state;
+    }
+    case "update.auth.logout":
+      await updateService.clearAuth();
+      return updateService.snapshot();
+    case "update.check":
+      return updateService.check({ automatic: args.automatic === true });
+    case "update.history":
+      return updateService.loadMoreHistory();
+    case "update.download":
+      return updateService.download();
+    case "update.install":
+      return updateService.install();
+    case "update.open-release": {
+      const url = updateService.releaseUrl(args.tag);
+      await shell.openExternal(url);
+      return true;
     }
     case "automation.status":
       return automation.status();
@@ -1030,6 +1057,37 @@ else {
         if (name === "debug-state" && child && !child.isDestroyed())
           child.webContents.send(name, data);
       };
+      let updateConfig;
+      try {
+        updateConfig = JSON.parse(
+          await fs.readFile(path.join(runtimeRoot, "update-config.json"), "utf8"),
+        );
+      } catch (error) {
+        if (error.code !== "ENOENT") throw error;
+      }
+      updateService = new UpdateService({
+        currentVersion: app.getVersion(),
+        dataRoot,
+        runtimeRoot,
+        appDirectory: path.dirname(process.execPath),
+        executablePath: process.execPath,
+        isPackaged: app.isPackaged,
+        protection: safeStorage,
+        config: updateConfig,
+        // 使用 Electron 网络栈，沿用系统代理，避免浏览器能访问而更新请求直连失败。
+        fetchImpl: (url, options) => net.fetch(url, options),
+        canInstall: async () => {
+          if (launcher?.hasRunning || launcher?.starting || launcher?.stopping)
+            return { ok: false, reason: "请先停止运行中的游戏会话" };
+          if (rooms?.room) return { ok: false, reason: "请先关闭联机房间" };
+          if (dirty || inspectorWindow?.dirty)
+            return { ok: false, reason: "请先保存或关闭未保存的修改" };
+          if (closing) return { ok: false, reason: "工具箱正在退出" };
+          return { ok: true };
+        },
+        requestQuit: () => app.quit(),
+      });
+      updateService.on("state", (value) => send("update-state", value));
       debuggerService.on("state", (value) => {
         for (const game of value.sessions) launcher.recordExit(game);
         send("debug-state", value);

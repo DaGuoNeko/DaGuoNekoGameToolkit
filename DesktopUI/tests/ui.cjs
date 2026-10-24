@@ -1,5 +1,6 @@
 const { spawnSync } = require("node:child_process");
 for (const file of [
+  "tests/update-ui.cjs",
   "tests/tracy-ui.cjs",
   "tests/automation-ui.cjs",
   "tests/ui-editor-ui.cjs",
