@@ -39,7 +39,9 @@ export function UpdatePanel({ version, report }) {
     }
   };
   const phase = state?.phase || "idle";
-  const busy = ["checking", "downloading", "installing"].includes(phase);
+  const busy = ["checking", "downloading", "preparing", "installing"].includes(
+    phase,
+  );
   return (
     <Section
       title="工具箱更新"
@@ -135,6 +137,9 @@ export function UpdatePanel({ version, report }) {
       )}
       {phase === "installing" && (
         <p role="status">正在退出并安装更新，请稍候…</p>
+      )}
+      {phase === "preparing" && (
+        <p role="status">正在校验并准备安装，准备就绪后才会退出当前程序…</p>
       )}
       {state?.error && (
         <p role="alert" className="error-text">

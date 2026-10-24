@@ -21,6 +21,7 @@ DesktopUI/native/*/build/
 /DesktopUI/native/network-helper/RuntimeHashes.cs
 /DesktopUI/runtime/automation/
 /DesktopUI/runtime/update-config.json
+/DesktopUI/runtime/native/update-launcher.exe
 
 # Local IDE / tooling data
 .vs/

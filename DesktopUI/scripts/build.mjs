@@ -7,6 +7,11 @@ import path from "node:path";
 import updateConfig from "../electron/domains/update/update-config.cjs";
 if (process.platform === "win32") {
   await promisify(execFile)(
+    path.join(process.env.SystemRoot, "System32/WindowsPowerShell/v1.0/powershell.exe"),
+    ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", path.resolve("scripts/build-update.ps1")],
+    { windowsHide: true },
+  );
+  await promisify(execFile)(
     path.join(
       process.env.SystemRoot,
       "System32/WindowsPowerShell/v1.0/powershell.exe",

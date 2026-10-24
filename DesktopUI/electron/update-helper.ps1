@@ -1,11 +1,15 @@
 param(
   [Parameter(Mandatory = $true)]
-  [string]$Plan
+  [string]$Plan,
+  [int]$LauncherPid = 0
 )
 
 $ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 $planPath = [IO.Path]::GetFullPath($Plan)
 $resultPath = Join-Path ([IO.Path]::GetDirectoryName($planPath)) 'update-result.json'
+$readyPath = $planPath + '.ready'
+$cancelledPath = $planPath + '.cancelled'
 $stage = $null
 $backup = $null
 $oldMoved = $false
@@ -70,8 +74,13 @@ try {
       -not (Test-Path -LiteralPath (Join-Path $source 'DaGuoNeko-Game-Toolkit.exe') -PathType Leaf) -or
       -not (Test-Path -LiteralPath (Join-Path $source 'resources/app.asar') -PathType Leaf)) { throw 'Update package version or layout is invalid' }
 
+  if (Test-Path -LiteralPath $cancelledPath) { throw 'Update cancelled before replacing the application' }
+  $receiptPid = if ($LauncherPid -gt 0) { $LauncherPid } else { $PID }
+  [IO.File]::WriteAllText($readyPath + '.tmp', (@{pid=$receiptPid;version=$job.version} | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
+  Move-Item -LiteralPath ($readyPath + '.tmp') -Destination $readyPath -Force
   $deadline = (Get-Date).AddSeconds(120)
   while ($true) {
+    if (Test-Path -LiteralPath $cancelledPath) { throw 'Update cancelled before replacing the application' }
     $running = Get-Process -Id ([int]$job.pid) -ErrorAction SilentlyContinue
     if (-not $running) { break }
     if ($running.Path -ne $executable) { throw 'Application process identity changed' }
@@ -81,6 +90,7 @@ try {
   foreach ($running in @(Get-Process -Name 'DaGuoNeko-Game-Toolkit' -ErrorAction SilentlyContinue)) {
     if (-not $running.Path -or $running.Path -eq $executable) { throw 'Another application instance is still running' }
   }
+  if (Test-Path -LiteralPath $cancelledPath) { throw 'Update cancelled before replacing the application' }
   Assert-NoLink $target
   Assert-NoLink $source
   Move-Item -LiteralPath $target -Destination $backup
@@ -109,6 +119,8 @@ try {
   [IO.File]::WriteAllText($resultPath, ($outcome | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
   Write-Error $failure
 } finally {
+  [IO.File]::Delete($readyPath)
+  [IO.File]::Delete($readyPath + '.tmp')
   if ($stage -and (Test-Path -LiteralPath $stage)) {
     if ([IO.Path]::GetDirectoryName($stage) -ne $parent -or -not [IO.Path]::GetFileName($stage).StartsWith('.dgn-update-')) { throw 'Invalid staging directory' }
     Assert-NoLink $stage

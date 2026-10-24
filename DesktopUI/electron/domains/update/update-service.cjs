@@ -76,13 +76,6 @@ class UpdateService extends EventEmitter {
     protection,
     config = defaultConfig,
     fetchImpl = globalThis.fetch,
-    powershellPath = path.join(
-      process.env.SystemRoot || "C:\\Windows",
-      "System32",
-      "WindowsPowerShell",
-      "v1.0",
-      "powershell.exe",
-    ),
     canInstall = async () => ({ ok: true }),
     requestQuit = () => {},
   }) {
@@ -98,7 +91,6 @@ class UpdateService extends EventEmitter {
     this.protection = protection;
     this.config = config;
     this.fetchImpl = fetchImpl;
-    this.powershellPath = powershellPath;
     this.canInstall = canInstall;
     this.requestQuit = requestQuit;
     this.state = defaultState(currentVersion);
@@ -154,7 +146,7 @@ class UpdateService extends EventEmitter {
   }
 
   async clearAuth() {
-    if (["downloading", "installing"].includes(this.state.phase))
+    if (["downloading", "preparing", "installing"].includes(this.state.phase))
       throw Error("请等待当前更新操作完成后退出授权");
     this.authEpoch++;
     this.authController?.abort();
@@ -449,11 +441,17 @@ class UpdateService extends EventEmitter {
   async check({ automatic = false } = {}) {
     if (this.checkPromise) return this.checkPromise;
     // 下载完成后保留安装计划，后台检查不能覆盖正在进行的更新。
-    if (["downloading", "downloaded", "installing"].includes(this.state.phase))
+    if (
+      ["downloading", "downloaded", "preparing", "installing"].includes(
+        this.state.phase,
+      )
+    )
       return this.snapshot();
     this.checkPromise = this.enqueue(async () => {
       if (
-        ["downloading", "downloaded", "installing"].includes(this.state.phase)
+        ["downloading", "downloaded", "preparing", "installing"].includes(
+          this.state.phase,
+        )
       )
         return this.snapshot();
       const epoch = this.authEpoch;
@@ -492,7 +490,12 @@ class UpdateService extends EventEmitter {
         }
         if (epoch !== this.authEpoch) return this.snapshot();
         const version = parseVersion(release.tag_name);
-        if (!version || version.prerelease || release.draft || release.prerelease)
+        if (
+          !version ||
+          version.prerelease ||
+          release.draft ||
+          release.prerelease
+        )
           throw Error("GitHub Release 版本无效");
         const assetName = `DaGuoNeko-Game-Toolkit-${version.text}-win-x64.zip`;
         const asset = (release.assets || []).find(
@@ -674,24 +677,70 @@ class UpdateService extends EventEmitter {
         path.join(this.runtimeRoot, "automation", "update-helper.ps1"),
         helper,
       );
-      const child = spawn(
-        this.powershellPath,
-        [
-          "-NoProfile",
-          "-NonInteractive",
-          "-ExecutionPolicy",
-          "Bypass",
-          "-File",
-          helper,
-          "-Plan",
-          this.plan,
-        ],
-        { detached: true, stdio: "ignore", windowsHide: true },
+      const launcher = helper.replace(/\.ps1$/, ".exe");
+      await fs.copyFile(
+        path.join(this.runtimeRoot, "native", "update-launcher.exe"),
+        launcher,
       );
-      await once(child, "spawn");
-      child.unref();
-      this.setState({ phase: "installing", error: "" });
-      this.requestQuit();
+      const readyFile = this.plan + ".ready";
+      const cancelledFile = this.plan + ".cancelled";
+      await fs.rm(readyFile, { force: true });
+      await fs.rm(cancelledFile, { force: true });
+      const logFile = helper + ".log";
+      await fs.writeFile(logFile, "", "utf8");
+      this.setState({ phase: "preparing", error: "" });
+      let child;
+      try {
+        child = spawn(
+          launcher,
+          [helper, this.plan, logFile],
+          // 由无控制台的独立启动器托管 PowerShell，避免随主程序退出或空启动。
+          { detached: true, stdio: "ignore", windowsHide: true },
+        );
+        await once(child, "spawn");
+        let launchError;
+        child.on("error", (error) => {
+          launchError = error;
+        });
+        const deadline = Date.now() + 60000;
+        let ready = false;
+        while (Date.now() < deadline) {
+          if (launchError) throw launchError;
+          try {
+            const receipt = JSON.parse(await fs.readFile(readyFile, "utf8"));
+            ready =
+              receipt.pid === child.pid &&
+              receipt.version === this.state.latestVersion;
+          } catch (error) {
+            if (error.code !== "ENOENT") throw error;
+          }
+          if (ready) break;
+          if (child.exitCode !== null) {
+            const detail = (await fs.readFile(logFile, "utf8"))
+              .trim()
+              .slice(0, 2000);
+            throw Error(
+              "更新脚本未能启动，当前程序已保留。" +
+                (detail || `退出码 ${child.exitCode}`),
+            );
+          }
+          await delay(100);
+        }
+        if (!ready)
+          throw Error("准备更新超时，当前程序已保留，请重试或查看更新缓存日志");
+        const stillAllowed = await this.canInstall();
+        if (!stillAllowed?.ok)
+          throw Error(stillAllowed?.reason || "请先停止游戏并保存修改");
+        child.unref();
+        this.setState({ phase: "installing", error: "" });
+        this.requestQuit();
+      } catch (error) {
+        await fs.writeFile(cancelledFile, "cancelled", "utf8");
+        this.setState({
+          phase: "downloaded",
+          error: error.message || String(error),
+        });
+      }
       return this.snapshot();
     });
   }

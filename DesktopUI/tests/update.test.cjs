@@ -294,7 +294,9 @@ test("a fresh checkout has a shared public application identifier without local 
 
 test("a prerelease tag cannot become an install target even when GitHub marks it stable", async (t) => {
   const value = release("v0.2.0-beta.1");
-  const service = await fixture(t, async (url) => Response.json(url.endsWith("/latest") ? value : [value]));
+  const service = await fixture(t, async (url) =>
+    Response.json(url.endsWith("/latest") ? value : [value]),
+  );
   const state = await service.check();
   assert.equal(state.phase, "error");
   assert.equal(state.canDownload, false);
@@ -341,3 +343,80 @@ test("device flow rejects substituted authorization URLs before opening a browse
   await assert.rejects(service.authorize(), /授权页面地址无效/);
   assert.equal(service.snapshot().verificationUri, "");
 });
+
+test(
+  "installer startup without a ready receipt keeps the client open",
+  { skip: process.platform !== "win32" },
+  async (t) => {
+    const service = await fixture(t, async () => {
+      throw Error("Unexpected network call");
+    });
+    await fs.mkdir(path.join(service.runtimeRoot, "native"), {
+      recursive: true,
+    });
+    await fs.copyFile(
+      path.resolve("runtime/native/update-launcher.exe"),
+      path.join(service.runtimeRoot, "native/update-launcher.exe"),
+    );
+    await fs.mkdir(path.join(service.runtimeRoot, "automation"), {
+      recursive: true,
+    });
+    await fs.writeFile(
+      path.join(service.runtimeRoot, "automation/update-helper.ps1"),
+      "exit 0\n",
+      "utf8",
+    );
+    service.plan = path.join(service.cacheDirectory(), "install.json");
+    await fs.writeFile(service.plan, "{}", "utf8");
+    service.setState({ phase: "downloaded", latestVersion: "0.1.1" });
+    let quit = false;
+    service.requestQuit = () => {
+      quit = true;
+    };
+    const state = await service.install();
+    assert.equal(quit, false);
+    assert.equal(state.phase, "downloaded");
+    assert.match(state.error, /更新脚本未能启动/);
+  },
+);
+
+test(
+  "installer rechecks active work after preparing and cancels without quitting",
+  { skip: process.platform !== "win32" },
+  async (t) => {
+    const service = await fixture(t, async () => {
+      throw Error("Unexpected network call");
+    });
+    await fs.mkdir(path.join(service.runtimeRoot, "native"), {
+      recursive: true,
+    });
+    await fs.copyFile(
+      path.resolve("runtime/native/update-launcher.exe"),
+      path.join(service.runtimeRoot, "native/update-launcher.exe"),
+    );
+    await fs.mkdir(path.join(service.runtimeRoot, "automation"), {
+      recursive: true,
+    });
+    await fs.writeFile(
+      path.join(service.runtimeRoot, "automation/update-helper.ps1"),
+      `param([string]$Plan,[int]$LauncherPid)\n[IO.File]::WriteAllText($Plan+'.ready', ('{"pid":'+$LauncherPid+',"version":"0.1.1"}'))\nStart-Sleep -Milliseconds 600\n`,
+      "utf8",
+    );
+    service.plan = path.join(service.cacheDirectory(), "install.json");
+    await fs.writeFile(service.plan, "{}", "utf8");
+    service.setState({ phase: "downloaded", latestVersion: "0.1.1" });
+    let checks = 0,
+      quit = false;
+    service.canInstall = async () =>
+      ++checks === 1 ? { ok: true } : { ok: false, reason: "游戏刚刚启动" };
+    service.requestQuit = () => {
+      quit = true;
+    };
+    const state = await service.install();
+    assert.equal(quit, false);
+    assert.equal(state.phase, "downloaded");
+    assert.match(state.error, /游戏刚刚启动/);
+    await fs.access(service.plan + ".cancelled");
+    await new Promise((resolve) => setTimeout(resolve, 700));
+  },
+);

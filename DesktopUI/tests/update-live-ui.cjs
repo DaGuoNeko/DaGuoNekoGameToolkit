@@ -46,6 +46,12 @@ const assert = require("node:assert/strict");
       ),
     );
     const capture = async (file) => {
+      await page.evaluate(
+        () =>
+          new Promise((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(resolve)),
+          ),
+      );
       const bytes = await app.evaluate(async ({ BrowserWindow }) =>
         (
           await BrowserWindow.getAllWindows()[0].webContents.capturePage(
@@ -102,9 +108,16 @@ const assert = require("node:assert/strict");
         .getByRole("button", { name: "设置", exact: true })
         .click();
     }
+    await page.waitForFunction(
+      () => !document.documentElement.dataset.pageAnimating,
+    );
     await page
       .getByRole("heading", { name: "工具箱更新", exact: true })
-      .scrollIntoViewIfNeeded();
+      .evaluate((element) =>
+        element
+          .closest("section")
+          .scrollIntoView({ block: "start", behavior: "instant" }),
+      );
     await capture("test-results/update-live-history.png");
     assert(
       ["available", "up-to-date"].includes(state.phase),

@@ -75,6 +75,7 @@ const runtimeFiles = new Set([
   "native/koffi.node",
   "native/mcdev-tracy-bridge.dll",
   "native/menu-name-helper.exe",
+  "native/update-launcher.exe",
   "native/menu-name.dll",
   "native/ore-join.dll",
   "native/dgn-host-isolation.dll",

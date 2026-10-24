@@ -1,6 +1,6 @@
 # 大果喵游戏工具箱
 
-**DaGuoNeko Game Toolkit · 0.1.2**
+**DaGuoNeko Game Toolkit · 0.1.3**
 
 面向网易《我的世界》模组开发的 Windows x64 桌面工具。提供存档与启动配置管理、多客户端测试、运行日志、脚本热更新、UI 调试、性能分析、AI 多会话控制和授权成员版本更新，无需打开 VS Code。
 
