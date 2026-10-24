@@ -97,7 +97,7 @@ try {
   $oldMoved = $true
   Move-Item -LiteralPath $source -Destination $target
   $newMoved = $true
-  Start-Process -FilePath $executable -WorkingDirectory $target -WindowStyle Hidden -ErrorAction Stop | Out-Null
+  Start-Process -FilePath $executable -WorkingDirectory $target -WindowStyle Normal -ErrorAction Stop | Out-Null
   $outcome = @{ ok = $true; version = $job.version; backup = $backup }
   [IO.File]::WriteAllText($resultPath, ($outcome | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
   [IO.File]::Delete($archive)
@@ -112,7 +112,7 @@ try {
       }
       Assert-NoLink $backup
       Move-Item -LiteralPath $backup -Destination $target
-      Start-Process -FilePath $executable -WorkingDirectory $target -WindowStyle Hidden -ErrorAction Stop | Out-Null
+      Start-Process -FilePath $executable -WorkingDirectory $target -WindowStyle Normal -ErrorAction Stop | Out-Null
     } catch { $failure += '; rollback requires manual recovery: ' + $_.Exception.Message }
   }
   $outcome = @{ ok = $false; error = $failure; backup = $backup }
