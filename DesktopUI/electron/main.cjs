@@ -44,6 +44,7 @@ const { Rooms } = require("./network/rooms.cjs");
 let rooms;
 const { TracyProfiler, assertPortFree } = require("./domains/performance/tracy-profiler.cjs");
 const { UpdateService } = require("./domains/update/update-service.cjs");
+const { createUpdateFetch } = require("./domains/update/update-fetch.cjs");
 let tracyProfiler;
 let updateService;
 const execFile = require("node:util").promisify(
@@ -1075,7 +1076,7 @@ else {
         protection: safeStorage,
         config: updateConfig,
         // 使用 Electron 网络栈，沿用系统代理，避免浏览器能访问而更新请求直连失败。
-        fetchImpl: (url, options) => net.fetch(url, options),
+        fetchImpl: createUpdateFetch(net),
         canInstall: async () => {
           if (launcher?.hasRunning || launcher?.starting || launcher?.stopping)
             return { ok: false, reason: "请先停止运行中的游戏会话" };

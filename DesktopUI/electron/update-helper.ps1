@@ -23,6 +23,13 @@ function Assert-NoLink([string]$Location) {
   }
 }
 
+function Get-ArchiveHash([string]$Location) {
+  $stream = [IO.File]::OpenRead($Location)
+  $sha = [Security.Cryptography.SHA256]::Create()
+  try { return ([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-', '').ToLowerInvariant() }
+  finally { $stream.Dispose(); $sha.Dispose() }
+}
+
 try {
   $job = Get-Content -LiteralPath $planPath -Raw -Encoding UTF8 | ConvertFrom-Json
   $archive = [IO.Path]::GetFullPath([string]$job.archive)
@@ -38,7 +45,7 @@ try {
   if ($archive.StartsWith($target + '\', [StringComparison]::OrdinalIgnoreCase) -or
       $planPath.StartsWith($target + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Update cache must be outside the application directory' }
   if ([string]$job.sha256 -notmatch '^[a-fA-F0-9]{64}$' -or
-      (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ne $job.sha256) { throw 'Update archive SHA-256 mismatch' }
+      (Get-ArchiveHash $archive) -ne $job.sha256) { throw 'Update archive SHA-256 mismatch' }
 
   # Stage beside the application so both directory moves remain on the same volume.
   $stage = Join-Path $parent ('.dgn-update-' + [guid]::NewGuid().ToString('N'))

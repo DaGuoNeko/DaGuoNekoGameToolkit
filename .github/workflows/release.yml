@@ -39,6 +39,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Use canonical temporary paths
+        run: |
+          $testTemp = node -p "require('node:fs').realpathSync(process.env.RUNNER_TEMP)"
+          [IO.File]::AppendAllText($env:GITHUB_ENV, "TEMP=$testTemp`nTMP=$testTemp`n", [Text.UTF8Encoding]::new($false))
       - name: Verify tag and release notes
         env:
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
@@ -50,7 +54,11 @@ jobs:
       - run: npm run build
       - run: npm test
       - name: Update UI acceptance
-        run: node tests/update-ui.cjs
+        run: |
+          node tests/update-network.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Updater transport acceptance failed' }
+          node tests/update-ui.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Updater UI acceptance failed' }
       - run: npm run package
       - name: Packaged client acceptance
         run: |
