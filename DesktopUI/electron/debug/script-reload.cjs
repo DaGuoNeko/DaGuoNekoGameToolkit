@@ -15,8 +15,15 @@ const ignored = new Set([
 const stamp = (s) => `${s.mtimeMs}:${s.ctimeMs}:${s.size}`;
 async function packType(dir) {
   try {
-    const file = path.join(dir, "manifest.json"),
+    let file = path.join(dir, "manifest.json"),
+      stat;
+    try {
       stat = await fs.lstat(file);
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+      file = path.join(dir, "pack_manifest.json");
+      stat = await fs.lstat(file);
+    }
     if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 2 * 1024 * 1024)
       return null;
     const errors = [],
@@ -67,7 +74,12 @@ async function collectScripts(config, base) {
         (x.enabled !== false &&
           (x.hot_reload !== false || x.toolbox_hot_reload === true)),
     )
-    .map((x) => path.resolve(base, typeof x === "string" ? x : x.path));
+    .map((x) =>
+      path.resolve(
+        base,
+        typeof x === "string" ? x : x.toolbox_source_path || x.path,
+      ),
+    );
   if (config.world_source_path && config.world_source_path !== "auto")
     roots.push(path.resolve(base, config.world_source_path));
   if (config.world_source_path && config.world_source_path !== "auto") {
@@ -139,6 +151,24 @@ async function collectScripts(config, base) {
       file,
       stamp: stamp(s),
       modified: s.mtimeMs / 1000,
+      runtimeFile: (() => {
+        const entry = entries.find(
+          (item) =>
+            item.toolbox_source_path &&
+            file
+              .toLowerCase()
+              .startsWith(
+                path.resolve(item.toolbox_source_path).toLowerCase() +
+                  path.sep,
+              ),
+        );
+        return entry
+          ? path.join(
+              entry.path,
+              path.relative(entry.toolbox_source_path, file),
+            )
+          : file;
+      })(),
     });
   }
   return modules;
@@ -210,8 +240,8 @@ class ScriptReloader {
       this.applied.set(session.registrationId, state);
     }
     const seen = new Set();
-    const changed = index.loaded
-      .map((loaded) => {
+    const changed = (await Promise.all(index.loaded
+      .map(async (loaded) => {
         if (
           !loaded ||
           !modules.has(loaded.name) ||
@@ -222,12 +252,19 @@ class ScriptReloader {
         const name = loaded.name,
           item = modules.get(name);
         seen.add(name);
-        const physical =
-          path.isAbsolute(loaded.file) &&
-          path
-            .resolve(loaded.file)
-            .replace(/\.py[co]$/, ".py")
-            .toLowerCase() === item.file.toLowerCase();
+        let physical = false;
+        if (path.isAbsolute(loaded.file)) {
+          const file = path.resolve(loaded.file).replace(/\.py[co]$/, ".py");
+          physical = file.toLowerCase() === item.file.toLowerCase() ||
+            file.toLowerCase() === item.runtimeFile.toLowerCase();
+          if (!physical) {
+            try {
+              physical = (await fs.realpath(file)).toLowerCase() === item.file.toLowerCase();
+            } catch (error) {
+              if (error.code !== "ENOENT") throw error;
+            }
+          }
+        }
         if (
           !physical &&
           loaded.file !== name &&
@@ -235,7 +272,7 @@ class ScriptReloader {
         )
           throw Error("游戏模块来源与配置目录不一致，已停止热更新：" + name);
         return item;
-      })
+      })))
       .filter(
         (item) =>
           item.modified > index.loadedAt &&

@@ -70,10 +70,17 @@ async function ordinary(root, file) {
     throw Error("脚本或目录被链接重定向");
   return s;
 }
-async function manifest(dir) {
-  const file = path.join(dir, "manifest.json");
+async function manifest(dir, allowLegacy = false) {
+  let file = path.join(dir, "manifest.json");
   try {
-    const s = await ordinary(dir, file);
+    let s;
+    try {
+      s = await ordinary(dir, file);
+    } catch (error) {
+      if (!allowLegacy || error.code !== "ENOENT") throw error;
+      file = path.join(dir, "pack_manifest.json");
+      s = await ordinary(dir, file);
+    }
     if (!s.isFile() || s.size > 2 * 1024 * 1024)
       throw Error("模组描述文件无效");
     const errors = [],
@@ -113,7 +120,7 @@ class ScriptSyncHost {
       let dir = path.dirname(mod.file),
         m;
       while (path.dirname(dir) !== dir) {
-        m = await manifest(dir);
+        m = await manifest(dir, true);
         if (m) break;
         dir = path.dirname(dir);
       }

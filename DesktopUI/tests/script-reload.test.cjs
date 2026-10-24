@@ -57,6 +57,24 @@ function names(code) {
   );
 }
 
+test("runtime aliases reload original legacy source while rejecting foreign module files", async (t) => {
+  const {root,mod,pkg,session,reloader} = await setup(t);
+  const source = path.join(mod,"behavior"), runtime = path.join(root,"runtime"), engine = path.join(root,"engine");
+  await fs.rename(path.join(source,"manifest.json"),path.join(source,"pack_manifest.json"));
+  for (const dir of [runtime,engine]) await fs.symlink(source,dir,process.platform === "win32" ? "junction" : "dir");
+  const config = {included_mod_dirs:[{path:runtime,toolbox_source_path:source,hot_reload:false,toolbox_hot_reload:true}]};
+  await fs.writeFile(path.join(root,".mcdev.json"),JSON.stringify(config));
+  const modules = await collectScripts(config,root);
+  assert.equal(modules.get("demoScripts.changed").file,path.join(pkg,"changed.py"));
+  let applied = false;
+  await reloader.reload(session,root,async code=>{
+    if(code.includes("DGN_RELOAD_INDEX"))return {loadedAt:2,loaded:[{name:"demoScripts.changed",file:path.join(engine,"demoScripts/changed.py")}]};
+    applied=true;return [{name:"demoScripts.changed",ok:true}];
+  });
+  assert(applied);
+  await assert.rejects(reloader.reload(session,root,async()=>({loadedAt:2,loaded:[{name:"demoScripts.changed",file:path.join(root,"foreign.py")}]})),/来源与配置目录不一致/);
+});
+
 test("embedded-only automatic scans do not update external packs; manual scans still include both", async (t) => {
   const { root, mod, session, reloader } = await setup(t);
   const other = path.join(root, "external");

@@ -668,7 +668,7 @@ class WorldLibrary {
       return { ...w, options: this.options(w) };
     });
   }
-  prepareWorldPacks(id, plan, external, exclusiveHost = false) {
+  prepareWorldPacks(id, plan, external, exclusiveHost = false, runDirectory) {
     return this.run(async () => {
       const w = this.find(await this.read(), null, id),
         info = await this.inspect(w);
@@ -682,6 +682,7 @@ class WorldLibrary {
         plan,
         external,
         async () => exclusiveHost || !(await this.gameRunning()),
+        runDirectory,
       );
     });
   }

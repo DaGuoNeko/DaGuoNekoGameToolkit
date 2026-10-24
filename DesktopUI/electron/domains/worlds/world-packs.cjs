@@ -198,6 +198,7 @@ async function prepareWorldPacks(
   plan,
   external,
   canMutate = async () => true,
+  runDirectory,
 ) {
   const current = await layout(root);
   if (
@@ -206,27 +207,24 @@ async function prepareWorldPacks(
       JSON.stringify(validatePlan(plan))
   )
     throw Error("存档内置模组登记与副本不一致，请重新导入正确副本");
-  const rebase = (file, moved = false) => {
+  const rebase = (file) => {
     for (const kind of kinds) {
-      const c = current.containers[kind],
-        relative = path.relative(c.original, path.resolve(file));
-      if (
-        (c.to || (moved && c.from)) &&
-        !path.isAbsolute(relative) &&
-        relative !== ".." &&
-        !relative.startsWith(".." + path.sep)
-      )
-        return path.join(c.target, relative);
+      const c = current.containers[kind];
+      for (const base of [c.original, c.target]) {
+        const relative = path.relative(base, path.resolve(file));
+        if (!path.isAbsolute(relative) && relative !== ".." && !relative.startsWith(".." + path.sep))
+          return path.join(c.active, relative);
+      }
     }
     return file;
   };
-  const remap = (entries, moved) =>
+  const remap = (entries) =>
     entries.map((entry) =>
       typeof entry === "string"
-        ? rebase(entry, moved)
-        : { ...entry, path: rebase(entry.path, moved) },
+        ? rebase(entry)
+        : { ...entry, path: rebase(entry.path) },
     );
-  external = remap(external, false);
+  external = remap(external);
   const refs = validatePlan(plan),
     available = await scan(root),
     outside = await externalPacks(external, root),
@@ -266,69 +264,229 @@ async function prepareWorldPacks(
             ref.pack_id +
             "；请停用外部副本后重试",
         );
-      owned.push(own);
       if (!other.length) selected.push(own);
+      owned.push(own);
     }
   if (selected.length + external.length > 200)
     throw Error("内置模组与启动配置合计超过 200 个模组目录");
-  if (
-    (!current.plan ||
-      kinds.some((k) => current.containers[k].from) ||
-      owned.some((p) => p.filename === "pack_manifest.json")) &&
-    !(await canMutate())
-  )
-    throw Error("首次准备或更新内置模组前，请先保存并退出其他游戏");
-  // All selection/conflict checks finish before changing any copied manifest.
-  for (const p of owned)
-    if (p.filename === "pack_manifest.json") {
+  if (!runDirectory) {
+    if (
+      (!current.plan ||
+        kinds.some((k) => current.containers[k].from) ||
+        owned.some((p) => p.filename === "pack_manifest.json")) &&
+      !(await canMutate())
+    )
+      throw Error("首次准备或更新内置模组前，请先保存并退出其他游戏");
+    for (const p of owned)
+      if (p.filename === "pack_manifest.json")
+        await fs.writeFile(
+          path.join(p.dir, "manifest.json"),
+          JSON.stringify(p.manifest, null, 2) + "\n",
+          { encoding: "utf8", flag: "wx" },
+        );
+    if (!current.plan) {
+      if (!current.exists) await fs.mkdir(current.managed);
       await fs.writeFile(
-        path.join(p.dir, "manifest.json"),
-        JSON.stringify(p.manifest, null, 2) + "\n",
+        path.join(current.managed, "pack-plan.json"),
+        JSON.stringify(plan, null, 2) + "\n",
         { encoding: "utf8", flag: "wx" },
       );
     }
-  // The Windows client prefixes imports for world-local behavior_packs but only
-  // adds the pack itself to sys.path. MCDK's global registration avoids that
-  // mismatch. Keep all packs within this world for copy/recycle/restore, with a
-  // durable original list that also survives re-import of a managed world.
-  if (!current.plan) {
-    if (!current.exists) await fs.mkdir(current.managed);
+    for (const kind of kinds) {
+      const c = current.containers[kind];
+      if (c.from) await fs.rename(c.original, c.target);
+    }
+    const legacyPath = (file) => {
+      for (const kind of kinds) {
+        const c = current.containers[kind],
+          child = path.relative(c.original, path.resolve(file));
+        if (!path.isAbsolute(child) && child !== ".." && !child.startsWith(".." + path.sep))
+          return path.join(c.target, child);
+      }
+      return file;
+    };
+    return [
+      ...selected.map((p) => ({
+        path: path.join(current.containers[p.kind].target, path.basename(p.dir)),
+        enabled: true,
+        hot_reload: p.kind !== "behavior",
+        ...(p.kind === "behavior" ? { toolbox_hot_reload: true } : {}),
+      })),
+      ...external.map((entry) =>
+        {
+          const file = legacyPath(typeof entry === "string" ? entry : entry.path);
+          const own = owned.find((p) => p.kind === "behavior" &&
+            samePath(legacyPath(p.dir), file));
+          const enabled = typeof entry === "string" ||
+            (entry.enabled !== false && entry.hot_reload !== false);
+          if (own && enabled)
+            return { ...(typeof entry === "string" ? {} : entry), path: file,
+              hot_reload: false, toolbox_hot_reload: true };
+          return typeof entry === "string" ? file : { ...entry, path: file };
+        },
+      ),
+    ];
+  }
+  return prepareWorldPacksInRunDirectory(
+      root,
+      current,
+      plan,
+      external,
+      selected,
+      [...available.values()],
+      canMutate,
+      runDirectory,
+    );
+}
+
+async function prepareWorldPacksInRunDirectory(
+  root,
+  current,
+  plan,
+  external,
+  selected,
+  owned,
+  canMutate,
+  runDirectory,
+) {
+  if (typeof runDirectory !== "string" || !path.isAbsolute(runDirectory))
+    throw Error("内置模组缺少独立运行目录");
+  const relative = path.relative(root, runDirectory);
+  if (
+    !path.isAbsolute(relative) &&
+    relative !== ".." &&
+    !relative.startsWith(".." + path.sep)
+  )
+    throw Error("内置模组运行目录不能位于原存档内");
+  const sourcePath = (file) => {
+    for (const kind of kinds) {
+      const container = current.containers[kind];
+      for (const base of [container.original, container.target]) {
+        const child = path.relative(base, path.resolve(file));
+        if (
+          !path.isAbsolute(child) &&
+          child !== ".." &&
+          !child.startsWith(".." + path.sep)
+        )
+          return path.join(container.original, child);
+      }
+    }
+    return file;
+  };
+  if (current.exists && !(await canMutate()))
+    throw Error("迁移旧版内置模组前，请先保存并退出其他游戏");
+  let ancestor = runDirectory;
+  while (!(await stat(ancestor))) ancestor = path.dirname(ancestor);
+  await directory(ancestor);
+  await fs.mkdir(runDirectory, { recursive: true });
+  await directory(runDirectory);
+  const deployed = path.join(runDirectory, "world-packs");
+  await fs.mkdir(deployed);
+  await fs.writeFile(path.join(deployed, "pack-plan.json"), JSON.stringify(plan, null, 2) + "\n", { encoding: "utf8", flag: "wx" });
+  if (current.exists) {
+    const names = await fs.readdir(current.managed);
+    if (
+      names.some(
+        (name) =>
+          !["pack-plan.json", "behavior_packs", "resource_packs"].includes(
+            name,
+          ),
+      )
+    )
+      throw Error("旧 .toolbox-packs 中有未知内容，已保留，请先检查");
+    const backup = path.join(deployed, "migration-backup");
+    await fs.mkdir(backup);
+    if (current.plan)
+      await fs.copyFile(path.join(current.managed, "pack-plan.json"), path.join(backup, "pack-plan.json"), fs.constants.COPYFILE_EXCL);
+    const lists = kinds.flatMap((kind) => ["world_" + kind + "_packs.json", "netease_world_" + kind + "_packs.json"]);
+    for (const name of lists) {
+      const file = path.join(root, name);
+      if (await stat(file)) {
+        await readJson(file);
+        await fs.copyFile(file, path.join(backup, name), fs.constants.COPYFILE_EXCL);
+      }
+    }
+    try {
+      for (const kind of kinds) {
+        const container = current.containers[kind];
+        if (!container.to) continue;
+        if (await stat(container.original))
+          throw Error("恢复目标已经存在，未覆盖：" + container.original);
+        await directory(container.target);
+        await fs.rename(container.target, container.original);
+      }
+      if (current.plan) {
+        const { atomicWrite } = require("../../services.cjs");
+        for (const kind of kinds) {
+          await atomicWrite(path.join(root, "world_" + kind + "_packs.json"), JSON.stringify(plan[kind], null, 2) + "\n");
+          const netease = path.join(root, "netease_world_" + kind + "_packs.json");
+          if (await stat(netease)) await atomicWrite(netease, JSON.stringify(plan[kind], null, 2) + "\n");
+        }
+        await fs.unlink(path.join(current.managed, "pack-plan.json"));
+      }
+      await fs.rmdir(current.managed);
+    } catch (error) {
+      throw Error("旧包目录恢复未完成，已保留源码和清单备份，可修复后重试。备份：" + backup + "；" + error.message);
+    }
+  }
+  const staged = new Map();
+  const manifests = path.join(runDirectory, "pack-manifests");
+  await fs.mkdir(manifests);
+  const stage = async (pack) => {
+    const source = sourcePath(pack.dir);
+    if (staged.has(source)) return staged.get(source);
+    const id = pack.id.replaceAll("-", "");
+    const target = path.join(deployed, pack.kind + "_packs", id);
+    await fs.mkdir(path.dirname(target), { recursive: true });
+    await fs.symlink(source, target, process.platform === "win32" ? "junction" : "dir");
     await fs.writeFile(
-      path.join(current.managed, "pack-plan.json"),
-      JSON.stringify(plan, null, 2) + "\n",
+      path.join(manifests, id + ".json"),
+      JSON.stringify(pack.manifest, null, 2) + "\n",
       { encoding: "utf8", flag: "wx" },
     );
-  }
-  for (const kind of kinds) {
-    const c = current.containers[kind];
-    if (c.from) await fs.rename(c.original, c.target);
-  }
-  return [
-    ...selected.map((p) => ({
-      path: rebase(p.dir, true),
+    staged.set(source, target);
+    return target;
+  };
+  const result = [];
+  for (const pack of selected) {
+    result.push({
+      path: await stage(pack),
+      toolbox_source_path: sourcePath(pack.dir),
       enabled: true,
-      // MCDK 1.6.1 cannot resolve changed module names when the watched root
-      // itself is a behavior pack. Use the desktop incremental reloader there.
-      hot_reload: p.kind !== "behavior",
-      ...(p.kind === "behavior" ? { toolbox_hot_reload: true } : {}),
-    })),
-    ...remap(external, true).map((entry) => {
-      const dir = typeof entry === "string" ? entry : entry.path;
-      const own = owned.find(
-        (p) => p.kind === "behavior" && samePath(rebase(p.dir, true), dir),
-      );
-      if (
-        !own ||
-        (typeof entry === "object" &&
-          (entry.enabled === false || entry.hot_reload === false))
-      )
-        return entry;
-      return {
-        ...(typeof entry === "string" ? { path: entry } : entry),
-        hot_reload: false,
-        toolbox_hot_reload: true,
-      };
-    }),
-  ];
+      hot_reload: pack.kind !== "behavior",
+      ...(pack.kind === "behavior" ? { toolbox_hot_reload: true } : {}),
+    });
+  }
+  for (const entry of external) {
+    const pathValue = sourcePath(typeof entry === "string" ? entry : entry.path);
+    const duplicates = entry.enabled === false ? [] : owned.filter((pack) =>
+      samePath(sourcePath(pack.dir), pathValue) || samePath(path.dirname(sourcePath(pack.dir)), pathValue),
+    );
+    if (duplicates.length) {
+      for (const duplicate of duplicates)
+      result.push({
+        ...(typeof entry === "string" ? {} : entry),
+        path: await stage(duplicate),
+        toolbox_source_path: sourcePath(duplicate.dir),
+        hot_reload:
+          duplicate.kind !== "behavior" &&
+          (typeof entry === "string" || entry.hot_reload !== false),
+        ...(duplicate.kind === "behavior" &&
+        (typeof entry === "string" || entry.hot_reload !== false)
+          ? { toolbox_hot_reload: true }
+          : {}),
+      });
+      continue;
+    }
+    result.push(
+      typeof entry === "string" ? pathValue : { ...entry, path: pathValue },
+    );
+  }
+  if (result.length > 200) throw Error("内置模组与启动配置合计超过 200 个模组目录");
+  return result;
 }
-module.exports = { inspectWorldPacks, prepareWorldPacks };
+
+module.exports = {
+  inspectWorldPacks,
+  prepareWorldPacks,
+};

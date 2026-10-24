@@ -6,7 +6,7 @@ const test = require("node:test"),
   crypto = require("node:crypto");
 const {
   inspectWorldPacks,
-  prepareWorldPacks,
+  prepareWorldPacks: preparePacks,
 } = require("../electron/domains/worlds/world-packs.cjs");
 const { WorldLibrary } = require("../electron/domains/worlds/worlds.cjs");
 const { WorkspaceStore } = require("../electron/services.cjs");
@@ -18,9 +18,17 @@ const { EventEmitter } = require("node:events");
 const { PassThrough } = require("node:stream");
 const managed = (root, dir) =>
   path.join(root, ".toolbox-packs", path.relative(root, dir));
+const prepareWorldPacks = (root, plan, external, canMutate, run = path.join(path.dirname(root), "runs", crypto.randomUUID())) =>
+  preparePacks(root, plan, external, canMutate, run);
 async function temp(t) {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-world-packs-"));
-  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const base = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-world-packs-"));
+  t.after(async () => {
+    assert.equal(path.dirname(base), path.resolve(os.tmpdir()));
+    assert(path.basename(base).startsWith("dgn-world-packs-"));
+    await fs.rm(base, { recursive: true, force: true });
+  });
+  const root = path.join(base, "world");
+  await fs.mkdir(root);
   return root;
 }
 async function putPack(
@@ -82,42 +90,58 @@ test("enabled map order and legacy manifests survive MCDK list rewrites without 
     ],
   );
   assert.deepEqual(
-    loaded.map((x) => x.path),
-    [b.dir, a.dir, r.dir].map((dir) => managed(root, dir)),
+    loaded.map((x) => x.toolbox_source_path),
+    [b.dir, a.dir, r.dir],
   );
   assert.deepEqual(
-    await fs.readFile(path.join(managed(root, a.dir), "pack_manifest.json")),
+    await fs.readFile(path.join(a.dir, "pack_manifest.json")),
     before,
   );
   assert.deepEqual(
     JSON.parse(
       await fs.readFile(
-        path.join(managed(root, a.dir), "manifest.json"),
+        path.join(path.dirname(path.dirname(path.dirname(loaded[1].path))), "pack-manifests", a.ref.pack_id.replaceAll("-", "") + ".json"),
         "utf8",
       ),
     ),
     a.manifest,
   );
-  await fs.access(path.join(managed(root, unused.dir), "pack_manifest.json"));
+  await fs.access(path.join(unused.dir, "pack_manifest.json"));
   await assert.rejects(
-    fs.access(path.join(managed(root, unused.dir), "manifest.json")),
+    fs.access(path.join(unused.dir, "manifest.json")),
     {
       code: "ENOENT",
     },
   );
   await lists(root, [{ pack_id: crypto.randomUUID(), version: [0, 0, 1] }]);
   assert.deepEqual(
-    (await prepareWorldPacks(root, plan, [])).map((x) => x.path),
-    [b.dir, a.dir, r.dir].map((dir) => managed(root, dir)),
+    (await prepareWorldPacks(root, plan, [])).map((x) => x.toolbox_source_path),
+    [b.dir, a.dir, r.dir],
   );
   const withSameDir = await prepareWorldPacks(root, plan, [
     { path: a.dir, enabled: true, hot_reload: false },
   ]);
   assert.equal(
-    withSameDir.filter((x) => x.path === managed(root, a.dir)).length,
+    withSameDir.filter((x) => x.toolbox_source_path === a.dir).length,
     1,
   );
   assert.equal(withSameDir.at(-1).hot_reload, false);
+  const container = await prepareWorldPacks(root, plan, [
+    { path: path.join(root, "behavior_packs"), enabled: true, hot_reload: false },
+  ]);
+  assert.deepEqual(
+    container.filter((x) => x.toolbox_source_path?.includes("behavior_packs"))
+      .map((x) => x.toolbox_source_path).sort(),
+    [a.dir, b.dir, unused.dir].sort(),
+  );
+  assert(container.filter((x) => x.toolbox_source_path?.includes("behavior_packs"))
+    .every((x) => x.hot_reload === false && !x.toolbox_hot_reload));
+  const legacyRoot = await temp(t), legacy = await putPack(legacyRoot,"behavior","B",true);
+  await lists(legacyRoot,[legacy.ref]);
+  const legacyPlan = await inspectWorldPacks(legacyRoot);
+  const compatible = await preparePacks(legacyRoot, legacyPlan, [legacy.dir]);
+  assert.equal(compatible[0].toolbox_hot_reload,true);
+  assert.equal(compatible[0].path,managed(legacyRoot,legacy.dir));
 });
 
 test("missing refs, versions and external UUID conflicts fail before legacy aliases are written", async (t) => {
@@ -158,7 +182,7 @@ test("missing refs, versions and external UUID conflicts fail before legacy alia
     { ...plan, behavior: [a.ref] },
     [{ path: x.dir, enabled: false }],
   );
-  assert.equal(resolved[0].path, managed(world, a.dir));
+  assert.equal(resolved[0].toolbox_source_path, a.dir);
 });
 
 test("duplicate pack identities and links are rejected; missing lists do not silently activate every pack", async (t) => {
@@ -215,10 +239,10 @@ test("folder and ZIP import capture enabled packages, keep source/profile unchan
     const w = await worlds.importWorld(id, "test", file);
     assert.deepEqual(w.embeddedPacks.behavior, [a.ref]);
     const started = await worlds.launchWorld(w.id, id),
-      mods = await worlds.prepareWorldPacks(w.id, started.embeddedPacks, []);
+      mods = await worlds.prepareWorldPacks(w.id, started.embeddedPacks, [], false, path.join(root, "runs", crypto.randomUUID()));
     assert.equal(
-      mods[0].path,
-      path.join(worlds.location(w.id), ".toolbox-packs/behavior_packs/A"),
+      mods[0].toolbox_source_path,
+      path.join(worlds.location(w.id), "behavior_packs/A"),
     );
     assert.ok(mods.every((m) => !m.path.startsWith(source)));
     assert.deepEqual(
@@ -308,10 +332,7 @@ for (const mode of ["copy", "linked"])
     const first = await manager.start(id, w.id);
     await manager.stop(first.selectedSession);
     const activeRoot = mode === "linked" ? source : worlds.location(w.id);
-    const script = path.join(
-      activeRoot,
-      ".toolbox-packs/behavior_packs/B/main.py",
-    );
+    const script = path.join(activeRoot, "behavior_packs/B/main.py");
     await fs.writeFile(script, "# revised source after first launch\n");
     await lists(worlds.location(w.id), [
       { pack_id: crypto.randomUUID(), version: [0, 0, 1] },
@@ -322,6 +343,11 @@ for (const mode of ["copy", "linked"])
     const disabled = await profiles.read(id);
     const second = await manager.start(id, w.id);
     await manager.stop(second.selectedSession);
+    await assert.rejects(fs.access(path.join(activeRoot, ".toolbox-packs")), {
+      code: "ENOENT",
+    });
+    await fs.access(path.join(activeRoot, "behavior_packs/B"));
+    await fs.access(path.join(activeRoot, "resource_packs/R"));
     for (const dir of snapshots) {
       const config = JSON.parse(
         await fs.readFile(path.join(dir, ".mcdev.json"), "utf8"),
@@ -332,8 +358,23 @@ for (const mode of ["copy", "linked"])
       assert.deepEqual(
         config.included_mod_dirs.map((x) => x.path),
         [
-          path.join(activeRoot, ".toolbox-packs/behavior_packs/B"),
-          path.join(activeRoot, ".toolbox-packs/resource_packs/R"),
+          path.join(
+            dir,
+            "world-packs/behavior_packs",
+            bp.ref.pack_id.replaceAll("-", ""),
+          ),
+          path.join(
+            dir,
+            "world-packs/resource_packs",
+            rp.ref.pack_id.replaceAll("-", ""),
+          ),
+        ],
+      );
+      assert.deepEqual(
+        config.included_mod_dirs.map((x) => x.toolbox_source_path),
+        [
+          path.join(activeRoot, "behavior_packs/B"),
+          path.join(activeRoot, "resource_packs/R"),
         ],
       );
       assert.equal(config.include_debug_mod, true);
@@ -341,19 +382,18 @@ for (const mode of ["copy", "linked"])
       assert.equal(config.included_mod_dirs[0].hot_reload, false);
       assert.equal(config.included_mod_dirs[1].hot_reload, true);
       assert.equal(config.auto_hot_reload_mods, dir === snapshots[0]);
-      assert.equal(
-        await fs.readFile(
-          path.join(config.included_mod_dirs[0].path, "main.py"),
-          "utf8",
-        ),
-        "# revised source after first launch\n",
-      );
+      if (dir === snapshots.at(-1))
+        assert.equal(
+          await fs.readFile(
+            path.join(config.included_mod_dirs[0].path, "main.py"),
+            "utf8",
+          ),
+          "# revised source after first launch\n",
+        );
     }
     assert.equal((await profiles.read(originalId)).raw, original);
     assert.equal((await profiles.read(id)).raw, disabled.raw);
-    await assert.rejects(fs.access(path.join(bp.dir, "manifest.json")), {
-      code: "ENOENT",
-    });
+    await fs.access(path.join(bp.dir, "pack_manifest.json"));
   });
 
 test("automatic import works without existing profiles and does not create profiles for invalid or incomplete copies", async (t) => {
@@ -404,8 +444,8 @@ test("partial relocation resumes, managed copies retain their import baseline, a
   await lists(root, [b.ref], [r.ref]);
   const plan = await inspectWorldPacks(root);
   await assert.rejects(
-    prepareWorldPacks(root, plan, [], async () => false),
-    /退出其他游戏/,
+    prepareWorldPacks(root, plan, [], async () => false, path.join(root, "invalid")),
+    /不能位于原存档/,
   );
   await assert.rejects(fs.access(path.join(b.dir, "manifest.json")), {
     code: "ENOENT",
@@ -419,12 +459,13 @@ test("partial relocation resumes, managed copies retain their import baseline, a
     path.join(root, "behavior_packs"),
     path.join(root, ".toolbox-packs/behavior_packs"),
   );
+  await assert.rejects(prepareWorldPacks(root, plan, [], async () => false), /退出其他游戏/);
+  await lists(root, [{ pack_id: crypto.randomUUID(), version: [1, 0, 0] }]);
   const prepared = await prepareWorldPacks(root, plan, []);
   assert.equal(prepared.length, 2);
-  await assert.rejects(fs.access(path.join(root, "resource_packs")), {
+  await assert.rejects(fs.access(path.join(root, ".toolbox-packs")), {
     code: "ENOENT",
   });
-  await lists(root, [{ pack_id: crypto.randomUUID(), version: [1, 0, 0] }]);
   assert.deepEqual(await inspectWorldPacks(root), plan);
   // Already-normalized data needs no mutation and can be inspected even while
   // another isolated menu client is alive.
@@ -437,8 +478,40 @@ test("partial relocation resumes, managed copies retain their import baseline, a
   assert.deepEqual(await inspectWorldPacks(exported), plan);
   assert.ok(
     (await prepareWorldPacks(exported, plan, [])).every((x) =>
-      x.path.startsWith(exported),
+      x.toolbox_source_path.startsWith(exported) && !x.path.startsWith(exported),
     ),
+  );
+});
+
+test("new launch restores legacy .toolbox-packs and stages packs outside the world", async (t) => {
+  const root = await temp(t),
+    pack = await putPack(root, "behavior", "legacy", true);
+  await lists(root, [pack.ref]);
+  const plan = await inspectWorldPacks(root),
+    managedRoot = path.join(root, ".toolbox-packs");
+  await fs.mkdir(managedRoot);
+  await fs.writeFile(
+    path.join(managedRoot, "pack-plan.json"),
+    JSON.stringify(plan),
+  );
+  await fs.rename(
+    path.join(root, "behavior_packs"),
+    path.join(managedRoot, "behavior_packs"),
+  );
+  const run = path.join(path.dirname(root), path.basename(root) + "-launcher-run"),
+    loaded = await prepareWorldPacks(root, plan, [], async () => true, run);
+  assert.equal(
+    loaded[0].path,
+    path.join(run, "world-packs/behavior_packs", pack.ref.pack_id.replaceAll("-", "")),
+  );
+  assert.equal(
+    loaded[0].toolbox_source_path,
+    path.join(root, "behavior_packs/legacy"),
+  );
+  await fs.access(path.join(root, "behavior_packs/legacy/pack_manifest.json"));
+  await assert.rejects(fs.access(managedRoot), { code: "ENOENT" });
+  await fs.access(
+    path.join(run, "pack-manifests", pack.ref.pack_id.replaceAll("-", "") + ".json"),
   );
 });
 

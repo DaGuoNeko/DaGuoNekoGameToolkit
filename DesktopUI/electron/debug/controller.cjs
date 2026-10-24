@@ -102,7 +102,9 @@ class DebugController extends EventEmitter {
                 (entry) =>
                   entry.enabled !== false && entry.toolbox_hot_reload === true,
               )
-              .map((entry) => path.resolve(root, entry.path))
+              .map((entry) =>
+                path.resolve(root, entry.toolbox_source_path || entry.path),
+              )
           : [];
         if (directories.length)
           this.embeddedReloaders.set(

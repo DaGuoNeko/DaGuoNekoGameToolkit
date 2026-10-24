@@ -5,9 +5,38 @@
 #include <shlobj.h>
 #include <knownfolders.h>
 static void line(const WCHAR *value){char b[4096];int n=WideCharToMultiByte(CP_UTF8,0,value,-1,b,4095,NULL,NULL);DWORD written;if(n>0){b[n-1]='\n';WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),b,n,&written,NULL);}}
+static void probeWrite(const WCHAR *root,const WCHAR *name){
+ WCHAR file[4096];lstrcpyW(file,root);lstrcatW(file,L"\\");lstrcatW(file,name);
+ HANDLE h=CreateFileW(file,GENERIC_WRITE,FILE_SHARE_READ,NULL,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,NULL);DWORD written;
+ if(h==INVALID_HANDLE_VALUE)ExitProcess(71);
+ if(!WriteFile(h,"probe",5,&written,NULL)||written!=5)ExitProcess(72);CloseHandle(h);
+}
+static void probeWorld(void){
+ WCHAR root[2048],source[2048],file[4096],other[4096],packs[2048];
+ if(!GetEnvironmentVariableW(L"DGN_PROBE_WORLD",root,2048))return;
+ GetEnvironmentVariableW(L"DGN_WORLD_SOURCE",source,2048);
+ probeWrite(root,L"world_behavior_packs.json");
+ probeWrite(source,L"dev_config.cppconfig");
+ probeWrite(root,L"level.dat");probeWrite(root,L"db\\progress");
+ probeWrite(root,L"world_resource_packs.json.tmp");
+ lstrcpyW(file,root);lstrcatW(file,L"\\world_resource_packs.json.tmp");
+ lstrcpyW(other,root);lstrcatW(other,L"\\world_resource_packs.json");
+ if(!MoveFileExW(file,other,MOVEFILE_REPLACE_EXISTING))ExitProcess(73);
+ lstrcpyW(file,root);lstrcatW(file,L"\\behavior_packs\\sentinel.txt");
+ if(GetFileAttributesW(file)!=INVALID_FILE_ATTRIBUTES)ExitProcess(74);
+ lstrcpyW(file,root);lstrcatW(file,L"\\behavior_packs\\*");
+ WIN32_FIND_DATAW entry;HANDLE search=FindFirstFileW(file,&entry);
+ if(search!=INVALID_HANDLE_VALUE){do{if(lstrcmpiW(entry.cFileName,L"sentinel.txt")==0)ExitProcess(75);}while(FindNextFileW(search,&entry));FindClose(search);}
+ GetEnvironmentVariableW(L"DGN_PACK_VIEW",packs,2048);
+ lstrcpyW(file,packs);lstrcatW(file,L"\\behavior_packs\\0123456789abcdef0123456789abcdef\\manifest.json");
+ HANDLE h=CreateFileW(file,GENERIC_READ,FILE_SHARE_READ,NULL,OPEN_EXISTING,0,NULL);char b[4];DWORD read;
+ if(h==INVALID_HANDLE_VALUE||!ReadFile(h,b,4,&read,NULL)||read!=4||b[0]!='t'||b[3]!='t')ExitProcess(76);CloseHandle(h);
+ lstrcpyW(other,source);lstrcatW(other,L"-neighbor");probeWrite(other,L"dev_config.cppconfig");
+}
 void mainCRTStartup(void){
  WCHAR self[1024],launcher[1024],game[1024],expected[1024],legacy[MAX_PATH];
  GetModuleFileNameW(NULL,self,1024);GetEnvironmentVariableW(L"DGN_ISO_MCDK",launcher,1024);GetEnvironmentVariableW(L"DGN_ISO_GAME",game,1024);
+ probeWorld();
  if(CompareStringOrdinal(self,-1,launcher,-1,TRUE)==CSTR_EQUAL){
   STARTUPINFOW si;ZeroMemory(&si,sizeof(si));si.cb=sizeof(si);si.dwFlags=STARTF_USESTDHANDLES;si.hStdOutput=GetStdHandle(STD_OUTPUT_HANDLE);si.hStdError=GetStdHandle(STD_ERROR_HANDLE);si.hStdInput=GetStdHandle(STD_INPUT_HANDLE);
   PROCESS_INFORMATION pi;WCHAR cmd[1028];cmd[0]='"';lstrcpyW(cmd+1,game);lstrcatW(cmd,L"\"");

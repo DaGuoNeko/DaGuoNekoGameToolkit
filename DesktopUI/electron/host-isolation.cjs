@@ -103,19 +103,21 @@ class HostIsolation {
     this.hashes.set(file, { key, hash });
     return hash;
   }
-  async prepare(worldId, config, launcher) {
+  async prepare(worldId, config, launcher, runDirectory, allowPrivate = true) {
     // Preserve legacy/custom launcher compatibility, but never allow it to run
     // a second host by pretending that its shared deployment is isolated.
     if (
       process.platform !== "win32" ||
-      !same(launcher, path.join(this.runtime, "mcdk.exe")) ||
       config.world_source_path
     )
       return null;
-    if ((await this.digest(config.game_executable_path)) !== GAME_HASH)
-      return null;
+    if (!same(launcher, path.join(this.runtime, "mcdk.exe"))) return null;
+    const gameHash = await this.digest(config.game_executable_path);
+    const privateHost = allowPrivate && gameHash === GAME_HASH &&
+      same(launcher, path.join(this.runtime, "mcdk.exe"));
+    if (!privateHost && !runDirectory) return null;
     if ((await this.digest(launcher)) !== MCDK_HASH)
-      throw Error("内置 MCDK 已变化，无法确认独立主机兼容性");
+      throw Error("原目录保护需要使用已验证的内置 MCDK，请在设置中恢复内置启动器");
     const before = await this.worlds.run(async () => {
       const w = this.worlds.find(await this.worlds.read(), null, worldId),
         info = await this.worlds.inspect(w);
@@ -130,12 +132,18 @@ class HostIsolation {
       .createHash("sha256")
       .update(before.actual.toLowerCase())
       .digest("hex");
-    const roaming = path.join(this.base, "DgnGT-R-" + fingerprint.slice(0, 16)),
-      local = path.join(this.base, "DgnGT-L-" + fingerprint.slice(0, 16)),
-      low = path.join(this.base, "DgnGT-W-" + fingerprint.slice(0, 16));
+    const roaming = privateHost
+        ? path.join(this.base, "DgnGT-R-" + fingerprint.slice(0, 16))
+        : this.worlds.appDataOverride || process.env.APPDATA,
+      local = privateHost
+        ? path.join(this.base, "DgnGT-L-" + fingerprint.slice(0, 16))
+        : this.worlds.appDataOverride ? path.join(path.dirname(this.worlds.appDataOverride), "game-local-data") : process.env.LOCALAPPDATA,
+      low = privateHost
+        ? path.join(this.base, "DgnGT-W-" + fingerprint.slice(0, 16))
+        : this.worlds.appDataOverride ? path.join(path.dirname(this.worlds.appDataOverride), "game-low-data") : path.join(os.homedir(), "AppData/LocalLow");
     // This native game's Windows Python loader slices module paths by segment
     // count. Match the normal C:/Users/<user>/AppData/Roaming depth exactly.
-    if (roaming.replaceAll("\\", "/").split("/").length !== 5)
+    if (privateHost && roaming.replaceAll("\\", "/").split("/").length !== 5)
       throw Error(
         "当前用户目录层级不支持此版本的独立主机，请使用标准 Windows 用户目录",
       );
@@ -145,7 +153,7 @@ class HostIsolation {
       path.join(before.actual, "db/LOCK"),
     );
     try {
-      for (const root of [roaming, local, low]) {
+      for (const root of privateHost ? [roaming, local, low] : []) {
         const exists = await stat(root);
         const ownerPath = path.join(root, ".dgn-owner.json");
         if (exists && !(await stat(ownerPath)))
@@ -205,14 +213,14 @@ class HostIsolation {
         await directory(dir);
       const mount = path.join(worldsRoot, folderFor(worldId)),
         s = await stat(mount);
-      if (s) {
+      if (privateHost && s) {
         if (
           !s.isSymbolicLink() ||
           !same(await fs.realpath(mount), before.actual)
         )
           throw Error("隔离存档入口被替换，已停止启动");
-      } else await fs.symlink(before.actual, mount, "junction");
-      await directory(path.join(local, "Temp"));
+      } else if (privateHost) await fs.symlink(before.actual, mount, "junction");
+      if (privateHost) await directory(path.join(local, "Temp"));
       await directory(path.join(roaming, "MinecraftPE_Netease/minecraftpe"));
       const optionsFile = path.join(
         roaming,
@@ -221,8 +229,7 @@ class HostIsolation {
       const env = {
         APPDATA: roaming,
         LOCALAPPDATA: local,
-        TEMP: path.join(local, "Temp"),
-        TMP: path.join(local, "Temp"),
+        ...(privateHost ? { TEMP: path.join(local, "Temp"), TMP: path.join(local, "Temp") } : {}),
         DGN_ISO_ROAMING: roaming,
         DGN_ISO_LOCAL: local,
         DGN_ISO_LOW: low,
@@ -230,15 +237,29 @@ class HostIsolation {
         DGN_ISO_MCDK: launcher,
         DGN_ISO_DLL: path.join(this.runtime, "native/dgn-host-isolation.dll"),
       };
+      if (runDirectory) {
+        const view = path.join(runDirectory, "world-files");
+        const relative = path.relative(before.actual, view);
+        if (!path.isAbsolute(relative) && relative !== ".." && !relative.startsWith(".." + path.sep))
+          throw Error("运行目录不能位于原地图内");
+        await directory(view);
+        for (const name of ["behavior_packs", "resource_packs", ".toolbox-packs"])
+          await directory(path.join(view, name));
+        Object.assign(env, {
+          DGN_WORLD_SOURCE: before.actual, DGN_WORLD_MOUNT: mount, DGN_WORLD_VIEW: view,
+          DGN_PACK_VIEW: path.join(runDirectory, "world-packs"),
+          DGN_PACK_MANIFESTS: path.join(runDirectory, "pack-manifests"),
+        });
+      }
       return {
         roaming,
         actualWorld: before.actual,
-        mode: "isolated",
+        mode: privateHost ? "isolated" : "shared",
         stop: () => lease.stop(),
-        options: () => this.gameOptions.prepareIsolated(optionsFile),
+        options: () => privateHost ? this.gameOptions.prepareIsolated(optionsFile) : this.gameOptions.prepare(),
         spawn: async (exe, args, options) => {
           if (
-            (await this.digest(config.game_executable_path)) !== GAME_HASH ||
+            (await this.digest(config.game_executable_path)) !== gameHash ||
             (await this.digest(exe)) !== MCDK_HASH
           )
             throw Error("游戏或启动器已变化");

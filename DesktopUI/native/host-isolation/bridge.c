@@ -115,6 +115,7 @@ static BOOL WINAPI createGame(LPCWSTR app,LPWSTR cmd,LPSECURITY_ATTRIBUTES pa,LP
  return TRUE;
 }
 static BOOL hook(const WCHAR *module,const char *name,void *target,void **original){return MH_CreateHookApi(module,name,target,original)==MH_OK;}
+#include "world-view.h"
 __declspec(dllexport) DWORD WINAPI DgnIsolateInit(void *unused){
  if(InterlockedCompareExchange(&initialized,1,0))return 100;
  if(!variable(L"DGN_ISO_ROAMING",roaming)||!variable(L"DGN_ISO_LOCAL",localData)||!variable(L"DGN_ISO_LOW",lowData)||!variable(L"DGN_ISO_GAME",gameExe)||!variable(L"DGN_ISO_MCDK",launcherExe)||!variable(L"DGN_ISO_DLL",dllPath))return 101;
@@ -128,7 +129,7 @@ __declspec(dllexport) DWORD WINAPI DgnIsolateInit(void *unused){
      hook(L"shell32.dll","SHGetFolderPathW",folderW,(void**)&realFolderW)&&hook(L"shell32.dll","SHGetFolderPathA",folderA,(void**)&realFolderA)&&
      hook(L"shell32.dll","SHGetSpecialFolderPathW",specialW,(void**)&realSpecialW)&&hook(L"shell32.dll","SHGetSpecialFolderPathA",specialA,(void**)&realSpecialA);
  }
- if(!ok)return 105;return MH_EnableHook(MH_ALL_HOOKS)==MH_OK?0:106;
+ if(!ok||!installWorldView())return 105;return MH_EnableHook(MH_ALL_HOOKS)==MH_OK?0:106;
 }
 __declspec(dllexport) BOOL WINAPI DgnSpawn(LPCWSTR exe,LPCWSTR cwd,void *env,LPCWSTR outName,LPCWSTR errName,DgnProcess *out){
  ZeroMemory(out,sizeof(*out));

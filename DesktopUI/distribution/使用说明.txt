@@ -31,6 +31,7 @@ AI MCP：需要另外安装 Node.js 22 或以上版本，在软件“设置 → 
 配置、日志及运行数据：%LocalAppData%\DaGuoNeko_GameToolkit\
 工具箱管理的存档：%AppData%\MinecraftPE_Netease\minecraftWorlds\DaGuoNekoGameToolkit\
 独立主机运行环境：%UserProfile%\DgnGameToolkitHosts\（存档仍保存在原登记位置）
+内置启动器的包兼容描述与世界运行配置保存在工具箱 runs/<会话>/ 下，原地图的自带包源码保持原位置，游戏进度直接写回地图。已有 .toolbox-packs 会备份清单后恢复包目录；遇到冲突会停止，请勿把其中源码当缓存删除。自定义启动器仍沿用原兼容模式。
 复制或转发软件文件夹不会附带你个人的配置、模组、存档和日志。
 升级前先保存游戏并退出运行中的游戏会话。若已在“设置 → 工具箱更新”完成 GitHub 授权，可直接检查、下载并重启安装；工具箱会校验 ZIP 后替换程序目录。也可以从项目私有 GitHub Release 手动下载对应 ZIP 和 `.sha256`，完整解压到新的程序目录再打开。不要用空目录覆盖上述用户数据目录；没有项目仓库读取权限的用户不能使用内置更新。
 软件正常退出会结束它启动的游戏会话，请先保存游戏进度。

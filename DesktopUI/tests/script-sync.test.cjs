@@ -135,6 +135,16 @@ test("encrypted paged sync stages verified bytes and updates only changed loaded
   assert.equal(state.updates.length, 1);
   assert.equal(state.acks.at(-1).revision, host.current);
 });
+
+test("host script sync reads legacy manifests from original source behind a runtime pack", async (t) => {
+  const { root, source, host } = await setup(t);
+  await fs.rename(path.join(source,"manifest.json"), path.join(source,"pack_manifest.json"));
+  const runtime = path.join(root,"runtime-pack");
+  await fs.symlink(source,runtime,process.platform === "win32" ? "junction" : "dir");
+  host.config.included_mod_dirs = [{path:runtime,toolbox_source_path:source,hot_reload:false,toolbox_hot_reload:true}];
+  await host.build();
+  assert(host.snapshots.size > 0);
+});
 test("corrupt chunks and invalid syntax do not alter downloaded code and the same failed revision is not replayed", async (t) => {
   const { guest, state, download, change } = await setup(t),
     file = path.join(download, "demo/rules.py"),

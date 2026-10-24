@@ -441,16 +441,15 @@ class Sessions extends EventEmitter {
             if (e.code !== "ENOENT") throw e;
           }
         }
-        isolated =
-          this.store.value.settings.IndependentWorlds === false
-            ? null
-            : await this.isolation?.prepare(
-                worldId,
-                config,
-                this.store.value.settings.LauncherPath || this.runtime,
-              );
+        isolated = await this.isolation?.prepare(
+          worldId,
+          config,
+          this.store.value.settings.LauncherPath || this.runtime,
+          runDir,
+          this.store.value.settings.IndependentWorlds !== false,
+        );
         if (
-          !isolated &&
+          (!isolated || isolated.mode === "shared") &&
           this.workers.some((w) => w.session?.running && w.session.worldId)
         )
           throw Error(
@@ -461,7 +460,8 @@ class Sessions extends EventEmitter {
             world.id,
             world.embeddedPacks,
             config.included_mod_dirs,
-            !!isolated,
+            isolated?.mode === "isolated",
+            isolated === null && this.isolation ? undefined : runDir,
           );
       } else
         config = {
@@ -556,7 +556,7 @@ class Sessions extends EventEmitter {
           }
         : null;
       const detectRunning = async (file) => {
-        if (isolated) return false; // Validated private deployment + held world lock.
+        if (isolated && isolated.mode !== "shared") return false; // Validated private deployment + held world lock.
         if (!worldId) return false;
         if (!this.detectPids) return this.gameIsRunning(file);
         const pids = await this.detectPids(file),
@@ -582,7 +582,9 @@ class Sessions extends EventEmitter {
           )
           .map(async (entry) => {
             const dir = path.resolve(
-              typeof entry === "string" ? entry : entry.path,
+              typeof entry === "string"
+                ? entry
+                : entry.toolbox_source_path || entry.path,
             );
             try {
               return await fs.realpath(dir);
@@ -627,7 +629,7 @@ class Sessions extends EventEmitter {
         blank: !!blank,
         quickTest: !!quickTest,
         runDirectory: runDir,
-        storageMode: isolated ? "isolated" : "shared",
+        storageMode: isolated?.mode || (isolated ? "isolated" : "shared"),
         isolationRoot: isolated?.roaming || null,
         actualWorldPath: isolated?.actualWorld || null,
         sourceRoots,

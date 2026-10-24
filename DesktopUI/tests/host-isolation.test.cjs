@@ -189,6 +189,40 @@ test(
     await second.stop();
   },
 );
+test("native world mapping preserves original packs and redirects runtime files in launcher and game", { skip: process.platform !== "win32" }, async (t) => {
+  const root = await temp(t), probe = path.resolve("native/host-isolation/build/isolation-probe.exe");
+  try { await fs.access(probe); } catch { t.skip("Build native isolation probe first"); return; }
+  const exe = path.join(root, "Launcher.exe"), game = path.join(root, "Game.exe"),
+    source = path.join(root, "原地图"), mount = path.join(root, "mount"),
+    view = path.join(root, "world-files"), packs = path.join(root, "world-packs"),
+    manifests = path.join(root, "pack-manifests"), id = "0123456789abcdef0123456789abcdef",
+    roaming = path.join(root, "roaming"), local = path.join(root, "local"), low = path.join(root, "low");
+  for (const dir of [source, source + "-neighbor", view, packs, manifests, roaming, local, low,
+    path.join(source, "db"), path.join(source, "behavior_packs"), path.join(view, "behavior_packs"),
+    path.join(packs, "behavior_packs")]) await fs.mkdir(dir, {recursive:true});
+  await fs.symlink(source, mount, "junction");
+  await fs.symlink(path.join(source,"behavior_packs"), path.join(packs,"behavior_packs",id), "junction");
+  await fs.writeFile(path.join(manifests, id + ".json"), "test");
+  for (const name of ["world_behavior_packs.json", "world_resource_packs.json", "dev_config.cppconfig", "behavior_packs/sentinel.txt"])
+    await fs.writeFile(path.join(source,name), "original");
+  await fs.copyFile(probe, exe); await fs.copyFile(probe, game);
+  const lease = await reserveIsolation(path.resolve("runtime"), "Local\\DgnHost-test-" + crypto.randomUUID(), null);
+  t.after(()=>lease.stop());
+  const child = await lease.spawn(exe, {cwd:root,env:{...process.env,
+    DGN_PROBE_WORLD:mount,DGN_WORLD_SOURCE:source,DGN_WORLD_MOUNT:mount,DGN_WORLD_VIEW:view,
+    DGN_PACK_VIEW:packs,DGN_PACK_MANIFESTS:manifests,DGN_ISO_ROAMING:roaming,DGN_ISO_LOCAL:local,DGN_ISO_LOW:low,
+    DGN_ISO_MCDK:exe,DGN_ISO_GAME:game,DGN_ISO_DLL:path.resolve("runtime/native/dgn-host-isolation.dll")}});
+  const ended = new Promise(resolve=>child.once("close",resolve));child.start();
+  assert.equal(await ended, 0, "native mapping probe failed");
+  for (const name of ["world_behavior_packs.json", "world_resource_packs.json", "dev_config.cppconfig", "behavior_packs/sentinel.txt"])
+    assert.equal(await fs.readFile(path.join(source,name),"utf8"), "original");
+  for (const name of ["world_behavior_packs.json", "world_resource_packs.json", "dev_config.cppconfig"])
+    assert.equal(await fs.readFile(path.join(view,name),"utf8"), "probe");
+  for (const name of ["level.dat", "db/progress"])
+    assert.equal(await fs.readFile(path.join(source,name),"utf8"), "probe");
+  assert.equal(await fs.readFile(path.join(source+"-neighbor","dev_config.cppconfig"),"utf8"),"probe");
+  await assert.rejects(fs.access(path.join(source,"behavior_packs/manifest.json")),{code:"ENOENT"});
+});
 test(
   "native suspended launcher isolates child known folders and owns its process group",
   { skip: process.platform !== "win32" },
