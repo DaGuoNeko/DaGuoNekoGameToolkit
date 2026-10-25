@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { sharedSources } from "../../../shared/source-sharing.cjs";
 import { ReloadActions } from "../debug/debugger.jsx";
 import { BIOMES, SHAPES, biomeSummary } from "../../../shared/biome-model.cjs";
+import { ArchitectureImport } from "./architecture-import.jsx";
 import {
   Button,
   Intro,
@@ -341,7 +342,8 @@ export function WorldDashboard({
     [working, setWorking] = useState(false),
     [editing, setEditing] = useState(null),
     [dialogError, setDialogError] = useState(""),
-    [remove, setRemove] = useState(null);
+    [remove, setRemove] = useState(null),
+    [architectureOpen, setArchitectureOpen] = useState(false);
   const session = runtimeState.sessions?.findLast(
     (s) => s.worldId === world.id,
   );
@@ -545,6 +547,9 @@ export function WorldDashboard({
             )}
             <Button disabled={busy} onClick={onSettings}>
               {profile ? "存档设置" : "选择启动配置"}
+            </Button>
+            <Button disabled={busy} icon="import" onClick={() => setArchitectureOpen(true)}>
+              地形与建筑导入
             </Button>
             <Button disabled={busy || !!session?.running} onClick={onQuickTest}>
               快速测试
@@ -842,6 +847,12 @@ export function WorldDashboard({
           </p>
           <ErrorBox>{error}</ErrorBox>
         </Modal>
+      )}
+      {architectureOpen && (
+        <ArchitectureImport
+          worldId={world.id}
+          onClose={() => setArchitectureOpen(false)}
+        />
       )}
     </div>
   );

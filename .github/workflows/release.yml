@@ -59,6 +59,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Updater transport acceptance failed' }
           node tests/update-ui.cjs
           if ($LASTEXITCODE -ne 0) { throw 'Updater UI acceptance failed' }
+          node tests/terrain-ui.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Terrain import UI acceptance failed' }
       - run: npm run package
       - name: Packaged client acceptance
         run: |

@@ -36,6 +36,8 @@ const socket = net.createConnection({
 const send = (value) => socket.write(encodeHostBridgeFrame(value));
 const positions = new Map();
 const visibility = new Map();
+const terrainBlocks = new Map();
+let terrainResult;
 let lastExternal = "",
   picker = false;
 function jsonLiteral(code, prefix) {
@@ -121,6 +123,23 @@ socket.on("data", (chunk) => {
         if (code.includes("DGN_ACTION_PLAYER"))
           result = { playerId: "-123456789123456" };
         else if (code.includes("DGN_ACTION_READY")) result = { ready: true };
+        else if (code.includes("DGN_TERRAIN_PROBE")) result = { dimension: launchConfig.world_name.includes("地形来源副本") ? 0 : 3, position: [10, 64, 20], min: [0, -64, 16], max: [15, 319, 31] };
+        else if (code.includes("DGN_TERRAIN_START")) {
+          const data = JSON.parse(Buffer.from(/b64decode\('([^']+)'\)/.exec(code)[1], "base64").toString("utf8"));
+          const source = launchConfig.world_name.includes("地形来源副本");
+          const read = p => terrainBlocks.get(p.join()) || { name: source ? "minecraft:stone" : "minecraft:air", states: {}, entity: null };
+          if (data.op === "read") {
+            const blocks = [];
+            for (let x = data.min[0]; x <= data.max[0]; x++) for (let z = data.min[2]; z <= data.max[2]; z++) for (let y = data.min[1]; y <= data.max[1]; y++) blocks.push(read([x,y,z]));
+            terrainResult = { phase: "done", blocks };
+          } else {
+            for (const write of data.writes) terrainBlocks.set(write.pos.join(), data.op === "undo" ? write.before : write.after);
+            fs.appendFileSync("terrain.fixture", JSON.stringify(data) + "\n");
+            terrainResult = { phase: "done", completed: data.writes.length };
+          }
+          result = { accepted: true };
+        } else if (code.includes("DGN_TERRAIN_STATUS")) result = terrainResult;
+        else if (code.includes("DGN_TERRAIN_CANCEL")) result = true;
         else if (code.includes("DGN_BIOME_PROBE"))
           result = {
             known: true,

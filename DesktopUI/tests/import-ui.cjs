@@ -405,7 +405,7 @@ const { zip, levelData } = require("./fixtures/zip.cjs");
     assert.deepEqual(
       (await app.evaluate(() => globalThis.pickerOptions)).filters[0]
         .extensions,
-      ["zip"],
+      ["zip", "mcworld"],
     );
     await fs.rename(archive, archive + ".kept");
     await fs.mkdir("test-results", { recursive: true });

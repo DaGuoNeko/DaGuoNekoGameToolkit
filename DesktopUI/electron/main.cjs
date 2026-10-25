@@ -24,6 +24,8 @@ const { WorldLibrary } = require("./domains/worlds/worlds.cjs");
 const { assertWorldMutation } = require("./domains/worlds/world-mutation.cjs");
 const { WorldActions } = require("./domains/worlds/world-actions.cjs");
 let worldActions;
+const { ArchitectureImport } = require("./domains/worlds/architecture-import.cjs");
+let architectureImport;
 const { GameTitles } = require("./domains/game/game-titles.cjs");
 let gameTitles;
 const { Profiles } = require("./domains/profiles/profiles.cjs");
@@ -127,6 +129,9 @@ const filters = {
       name: "背景图片",
       extensions: ["png", "jpg", "jpeg", "webp", "bmp", "gif"],
     },
+  ],
+  "chunker-jar": [
+    { name: "Chunker CLI", extensions: ["jar"] },
   ],
 };
 function emitTheme() {
@@ -612,6 +617,49 @@ async function dispatch(method, args, source = win) {
       return worldActions.run(args);
     case "world-actions.cancel":
       return worldActions.cancel(args.sessionId);
+    case "architecture.state":
+      return architectureImport.state();
+    case "architecture.prepare":
+      if (!approvedDirectories.has(normalize(args.source)) &&
+          !approvedWorldArchives.has(normalize(args.source)))
+        throw Error("请先选择或拖入来源世界");
+      if (args.kind === "java" && !approvedDirectories.has(normalize(args.chunkerJar)))
+        throw Error("请先选择 Chunker CLI JAR");
+      return architectureImport.call("prepare", args);
+    case "architecture.start-source":
+      return architectureImport.call("startSource", args);
+    case "architecture.save-source":
+      return architectureImport.call("sourceSave", args);
+    case "architecture.source-done":
+      return architectureImport.call("sourceDone", args);
+    case "architecture.start-target":
+      return architectureImport.call("startTarget", args);
+    case "architecture.position":
+      return architectureImport.call("position", args);
+    case "architecture.preview":
+      return architectureImport.call("preview", args);
+    case "architecture.paste":
+      return architectureImport.call("targetPaste", args);
+    case "architecture.revoke":
+      return architectureImport.call("revoke", args);
+    case "architecture.stop":
+      return architectureImport.stop(args);
+    case "architecture.folder": {
+      await architectureImport.require(args);
+      const error = await shell.openPath(architectureImport.directory());
+      if (error) throw Error(error);
+      return true;
+    }
+    case "architecture.pick-chunker": {
+      const result = await dialog.showOpenDialog(win, {
+        title: "选择 Chunker CLI JAR",
+        filters: filters["chunker-jar"],
+        properties: ["openFile"],
+      });
+      if (result.canceled || !result.filePaths.length) return null;
+      approvedDirectories.add(normalize(result.filePaths[0]));
+      return result.filePaths[0];
+    }
     case "worlds.update":
       if (launcher.starting) throw Error("正在准备启动，请稍后修改存档设置");
       return worlds.update(args.worldId, args);
@@ -632,11 +680,11 @@ async function dispatch(method, args, source = win) {
     case "worlds.pick-import": {
       const archive = args.kind === "zip";
       const result = await dialog.showOpenDialog(win, {
-        title: archive ? "选择存档 ZIP" : "选择要使用的存档目录",
+        title: archive ? "选择基岩世界 ZIP / MCWORLD" : "选择要使用的存档目录",
         defaultPath: worlds.worldsRoot,
         properties: [archive ? "openFile" : "openDirectory"],
         ...(archive
-          ? { filters: [{ name: "存档 ZIP", extensions: ["zip"] }] }
+          ? { filters: [{ name: "基岩世界", extensions: ["zip", "mcworld"] }] }
           : {}),
       });
       if (result.canceled) return null;
@@ -839,6 +887,7 @@ async function dispatch(method, args, source = win) {
       const urls = {
         upstream: "https://github.com/GitHub-Zero123/MCDevTool",
         extension: "https://github.com/Dofes/mcdev-tools",
+        chunker: "https://github.com/HiveGamesOSS/Chunker/releases",
       };
       if (!Object.hasOwn(urls, args.kind)) throw Error("不支持的链接");
       await shell.openExternal(urls[args.kind]);
@@ -866,6 +915,7 @@ async function dispatch(method, args, source = win) {
       if (!closeRequested) return false;
       if (args.action === "exit") {
         if (launcher.starting) throw Error("正在准备启动，请稍后再退出");
+        await architectureImport.dispose();
         await worldActions.dispose();
         await rooms.shutdown();
         await clientJoiner.shutdown();
@@ -994,6 +1044,14 @@ else {
         },
       );
       worldActions = new WorldActions(launcher, debuggerService, worlds);
+      architectureImport = new ArchitectureImport({
+        dataRoot,
+        worlds,
+        profiles,
+        sessions: launcher,
+        actions: worldActions,
+        debug: debuggerService,
+      });
       reloadSources = new ReloadSources(launcher, debuggerService);
       debuggerService.beforeReload = (context) => reloadSources.check(context);
       if (process.platform === "win32")
@@ -1177,7 +1235,7 @@ else {
         for (const file of files) {
           const stat = await fs.stat(file);
           if (stat.isDirectory()) approvedDirectories.add(normalize(file));
-          else if (stat.isFile() && /\.zip$/i.test(file))
+          else if (stat.isFile() && /\.(zip|mcworld)$/i.test(file))
             approvedWorldArchives.add(normalize(file));
           else if (stat.isFile() && /\.(png|jpe?g|webp|bmp|gif)$/i.test(file))
             approvedImages.add(normalize(file));
@@ -1257,6 +1315,7 @@ else {
     if (!closing && launcher) {
       event.preventDefault();
       Promise.resolve(automation?.setEnabled(false))
+        .then(() => architectureImport?.dispose())
         .then(() => worldActions?.dispose())
         .then(() => gameTitles?.dispose())
         .then(() => rooms?.shutdown())

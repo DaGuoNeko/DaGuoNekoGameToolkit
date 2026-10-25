@@ -723,7 +723,7 @@ class WorldLibrary {
         let metadata;
         if (mode === "linked" && !sourceStat.isDirectory())
           throw Error("直接使用原目录仅支持文件夹，ZIP 请先解压或选择复制导入");
-        if (sourceStat.isFile() && /\.zip$/i.test(source)) {
+        if (sourceStat.isFile() && /\.(?:zip|mcworld)$/i.test(source)) {
           archive = await openWorldZip(source);
           metadata = archive.metadata;
         } else if (sourceStat.isDirectory()) {
@@ -732,7 +732,7 @@ class WorldLibrary {
           if (!(await stat(path.join(source, "level.dat")))?.isFile())
             throw Error("目录中缺少 level.dat");
           metadata = await loadWorldInfo(path.join(source, "level.dat"));
-        } else throw Error("只支持存档文件夹或 ZIP 文件");
+        } else throw Error("只支持存档文件夹、ZIP 或 MCWORLD 文件");
         const data = await this.read(true),
           id = "w_" + crypto.randomUUID().replaceAll("-", "");
         if (

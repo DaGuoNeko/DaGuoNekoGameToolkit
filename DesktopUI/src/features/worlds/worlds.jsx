@@ -136,7 +136,7 @@ export function WorldHome({
   function importFiles(files, show = true) {
     if (files.length !== 1) throw Error("请一次拖入一个存档文件夹或 ZIP");
     const file = files[0];
-    if (!file.directory && !/\.zip$/i.test(file.path))
+    if (!file.directory && !/\.(zip|mcworld)$/i.test(file.path))
       throw Error("只支持存档文件夹或 ZIP");
     if (busy || working || running)
       throw Error("请先保存并退出游戏，再导入存档");
@@ -149,14 +149,14 @@ export function WorldHome({
       .split(/[\\/]/)
       .filter(Boolean)
       .at(-1)
-      ?.replace(/\.zip$/i, "");
+      ?.replace(/\.(zip|mcworld)$/i, "");
     if (show || !name.trim() || name === "导入的存档" || name === previousName)
       setName(
         file.path
           .split(/[\\/]/)
           .filter(Boolean)
           .at(-1)
-          .replace(file.directory ? /$^/ : /\.zip$/i, "")
+          .replace(file.directory ? /$^/ : /\.(zip|mcworld)$/i, "")
           .slice(0, 80),
       );
     setError("");
