@@ -3,6 +3,7 @@ const { OreJoin, hostIdentity } = require("./ore-join.cjs");
 const { proofCode } = require("./client-join-proof.cjs");
 const { menuPlayerName } = require("./menu-name.cjs");
 const { readJoinRoom } = require("./client-join-room.cjs");
+const { LocalDiscovery } = require("./local-discovery.cjs");
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 class ClientJoiner {
   constructor(
@@ -11,6 +12,7 @@ class ClientJoiner {
     runtime,
     {
       transport = new OreJoin(runtime),
+      discovery = new LocalDiscovery(runtime),
       timeoutMs = 120000,
       wait = delay,
       roomName = (target) =>
@@ -21,12 +23,14 @@ class ClientJoiner {
       sessions,
       debug,
       transport,
+      discovery,
       timeoutMs,
       wait,
       roomName,
     });
     this.jobs = new Map();
     this.pendingStarts = new Set();
+    this.pendingNames = new Set();
     this.closing = false;
   }
   bridge(worker, ready = false) {
@@ -48,6 +52,38 @@ class ClientJoiner {
     if (!w?.session.worldId || w.session.role !== "world")
       throw Error("请选择本工具箱启动的存档主机会话");
     return { worker: w, bridge: { ...this.bridge(w, true) } };
+  }
+  hosts() {
+    return this.sessions.workers
+      .filter(
+        (w) =>
+          w.session?.running &&
+          w.session.role === "world" &&
+          w.session.worldId &&
+          !w.stopping,
+      )
+      .map((w) => {
+        let bridge,
+          reason = "";
+        try {
+          bridge = this.bridge(w, true);
+        } catch (e) {
+          reason = e.message;
+        }
+        return {
+          sessionId: w.session.id,
+          worldId: w.session.worldId,
+          worldName:
+            w.session.worldName ||
+            w.sourceSnapshot?.config.world_name ||
+            "未命名存档",
+          playerName: w.session.userName || "玩家",
+          launcherPid: w.session.pid,
+          gamePid: bridge?.minecraftPid || null,
+          ready: !!bridge,
+          reason,
+        };
+      });
   }
   checkHost(target) {
     const current = this.bridge(target.worker, true),
@@ -76,7 +112,17 @@ class ClientJoiner {
     this.sessions.publish();
   }
   launch(hostSessionId, name) {
-    const operation = this.startJoin(hostSessionId, name);
+    const operation = (async () => {
+      const playerName = menuPlayerName(name);
+      if (this.pendingNames.has(playerName))
+        throw Error("同名客户端正在启动，请等待完成或使用不同玩家名");
+      this.pendingNames.add(playerName);
+      try {
+        return await this.startJoin(hostSessionId, playerName);
+      } finally {
+        this.pendingNames.delete(playerName);
+      }
+    })();
     this.pendingStarts.add(operation);
     operation
       .finally(() => this.pendingStarts.delete(operation))
@@ -119,17 +165,39 @@ class ClientJoiner {
       await this.hostCode(target, proofCode(token, "prepare"));
       prepared = true;
       const state = await this.sessions.start(
-        target.worker.session.projectId,
         null,
         null,
+        { userName: playerName },
         {
           debug: true,
+          localJoin: true,
           playerName,
           prepareClient: async (created, bridge) => {
             worker = created;
             checkStarting();
             await this.transport.prepare(context, created, bridge);
             checkStarting();
+            if (target.worker.session.storageMode === "isolated") {
+              const checkPair = () => {
+                checkStarting();
+                const current = this.bridge(created);
+                if (
+                  current.id !== bridge.id ||
+                  current.minecraftPid !== bridge.minecraftPid ||
+                  current.connectionGeneration !== bridge.connectionGeneration
+                )
+                  throw Error("新客户端连接代次已变化");
+              };
+              context.discovery = await this.discovery.open(
+                target.worker,
+                target.bridge,
+                created,
+                bridge,
+                netherNetId,
+                checkPair,
+              );
+              checkPair();
+            }
           },
           runtimeConfig: structuredClone(target.worker.sourceSnapshot.config),
         },
@@ -139,6 +207,7 @@ class ClientJoiner {
       );
       this.checkHost(target);
     } catch (error) {
+      context.discovery?.close();
       try {
         if (prepared) await this.hostCode(target, proofCode(token, "cleanup"));
       } catch (cleanupError) {
@@ -218,6 +287,7 @@ class ClientJoiner {
       }
     };
     const check = () => {
+      context.discovery?.assert();
       if (job.cancelled || this.closing) throw Error("自动加入已取消");
       this.checkHost(target);
       const current = this.bridge(worker);
@@ -325,6 +395,7 @@ class ClientJoiner {
         }
       }
     } finally {
+      context.discovery?.close();
       try {
         await this.transport.close(context);
       } catch (error) {

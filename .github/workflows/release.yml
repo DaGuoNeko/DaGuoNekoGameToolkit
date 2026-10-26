@@ -61,6 +61,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Updater UI acceptance failed' }
           node tests/terrain-ui.cjs
           if ($LASTEXITCODE -ne 0) { throw 'Terrain import UI acceptance failed' }
+          node tests/local-join-ui.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Local host selection UI acceptance failed' }
       - run: npm run package
       - name: Packaged client acceptance
         run: |

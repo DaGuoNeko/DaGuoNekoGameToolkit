@@ -330,6 +330,7 @@ export function WorldDashboard({
   onBack,
   onStart,
   onQuickTest,
+  onJoinClient,
   onSettings,
   onLogs,
   onStop,
@@ -548,6 +549,11 @@ export function WorldDashboard({
             <Button disabled={busy} onClick={onSettings}>
               {profile ? "存档设置" : "选择启动配置"}
             </Button>
+            {session?.running && (
+              <Button disabled={busy || !ready} onClick={() => onJoinClient(session.id)}>
+                加入此存档测试
+              </Button>
+            )}
             <Button disabled={busy} icon="import" onClick={() => setArchitectureOpen(true)}>
               地形与建筑导入
             </Button>

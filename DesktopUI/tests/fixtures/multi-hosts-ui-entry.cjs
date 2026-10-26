@@ -6,6 +6,15 @@ const path = require("node:path"),
   { promisify } = require("node:util");
 const root = process.env.DGN_UI_BUNDLE_DIR || path.resolve(__dirname, "../..");
 require("electron").app.setAppPath(root);
+if (process.env.DGN_LOCAL_JOIN_PROBE) {
+  globalThis.dgnLocalJoinProbe = {
+    async create(config) {
+      // 仅替代原生入房边界，产品 IPC、主机校验和快照选择仍使用真实实现。
+      require("node:fs").writeFileSync(process.env.DGN_LOCAL_JOIN_PROBE, JSON.stringify({world:config.world_name,mods:config.included_mod_dirs}));
+      throw Error("测试已确认目标：" + config.world_name);
+    },
+  };
+}
 globalThis.dgnTestIsolation = {
   prepare: async (worldId) => {
     let child;
@@ -40,6 +49,11 @@ const entry = path.join(
   compile = Module.prototype._compile;
 Module.prototype._compile = function (code, file) {
   if (path.resolve(file) === entry) {
+    if (process.env.DGN_LOCAL_JOIN_PROBE) {
+      const marker = "new ClientJoiner(launcher, debuggerService, runtimeRoot)";
+      if (code.split(marker).length !== 2) throw Error("Client join fixture marker changed");
+      code = code.replace(marker, "new ClientJoiner(launcher, debuggerService, runtimeRoot, { transport: globalThis.dgnLocalJoinProbe })");
+    }
     for (const [marker, replacement] of [
       ["query = queryProcesses,", "query = async () => [],"],
       [

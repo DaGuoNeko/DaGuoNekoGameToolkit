@@ -1,9 +1,16 @@
-param([int]$GameProcessId,[int]$LauncherProcessId,[string]$GamePath,[ValidateSet('status','play')][string]$Mode='status')
+param([int]$GameProcessId,[int]$LauncherProcessId,[string]$GamePath,[ValidateSet('status','play','udp')][string]$Mode='status')
 $ErrorActionPreference='Stop'
 [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
 try {
  $p=Get-CimInstance Win32_Process -Filter "ProcessId = $GameProcessId"
  if($null -eq $p -or $p.ParentProcessId -ne $LauncherProcessId -or -not [string]::Equals($p.ExecutablePath,$GamePath,[StringComparison]::OrdinalIgnoreCase)){throw 'GAME_OWNERSHIP_CHANGED'}
+ if($Mode -eq 'udp'){
+  $rows=@(Get-NetUDPEndpoint -OwningProcess $GameProcessId -ErrorAction SilentlyContinue | Where-Object {$_.LocalAddress -in @('::','::1','0.0.0.0','127.0.0.1')} | ForEach-Object {@{address=$_.LocalAddress;port=$_.LocalPort}})
+  $after=Get-CimInstance Win32_Process -Filter "ProcessId = $GameProcessId"
+  if($null -eq $after -or $after.CreationDate -ne $p.CreationDate -or $after.ParentProcessId -ne $LauncherProcessId){throw 'GAME_OWNERSHIP_CHANGED'}
+  @{ok=$true;endpoints=$rows}|ConvertTo-Json -Compress -Depth 4
+  exit 0
+ }
  Add-Type -TypeDefinition @'
 using System;using System.Text;using System.Runtime.InteropServices;using System.Threading;
 public static class DgnOreWindow {

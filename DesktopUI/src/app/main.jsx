@@ -375,6 +375,16 @@ function App() {
       setBusy("");
     }
   }
+  async function launchJoined(args) {
+    setBusy("正在启动联机客户端…");
+    try {
+      const result = await api("launch.joined", args);
+      receive(await api("launch.select", { sessionId: result.sessionId }));
+      go("logs");
+    } finally {
+      setBusy("");
+    }
+  }
   function stop(id) {
     const target =
       typeof id === "string"
@@ -522,6 +532,7 @@ function App() {
                 onStart={startTarget}
                 onQuickStart={startQuick}
                 onStartBlank={startBlank}
+                onStartJoined={launchJoined}
                 onLogs={async (sessionId) => {
                   try {
                     receive(await api("launch.select", { sessionId }));

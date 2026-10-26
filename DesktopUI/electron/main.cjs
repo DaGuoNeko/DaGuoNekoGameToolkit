@@ -750,6 +750,10 @@ async function dispatch(method, args, source = win) {
       });
     case "launch.blank":
       return launcher.startBlank(args.userName);
+    case "launch.hosts":
+      return clientJoiner.hosts();
+    case "launch.joined":
+      return { sessionId: await clientJoiner.launch(args.hostSessionId, args.playerName) };
     case "launch.select":
       return launcher.select(args.sessionId);
     case "launch.remove":

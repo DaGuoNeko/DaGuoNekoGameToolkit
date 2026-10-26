@@ -10,4 +10,6 @@ Electron utility process 持有存档互斥量、父进程句柄与 Job。创建
 
 这提供运行目录与会话隔离，不复制源代码。多个配置引用同一目录或上下级目录时，UI 和 MCP 会报告共享源码；需要分别修改时使用独立目录/工作副本。MCP 的代码、日志、重载及停止继续指定 sessionId/generation，不使用默认 mcdk_game 代替目标会话。联机页仍沿用现有单个对外共享房间流程。
 
+内置 MCDK 与同一已验证游戏构建的本机定向来宾也使用该桥：每个运行快照分配全新的 `DgnGC-R/L/W-*` 目录，归属记录为 run 路径，不挂载存档、不复用下载缓存。仅在该私有目录设置 OreUI 菜单选项。`local-discovery.cjs` 通过已核验 PID/父 PID/EXE 的 UDP 端口在回环地址间转发原生发现与协商，解决默认发现端口只能由先启动实例占用的问题；入房仍按完整 NetherNet ID 和房主回执验证，成功或终止后关闭发现转发。此流程没有更改桥 DLL、游戏二进制、公共游戏设置或防火墙。
+
 构建：`scripts/build-host-isolation.ps1 -Zig <Zig 0.13.0 的完整路径>`。源码复用 `native/ore-join/minhook` 中的 MinHook 1.3.4，许可证见 `licenses/OreJoin-MinHook-LICENSE.txt`；新的主线程引导与隔离实现为本项目代码。测试用原生 probe 仅输出到本目录 build，不进入发行包。`node --test tests/host-isolation.test.cjs` 覆盖原生目录重定向、进程组、重复启动锁、停止兼容和私有设置；真实游戏与发行验证记录保存在维护者本地，不随公开仓库分发。

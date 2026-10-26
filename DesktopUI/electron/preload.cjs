@@ -83,6 +83,8 @@ const methods = new Set([
   "launch.start",
   "launch.quick",
   "launch.blank",
+  "launch.hosts",
+  "launch.joined",
   "launch.select",
   "launch.remove",
   "profiles.create",

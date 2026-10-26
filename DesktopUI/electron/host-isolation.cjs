@@ -103,6 +103,104 @@ class HostIsolation {
     this.hashes.set(file, { key, hash });
     return hash;
   }
+  async prepareClient(runDirectory, config, launcher) {
+    if (
+      process.platform !== "win32" ||
+      !same(launcher, path.join(this.runtime, "mcdk.exe"))
+    )
+      return null;
+    if ((await this.digest(config.game_executable_path)) !== GAME_HASH)
+      return null;
+    if ((await this.digest(launcher)) !== MCDK_HASH)
+      throw Error("独立联机客户端需要使用已验证的内置 MCDK");
+    await directory(runDirectory);
+    const run = await fs.realpath(runDirectory);
+    const fingerprint = crypto
+      .createHash("sha256")
+      .update(run.toLowerCase())
+      .digest("hex");
+    const roots = ["R", "L", "W"].map((kind) =>
+      path.join(this.base, "DgnGC-" + kind + "-" + fingerprint.slice(0, 16)),
+    );
+    const [roaming, local, low] = roots;
+    if (roaming.replaceAll("\\", "/").split("/").length !== 5)
+      throw Error("当前用户目录层级不支持独立联机客户端");
+    const lease = await this.reserve(
+      this.runtime,
+      "Local\\DgnGuest-" + fingerprint,
+      null,
+    );
+    try {
+      // 每次来宾使用全新的目录，不复用下载缓存，也不挂载任何存档。
+      for (const root of roots) {
+        if (await stat(root))
+          throw Error("联机客户端运行目录已存在，已保留原内容");
+        await directory(root);
+        await fs.writeFile(
+          path.join(root, ".dgn-owner.json"),
+          JSON.stringify({ version: 1, run }),
+          { flag: "wx" },
+        );
+      }
+      await directory(path.join(local, "Temp"));
+      const optionsFile = path.join(
+        roaming,
+        "MinecraftPE_Netease/minecraftpe/options.txt",
+      );
+      await directory(path.dirname(optionsFile));
+      const env = {
+        APPDATA: roaming,
+        LOCALAPPDATA: local,
+        TEMP: path.join(local, "Temp"),
+        TMP: path.join(local, "Temp"),
+        DGN_ISO_ROAMING: roaming,
+        DGN_ISO_LOCAL: local,
+        DGN_ISO_LOW: low,
+        DGN_ISO_GAME: config.game_executable_path,
+        DGN_ISO_MCDK: launcher,
+        DGN_ISO_DLL: path.join(this.runtime, "native/dgn-host-isolation.dll"),
+        DGN_WORLD_SOURCE: "",
+        DGN_WORLD_MOUNT: "",
+        DGN_WORLD_VIEW: "",
+        DGN_PACK_VIEW: "",
+        DGN_PACK_MANIFESTS: "",
+      };
+      return {
+        roaming,
+        mode: "isolated",
+        stop: () => lease.stop(),
+        options: async () => {
+          const result = await this.gameOptions.prepareIsolated(optionsFile);
+          const { patchOptions } = require("./domains/game/game-options.cjs");
+          const { atomicWrite } = require("./services.cjs");
+          const before = await fs.readFile(optionsFile, "utf8");
+          // 仅本次私有菜单使用原生 OreUI 联机页；不改用户的游戏选项。
+          await atomicWrite(
+            optionsFile,
+            patchOptions(before, {
+              new_play_screen_beta_v2: "1",
+              has_dismissed_new_player_flow: "1",
+            }).text,
+          );
+          return result;
+        },
+        spawn: async (exe, args, options) => {
+          if (
+            (await this.digest(config.game_executable_path)) !== GAME_HASH ||
+            (await this.digest(exe)) !== MCDK_HASH
+          )
+            throw Error("游戏或启动器已变化");
+          return lease.spawn(exe, {
+            cwd: options.cwd,
+            env: { ...options.env, ...env },
+          });
+        },
+      };
+    } catch (e) {
+      await lease.stop();
+      throw e;
+    }
+  }
   async prepare(worldId, config, launcher, runDirectory, allowPrivate = true) {
     // Preserve legacy/custom launcher compatibility, but never allow it to run
     // a second host by pretending that its shared deployment is isolated.

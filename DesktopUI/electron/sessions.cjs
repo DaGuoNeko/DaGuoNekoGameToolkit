@@ -336,7 +336,7 @@ class Sessions extends EventEmitter {
         profileId = "blank-" + runId;
         profile = {
           id: profileId,
-          name: automation?.roomGuest
+          name: automation?.roomGuest || automation?.localJoin
             ? "联机客户端"
             : automation?.debug
               ? "AI 调试客户端"
@@ -472,6 +472,8 @@ class Sessions extends EventEmitter {
           auto_join_game: false,
           reset_world: false,
         };
+      if (!worldId && automation?.localJoin && this.isolation)
+        isolated = await this.isolation.prepareClient(runDir, config, this.store.value.settings.LauncherPath || this.runtime);
       if (automation?.playerName !== undefined)
         config.user_name = menuPlayerName(automation.playerName);
       // Profile launches always provide the toolbox's in-world capabilities,
@@ -626,7 +628,7 @@ class Sessions extends EventEmitter {
         worldId: worldId || null,
         profileName: profile.name,
         userName: config.user_name,
-        blank: !!blank,
+        blank: !!blank && !automation?.localJoin,
         quickTest: !!quickTest,
         runDirectory: runDir,
         storageMode: isolated?.mode || (isolated ? "isolated" : "shared"),

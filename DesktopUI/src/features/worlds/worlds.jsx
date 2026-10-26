@@ -13,6 +13,7 @@ import {
 import "./worlds.css";
 import { WorldDashboard } from "./world-actions.jsx";
 import { QuickTestDialog } from "./quick-test.jsx";
+import { LocalJoinDialog } from "./local-join.jsx";
 import {
   AUTO_IMPORT_PROFILE,
   AUTO_IMPORT_LABEL,
@@ -46,6 +47,7 @@ export function WorldHome({
   onStart,
   onQuickStart,
   onStartBlank,
+  onStartJoined,
   onLogs,
   onStop,
 }) {
@@ -54,6 +56,7 @@ export function WorldHome({
   );
   const [focusId, setFocusId] = useState(activeHost?.worldId || "");
   const [quickWorld, setQuickWorld] = useState(null);
+  const [joinTarget, setJoinTarget] = useState(null);
   const [worlds, setWorlds] = useState([]),
     [error, setError] = useState(""),
     [working, setWorking] = useState(false),
@@ -226,6 +229,16 @@ export function WorldHome({
       w.name.toLowerCase().includes(query.toLowerCase()),
   );
   const focused = worlds.find((w) => w.id === focusId && !w.deleted);
+  const joinDialog = joinTarget && (
+    <LocalJoinDialog
+      initialHostId={joinTarget.hostSessionId}
+      onClose={() => setJoinTarget(null)}
+      onStart={async args => {
+        await onStartJoined(args);
+        setJoinTarget(null);
+      }}
+    />
+  );
   const quickDialog = quickWorld && (
     <QuickTestDialog
       world={quickWorld}
@@ -250,6 +263,7 @@ export function WorldHome({
           onBack={() => setFocusId("")}
           onStart={onStart}
           onQuickTest={() => setQuickWorld(focused)}
+          onJoinClient={hostSessionId => setJoinTarget({ hostSessionId })}
           onLogs={onLogs}
           onStop={onStop}
           onSwitchWorld={setFocusId}
@@ -259,6 +273,7 @@ export function WorldHome({
           }}
         />
         {quickDialog}
+        {joinDialog}
       </>
     );
   return (
@@ -274,6 +289,9 @@ export function WorldHome({
         title="存档"
         subtitle="每个存档选择自己的启动配置；联机客户端可单独打开游戏。"
       >
+        <Button primary disabled={busy} onClick={() => setJoinTarget({ hostSessionId: "" })}>
+          启动联机客户端
+        </Button>
         <Button primary disabled={busy} onClick={() => open("menu")}>
           启动空白客户端
         </Button>
@@ -823,6 +841,7 @@ export function WorldHome({
         </Modal>
       )}
       {quickDialog}
+      {joinDialog}
     </FileDropZone>
   );
 }

@@ -120,7 +120,9 @@ socket.on("data", (chunk) => {
         result = { accepted: true, addons: request.params.addons };
       } else if (request.method === "game/code/execute") {
         if (code.includes("raise ValueError")) throw Error("fixture exception");
-        if (code.includes("DGN_ACTION_PLAYER"))
+        if (code.includes("clientlevel.get_nethernet_id"))
+          result = {netherNetId:String(process.pid)};
+        else if (code.includes("DGN_ACTION_PLAYER"))
           result = { playerId: "-123456789123456" };
         else if (code.includes("DGN_ACTION_READY")) result = { ready: true };
         else if (code.includes("DGN_TERRAIN_PROBE")) result = { dimension: launchConfig.world_name.includes("地形来源副本") ? 0 : 3, position: [10, 64, 20], min: [0, -64, 16], max: [15, 319, 31] };

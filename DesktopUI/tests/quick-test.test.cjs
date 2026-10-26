@@ -133,12 +133,23 @@ test("quick world launch works without any profiles, persists choices and keeps 
     }),
     /重复启动/,
   );
-  await sessions.stop();
+  const host=sessions.current, hostConfig=structuredClone(host.sourceSnapshot.config);
+  await sessions.start(null,null,{userName:"QuickGuest"},{debug:true,localJoin:true,runtimeConfig:structuredClone(hostConfig),playerName:"QuickGuest"});
+  const guest=sessions.current;
+  assert.equal(guest.session.profileName,"联机客户端");assert.equal(guest.session.blank,false);
+  assert.deepEqual(guest.sourceSnapshot.config.included_mod_dirs,hostConfig.included_mod_dirs);
+  assert.deepEqual(guest.sourceSnapshot.config.window_style,hostConfig.window_style);
+  assert.notEqual(guest.session.runDirectory,host.session.runDirectory);
+  assert.notEqual(guest.sourceSnapshot.config.mcp_server_config.server_port,hostConfig.mcp_server_config.server_port);
+  assert.equal(store.value.projects.length,0);assert(host.session.running);
+  assert.deepEqual(host.sourceSnapshot.config,hostConfig);
+  await sessions.stop(guest.session.id);
+  await sessions.stop(host.session.id);
   await sessions.start(null, world.id, null, {
     quickTest: { modIds: [], revision: catalog.revision },
   });
   const empty = JSON.parse(
-    await fs.readFile(path.join(launches[1].cwd, ".mcdev.json"), "utf8"),
+    await fs.readFile(path.join(launches.at(-1).cwd, ".mcdev.json"), "utf8"),
   );
   assert.deepEqual(empty.included_mod_dirs, []);
   assert.deepEqual((await worlds.list()).worlds[0].quickTestModIds, []);

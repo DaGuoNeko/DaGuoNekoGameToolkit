@@ -11,6 +11,7 @@
 - React、React DOM、jsonc-parser：对应版权及许可证文件附于本目录。
 - ZIP 存档导入使用 yauzl 3.4.0 与 pend 1.2.0（MIT），许可证见 `yauzl-MIT.txt`、`pend-MIT.txt`。
 - Electron 运行时的许可证与 Chromium 第三方说明保留在发布目录中。
+- 本机多主机的 NetherNet 局域网发现报文参考 df-mc/go-nethernet 的 `discovery`（提交 `215e46422b5831d6ddc6146003617dc3f1ff7c26`，MIT），协议封装使用 Node 内置密码库重新实现；未引入 Go 运行时。许可证见 `NetherNet-MIT.txt`，来源：https://github.com/df-mc/go-nethernet。
 - 多客户端 MCP 使用官方 `@modelcontextprotocol/sdk` 1.32.1 与 Ajv 8.20.0。所有生产 JavaScript 依赖的固定版本、版权与完整许可证文本汇总于 `JavaScript-dependencies-NOTICES.txt`；生成脚本为 `DesktopUI/scripts/mcp-licenses.mjs`。未替换原 MCDK 二进制或原 Codex MCP 配置项。
 - 调试模块从 Dofes/mcdev-tools 0.1.32 的上述固定提交独立移植，模块对应关系与适配说明见源码 `DesktopUI/electron/debug/vendor/SOURCES.md`。MIT 许可证保留于本目录。
 - `runtime/native/koffi.node` 与 `mcdev-tracy-bridge.dll` 独立复制自本机已安装的官方 MC Dev Tools 0.1.32 扩展分发目录；软件运行无需该扩展。Tracy 桥接 API 为 1，Tracy 协议为 0.11.1。Koffi、Tracy、Capstone 的许可证随本目录分发。

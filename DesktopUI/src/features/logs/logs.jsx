@@ -9,6 +9,16 @@ const api = (method, args = {}) => window.toolkit.call(method, args);
 const logColors = Object.fromEntries(
   Object.entries(palette).map(([key, value]) => ["--log-" + key, value]),
 );
+function joinLabel(session) {
+  const join = session.autoJoin;
+  const phase = !session.running ? "已结束" : {
+    joined: "入房已验证",
+    failed: "加入失败",
+    needs_attention: "需要处理",
+    waiting_assertion: "需要处理",
+  }[join.phase] || "正在加入";
+  return `目标：${join.libraryWorldName || join.worldName} · ${phase}`;
+}
 const LogText = React.memo(function LogText({ text, stream, regex }) {
   return (
     <span className="log-text">
@@ -542,7 +552,7 @@ export function LogsPage({ state, receive, stop, busy, report }) {
             <div className="log-session-tile" key={s.id}>
               <button
                 className="log-session-card"
-                title={`${s.profileName || s.projectName} · ${s.userName || "玩家"} · ${s.blank ? "空白客户端" : s.worldName || "联机客户端"} · PID ${s.pid} · ${new Date(s.startedAt).toLocaleString()}`}
+                title={`${s.profileName || s.projectName} · ${s.userName || "玩家"} · ${s.autoJoin ? joinLabel(s) + " · " + s.autoJoin.message : s.blank ? "空白客户端" : s.worldName || "联机客户端"} · PID ${s.pid} · ${new Date(s.startedAt).toLocaleString()}`}
                 aria-label={`查看会话 ${s.profileName || s.projectName} ${s.userName || ""} PID ${s.pid}`}
                 disabled={deleting}
                 aria-pressed={
@@ -558,7 +568,7 @@ export function LogsPage({ state, receive, stop, busy, report }) {
                 </span>
                 <span>
                   {s.userName || "玩家"} ·{" "}
-                  {s.blank
+                  {s.autoJoin ? joinLabel(s) : s.blank
                     ? "菜单"
                     : s.role === "menu"
                       ? "客户端"
