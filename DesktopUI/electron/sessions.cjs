@@ -14,6 +14,7 @@ const { normalizeActions } = require("./domains/worlds/world-actions.cjs");
 const { applyWindowSize } = require("./window-size.cjs");
 const { quickTestMods } = require("./domains/reload/quick-test.cjs");
 const { sourceSelection } = require("./domains/reload/reload-sources.cjs");
+const { inspectEngine } = require("./domains/client/engine-profiles.cjs");
 class Sessions extends EventEmitter {
   constructor(
     store,
@@ -28,6 +29,7 @@ class Sessions extends EventEmitter {
       menuName,
       detectPids,
       discover = discoverGames,
+      engineInfo = inspectEngine,
       launcherOptions = {},
     } = {},
   ) {
@@ -44,6 +46,7 @@ class Sessions extends EventEmitter {
       menuName,
       detectPids,
       discover,
+      engineInfo,
       launcherOptions,
     });
     this.workers = [];
@@ -408,6 +411,12 @@ class Sessions extends EventEmitter {
         }
       }
       let launchActions = [];
+      const engine = await this.engineInfo(config.game_executable_path);
+      if (
+        automation?.expectedGameDigest &&
+        automation.expectedGameDigest !== engine.digest
+      )
+        throw Error("主机与来宾游戏构建不一致，未启动客户端");
       if (worldId) {
         const world = await this.worlds.launchWorld(
           worldId,
@@ -604,11 +613,19 @@ class Sessions extends EventEmitter {
         bridge,
         worlds: ownedWorlds,
         detectRunning,
-        beforeSpawn: isolated
-          ? isolated.options
-          : this.gameOptions
-            ? () => this.gameOptions.prepare()
-            : undefined,
+        beforeSpawn: async () => {
+          const applied = isolated
+            ? await isolated.options()
+            : this.gameOptions
+              ? await this.gameOptions.prepare()
+              : { changed: [] };
+          await automation?.preflight?.();
+          if (
+            (await this.engineInfo(config.game_executable_path)).digest !== engine.digest
+          )
+            throw Error("游戏程序在启动准备期间已变化，未启动本次会话");
+          return applied;
+        },
       });
       worker.sourceSnapshot = { project: profile, config };
       worker.launchSource = launchSource;
@@ -628,6 +645,9 @@ class Sessions extends EventEmitter {
         worldId: worldId || null,
         profileName: profile.name,
         userName: config.user_name,
+        engineDigest: engine.digest,
+        engineVersion: engine.version,
+        engineProfile: engine.profile,
         blank: !!blank && !automation?.localJoin,
         quickTest: !!quickTest,
         runDirectory: runDir,

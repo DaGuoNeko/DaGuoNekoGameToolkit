@@ -106,6 +106,21 @@ function fixture() {
   return { router, workers, bridges, calls };
 }
 const json = (value) => JSON.parse(value.content[0].text);
+test("automation publishes the same registered capabilities and immutable session identity", async () => {
+  const { router, workers } = fixture();
+  router.sessions.isolation = {};
+  router.store.value.settings = { IndependentWorlds: true };
+  const { profilesForDiscovery } = require("../electron/domains/client/engine-profiles.cjs");
+  const profiles = profilesForDiscovery();
+  workers[0].session.engineDigest = profiles[0].digest;
+  workers[0].session.engineVersion = profiles[0].version;
+  workers[0].session.engineProfile = profiles[0];
+  const status = json(await router.call("toolbox_status"));
+  assert.deepEqual(status.capabilities.gameVersions, profiles);
+  assert.deepEqual(status.capabilities.isolatedHostGameVersions, profiles.filter(p => p.isolatedHost).map(p => p.version));
+  assert.equal(status.clients[0].engineDigest, profiles[0].digest);
+  assert.equal(status.clients[0].engineProfile.isolatedHost, false);
+});
 test("automation routes logs/code/MCDK/stop to explicit client and rejects stale/foreign session", async () => {
   const { router, calls, bridges } = fixture();
   assert.equal(

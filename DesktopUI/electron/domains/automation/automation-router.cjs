@@ -1,4 +1,5 @@
 const crypto = require("node:crypto");
+const { profilesForDiscovery } = require("../client/engine-profiles.cjs");
 const {
   validate,
   result,
@@ -52,6 +53,9 @@ class AutomationRouter {
           worldId: s.worldId,
           worldName: s.worldName,
           storageMode: s.storageMode || "shared",
+          engineVersion: s.engineVersion || null,
+          engineDigest: s.engineDigest || null,
+          engineProfile: s.engineProfile || null,
           sourceRoots: s.sourceRoots || [],
           sharedSources: sharedSources(
             s.sourceRoots,
@@ -128,8 +132,11 @@ class AutomationRouter {
               !!this.sessions.isolation &&
               this.store.value.settings.IndependentWorlds !== false,
             isolatedHostGameVersions: this.sessions.isolation
-              ? ["3.10.0.436581"]
+              ? profilesForDiscovery()
+                  .filter((p) => p.isolatedHost)
+                  .map((p) => p.version)
               : [],
+            gameVersions: profilesForDiscovery(),
             autoJoinTransport: this.joiner ? "oreui" : null,
             autoJoinAssertionPolicy: this.joiner ? "pause_preserve" : null,
           },

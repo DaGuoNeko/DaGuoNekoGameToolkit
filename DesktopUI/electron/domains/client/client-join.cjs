@@ -11,7 +11,9 @@ class ClientJoiner {
     debug,
     runtime,
     {
-      transport = new OreJoin(runtime),
+      transport = new OreJoin(runtime, {
+        startupReady: (worker, pid) => sessions.gameLogs?.startupReady(worker, pid),
+      }),
       discovery = new LocalDiscovery(runtime),
       timeoutMs = 120000,
       wait = delay,
@@ -82,6 +84,10 @@ class ClientJoiner {
           gamePid: bridge?.minecraftPid || null,
           ready: !!bridge,
           reason,
+          engineVersion: w.session.engineVersion || null,
+          engineProfile: w.session.engineProfile || null,
+          autoJoinSupported: !!w.session.engineProfile?.autoJoin,
+          storageMode: w.session.storageMode,
         };
       });
   }
@@ -162,6 +168,9 @@ class ClientJoiner {
       prepared = false;
     try {
       checkStarting();
+      const expectedGameDigest = target.worker.session.engineDigest;
+      if (!expectedGameDigest || expectedGameDigest !== context.engine?.digest)
+        throw Error("房主游戏文件与启动时的构建不一致，请重新启动房主后再加入");
       await this.hostCode(target, proofCode(token, "prepare"));
       prepared = true;
       const state = await this.sessions.start(
@@ -172,6 +181,8 @@ class ClientJoiner {
           debug: true,
           localJoin: true,
           playerName,
+          expectedGameDigest,
+          preflight: checkStarting,
           prepareClient: async (created, bridge) => {
             worker = created;
             checkStarting();
@@ -206,6 +217,8 @@ class ClientJoiner {
         (w) => w.session?.id === state.selectedSession,
       );
       this.checkHost(target);
+      if (worker?.session.engineDigest !== expectedGameDigest)
+        throw Error("主客机游戏构建不一致，已停止新客户端");
     } catch (error) {
       context.discovery?.close();
       try {

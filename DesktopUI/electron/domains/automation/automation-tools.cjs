@@ -80,13 +80,13 @@ const tools = [
   ),
   tool(
     "launch_joined_client",
-    "新开指定名字的客户端并自动加入 hostSessionId 指定的本机存档主房间，继承房主本次运行配置。返回后在后台加入，请用 list_clients 轮询 autoJoin；仅 joined 表示房主验证成功。waiting_assertion 表示断言弹窗待用户处理，关闭弹窗后在本次约120秒期限内继续；needs_attention 表示自动流程已结束但客户端保留，需手动处理，不要换 requestId 重开。仅具备 autoJoinAssertionPolicy=pause_preserve 的后端支持此行为，旧后端仍会停止断言客户端。其他 failed 会停止本次新客户端。通过官方 OreUI 数据与接口选房，不使用截图或 OCR；当前支持已验证的开发版 3.10.0.420447、3.10.0.436581（双方须为同一构建），房主必须加载开发辅助模组；不会接管旧客户端。相同启动重试必须复用 instanceId/requestId。",
+    "新开指定名字的客户端并自动加入 hostSessionId 指定的本机存档主房间，继承房主本次运行配置。返回后在后台加入，请用 list_clients 轮询 autoJoin；仅 joined 表示房主验证成功。waiting_assertion 表示断言弹窗待用户处理，关闭弹窗后在本次约120秒期限内继续；needs_attention 表示自动流程已结束但客户端保留，需手动处理，不要换 requestId 重开。仅具备 autoJoinAssertionPolicy=pause_preserve 的后端支持此行为，旧后端仍会停止断言客户端。其他 failed 会停止本次新客户端。通过官方 OreUI 数据与接口选房，不使用截图或 OCR；支持构建及隔离能力见 toolbox_status.capabilities.gameVersions，双方必须匹配房主启动时的同一 EXE 指纹。房主必须加载开发辅助模组；不会接管旧客户端。相同启动重试必须复用 instanceId/requestId。",
     { ...launch, hostSessionId: text() },
     ["instanceId", "requestId", "playerName", "hostSessionId"],
   ),
   tool(
     "launch_world",
-    "用存档已绑定配置启动独立主机，本次运行开启调试模组与 MCP，不改配置模板。内置 MCDK 配合开发版 3.10.0.436581 支持多个不同存档同时运行；同一存档禁止重复启动。先检查 toolbox_status.capabilities.isolatedWorldHosts，再按返回的 sessionId/generation 分别控制。list_clients 的 sharedSources 提示共用源码；若需要独立修改源码，请使用不同目录或工作副本。重复启动请求复用 requestId。",
+    "用存档已绑定配置启动主机，本次运行开启调试模组与 MCP，不改配置模板。内置 MCDK 配合具备 isolatedHost 能力的构建支持多个不同存档同时运行；同一存档禁止重复启动。先检查 toolbox_status.capabilities.isolatedWorldHosts 与 gameVersions，再按返回的 sessionId/generation 分别控制；list_clients.storageMode 是本次实际隔离模式。sharedSources 提示共用源码；若需要独立修改源码，请使用不同目录或工作副本。重复启动请求复用 requestId。",
     { instanceId: text(), requestId: text(), worldId: text() },
     ["instanceId", "requestId", "worldId"],
   ),

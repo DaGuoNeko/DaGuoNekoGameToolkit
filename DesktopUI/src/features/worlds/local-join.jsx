@@ -55,6 +55,7 @@ export function LocalJoinDialog({ initialHostId = "", onClose, onStart }) {
               loading ||
               !!readError ||
               !selected?.ready ||
+              !selected?.autoJoinSupported ||
               !playerName.trim()
             }
             onClick={async () => {
@@ -88,11 +89,22 @@ export function LocalJoinDialog({ initialHostId = "", onClose, onStart }) {
           placeholder="请选择主存档"
           options={hosts.map((h) => ({
             value: h.sessionId,
-            label: `${h.worldName} · 房主 ${h.playerName} · PID ${h.gamePid || h.launcherPid}${h.ready ? "" : "（未就绪）"}`,
-            disabled: !h.ready,
+            label: `${h.worldName} · 房主 ${h.playerName} · ${h.engineVersion || "版本未验证"}${h.ready ? "" : "（未就绪）"}`,
+            disabled: !h.ready || !h.autoJoinSupported,
           }))}
         />
       </Field>
+      {selected && (
+        <Field label="本次联机游戏版本">
+          <Select disabled value={selected.engineVersion || "unknown"} options={[{
+            value: selected.engineVersion || "unknown",
+            label: selected.engineVersion
+              ? `${selected.engineVersion} · 跟随房主启动快照`
+              : "当前构建未验证，无法自动加入",
+          }]} />
+          <p className="muted">{selected.engineProfile?.label || "请选择使用已验证构建的主存档"}。来宾与房主必须是同一构建，其他版本请在启动配置中选择后新开主存档。</p>
+        </Field>
+      )}
       <Field label="联机玩家名">
         <input
           value={playerName}

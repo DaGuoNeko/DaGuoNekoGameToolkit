@@ -5,6 +5,16 @@ const fs = require("node:fs/promises"),
   os = require("node:os");
 const { HostIsolation } = require("../electron/host-isolation.cjs");
 const { GameOptions } = require("../electron/domains/game/game-options.cjs");
+test("an auto-join entry without isolation capability cannot reserve or create private guest data", { skip: process.platform !== "win32" }, async () => {
+  const runtime = path.resolve("runtime");
+  const isolation = new HostIsolation(runtime, null, null, {
+    reserve: async () => { assert.fail("unverified isolation must not reserve a process group"); },
+  });
+  for (const digest of ["9be281dbe08bc591336680d5a50f94d87f3c57ee75b3afcb3cabdf03347e0269", "unknown"]) {
+    isolation.digest = async () => digest;
+    assert.equal(await isolation.prepareClient("unused", { game_executable_path: "unused" }, path.join(runtime, "mcdk.exe")), null);
+  }
+});
 test(
   "joined clients get separate known-folder roots and private OreUI options without mounting host worlds",
   { skip: process.platform !== "win32" },

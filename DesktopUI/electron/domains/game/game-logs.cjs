@@ -139,8 +139,17 @@ class GameLogs {
       error: r?.error || this.error || "",
     };
   }
+  startupReady(worker, pid) {
+    const r = this.records.get(worker.session.id),
+      identity = this.identity(worker);
+    return !!(worker.session.running && r?.startupComplete && !r.finished &&
+      identity?.pid === pid && r.signature === JSON.stringify(identity));
+  }
   append(r, stream, text) {
     if (!text.trim()) return;
+    // 只接受已核验进程的引擎启动记录，内容日志和脚本输出不能放行菜单操作。
+    if (stream === "engine" && /\] SerialWorkList \[OnAppStart\] end summary\. Total Duration: \d/.test(text))
+      r.startupComplete = true;
     const entry = {
       id: ++r.serial,
       time: new Date().toISOString(),

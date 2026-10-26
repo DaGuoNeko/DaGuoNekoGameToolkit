@@ -74,6 +74,8 @@ const methods = new Set([
   "game-options.folder",
   "project.backup",
   "games.discover",
+  "games.inspect",
+  "games.supported",
   "project.read",
   "project.save",
   "project.open-folder",

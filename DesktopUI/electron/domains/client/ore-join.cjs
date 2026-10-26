@@ -71,6 +71,7 @@ class OreJoin {
       Cdp = OreCdp,
       sleep = wait,
       menuDelay = 10000,
+      startupReady = () => true,
     } = {},
   ) {
     Object.assign(this, {
@@ -82,6 +83,7 @@ class OreJoin {
       Cdp,
       sleep,
       menuDelay,
+      startupReady,
     });
   }
   async create(config, token, check) {
@@ -197,7 +199,9 @@ class OreJoin {
       check();
       try {
         await this.inspect(context);
-        break;
+        if (this.startupReady(context.worker, context.pid)) break;
+        if (Date.now() >= deadline) throw Error("等待游戏初始化完成超时，未发送菜单操作");
+        await this.sleep(400);
       } catch (e) {
         if (!e.transient || Date.now() > deadline) throw e;
         await this.sleep(400);

@@ -113,6 +113,8 @@ const { WorkspaceStore } = require("../electron/services.cjs"),
     );
     await select.click();
     await page.getByRole("option", { name: /^World B ·/ }).click();
+    assert.match(await page.getByRole("combobox", { name: "本次联机游戏版本", exact: true }).innerText(), /3\.10\.0\.436581/);
+    assert(await page.getByRole("combobox", { name: "本次联机游戏版本", exact: true }).isDisabled());
     await page.getByLabel("联机玩家名", { exact: true }).fill("GuestB");
     await fs.mkdir("test-results", { recursive: true });
     await page.screenshot({ path: "test-results/local-join-picker.png" });
@@ -149,6 +151,17 @@ const { WorkspaceStore } = require("../electron/services.cjs"),
       .getByRole("combobox", { name: "加入哪个主存档", exact: true })
       .filter({ hasText: /World B/ })
       .waitFor();
+    await page.getByRole("dialog").getByRole("button", { name: "取消", exact: true }).click();
+    await app.evaluate(() => {
+      const sessions = globalThis.dgnFixtureSessions;
+      const stopped = sessions.workers.find(w => !w.session.running);
+      stopped.session.autoJoin = { phase: "failed", worldName: "Failed target", message: "fixture join failure" };
+      sessions.publish();
+    });
+    await page.locator(".sidebar").getByRole("button", { name: "运行日志", exact: true }).click();
+    const failed = page.getByText(/目标：Failed target · 加入失败/);
+    await failed.waitFor();
+    assert.match(await failed.locator("..").getAttribute("title"), /fixture join failure/);
     assert.deepEqual(errors, []);
     await fs.writeFile(
       "test-results/local-join-ui.json",
@@ -163,6 +176,8 @@ const { WorkspaceStore } = require("../electron/services.cjs"),
             "selected B runtime reaches native boundary",
             "stopped A does not switch to B",
             "world console preselects its own host",
+            "guest version is locked to host snapshot",
+            "stopped failure retains target, result and error detail",
           ],
         },
         null,

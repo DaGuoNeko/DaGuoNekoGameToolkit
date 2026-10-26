@@ -40,7 +40,9 @@ class Rooms {
     });
     this.makeNetwork =
       options.makeNetwork || (() => new EasyTier(runtime, dataRoot));
-    this.transport = options.transport || new OreJoin(runtime);
+    this.transport = options.transport || new OreJoin(runtime, {
+      startupReady: (worker, pid) => sessions.gameLogs?.startupReady(worker, pid),
+    });
     this.checkEngine = options.checkEngine || checkEngine;
     this.clock = options.clock || (() => Date.now());
     this.wait = options.wait || delay;

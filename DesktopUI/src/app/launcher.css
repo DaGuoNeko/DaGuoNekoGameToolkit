@@ -64,6 +64,33 @@
 .discovery-row > p {
   flex-basis: 100%;
 }
+.engine-capabilities {
+  width: 100%;
+  padding: 14px 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  overflow-x: auto;
+}
+.engine-capabilities summary {
+  cursor: pointer;
+}
+.engine-capabilities p {
+  margin: 12px 0;
+}
+.engine-capabilities table {
+  width: 100%;
+  border-collapse: collapse;
+  white-space: nowrap;
+  text-align: left;
+}
+.engine-capabilities th, .engine-capabilities td {
+  padding: 10px 14px 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.engine-capabilities tr:last-child td {
+  border-bottom: 0;
+}
 .log-line {
   content-visibility: auto;
   contain-intrinsic-size: auto 28px;

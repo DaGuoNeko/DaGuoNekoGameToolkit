@@ -1,31 +1,21 @@
-const fs = require("node:fs/promises"),
-  path = require("node:path"),
-  crypto = require("node:crypto"),
+const path = require("node:path"),
   net = require("node:net");
-const { createReadStream } = require("node:fs");
 const execFile = require("node:util").promisify(
   require("node:child_process").execFile,
 );
-const supported = new Map(Object.entries(require("../../supported-engines.json")));
+const { inspectEngine, profilesForDiscovery } = require("./engine-profiles.cjs");
 async function checkEngine(file) {
-  const real = await fs.realpath(file),
-    before = await fs.stat(real);
-  if (!before.isFile() || before.size > 512 * 1024 * 1024)
-    throw Error("游戏程序无效");
-  const hash = crypto.createHash("sha256");
-  for await (const chunk of createReadStream(real)) hash.update(chunk);
-  const digest = hash.digest("hex"),
-    after = await fs.stat(real);
-  if (before.size !== after.size || before.mtimeMs !== after.mtimeMs)
-    throw Error("游戏程序在检查期间发生变化");
-  const version = supported.get(digest);
-  if (!version)
+  const engine = await inspectEngine(file);
+  if (!engine.profile?.autoJoin)
     throw Error(
       "当前游戏程序尚未适配原生自动联机；已验证开发版 " +
-        [...new Set(supported.values())].join("、") +
+        profilesForDiscovery()
+          .filter((item) => item.autoJoin)
+          .map((item) => item.version)
+          .join("、") +
         "。请使用已适配版本，或启动普通客户端手动联机。",
     );
-  return { version, digest, file: real };
+  return engine;
 }
 async function reservePort() {
   return new Promise((resolve, reject) => {

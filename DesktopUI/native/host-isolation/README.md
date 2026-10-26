@@ -2,6 +2,8 @@
 
 自有 Windows x64 启动桥，保留原 MCDK v1.6.1 和游戏二进制。当前仅为 SHA-256 已登记的开发版 3.10.0.436581 启用；其他构建和自定义启动器保留兼容单主机方式。“设置 → 存档主机 → 启用独立主机”可关闭此功能，修改用于后续启动。
 
+Node 从 `electron/supported-engines.json` 的 `isolatedHost` / `isolatedClient` 决定各自能力；自动入房支持不等于隔离支持。当前 3.10.0.420447 保留自动入房登记，隔离未开放。MCDK 固定哈希、启动前复核、Known Folder 桥、进程归属与存档锁仍须全部通过，不能只添加版本显示来开启新构建。
+
 每个实际存档路径对应独立 Roaming、Local、LocalLow 环境，位于当前用户的 `DgnGameToolkitHosts` 目录。保持原版 Windows Python 模组加载器需要的目录层级，拒绝被重定向的运行根目录。运行环境中的受控 junction 指向原存档；复制存档和直接使用原目录的保存位置不变。自带包通过本次会话的 `runs/<session>/world-packs/` 注册，原地图源码目录保持原位置；原生桥只把包目录和包清单映射到运行目录，数据库与进度仍写回实际存档。新存档使用 MCDevTool 的公开默认 level.dat 模板初始化，再由原 MCDK 应用世界规则。
 
 Electron utility process 持有存档互斥量、父进程句柄与 Job。创建 MCDK 时通过 `PROC_THREAD_ATTRIBUTE_JOB_LIST` 原子加入带 KILL_ON_JOB_CLOSE 的 Job；在自有新进程的主线程入口前执行引导，加载隔离 DLL 后等待工具箱放行，随后进入原始入口。MCDK 仅对指定游戏 EXE 的 CreateProcessW 作相同处理。兼容其原 CREATE_SUSPENDED / ResumeThread 协议；不对既有游戏补装隔离。

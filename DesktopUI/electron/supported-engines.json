@@ -1,4 +1,16 @@
 {
-  "9be281dbe08bc591336680d5a50f94d87f3c57ee75b3afcb3cabdf03347e0269": "3.10.0.420447",
-  "489a164d5f37048fcebf941bfefba4a50ee0dabfbb7f2f2169c09600b2a4579c": "3.10.0.436581"
+  "9be281dbe08bc591336680d5a50f94d87f3c57ee75b3afcb3cabdf03347e0269": {
+    "version": "3.10.0.420447",
+    "autoJoin": true,
+    "isolatedHost": false,
+    "isolatedClient": false,
+    "label": "自动入房已验证 · 独立隔离待验证"
+  },
+  "489a164d5f37048fcebf941bfefba4a50ee0dabfbb7f2f2169c09600b2a4579c": {
+    "version": "3.10.0.436581",
+    "autoJoin": true,
+    "isolatedHost": true,
+    "isolatedClient": true,
+    "label": "自动入房、独立主机与来宾已验证"
+  }
 }

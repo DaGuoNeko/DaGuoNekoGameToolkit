@@ -663,7 +663,7 @@ function App() {
                 </Section>
                 <Section
                   title="存档主机"
-                  description="独立主机可同时运行不同存档。当前支持内置 MCDK 与开发版 3.10.0.436581；其他版本使用兼容单主机模式。"
+                  description="独立主机可同时运行不同存档，需要内置 MCDK 和已验证隔离能力的游戏构建，详见上方版本能力表；其他构建使用兼容单主机模式。"
                 >
                   <label className="check-row">
                     <input

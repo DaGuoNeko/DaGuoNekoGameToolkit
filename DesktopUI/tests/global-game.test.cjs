@@ -141,6 +141,14 @@ test("inherited launches follow global changes, overrides remain pinned, and pri
     "",
   );
   assert.equal((await profiles.read(inherited.project.id)).raw, inherited.raw);
+  const { inspectEngine } = require("../electron/domains/client/engine-profiles.cjs");
+  assert.equal(manager.workers[0].session.engineDigest, (await inspectEngine(a)).digest);
+  assert.notEqual(manager.workers[0].session.engineDigest, manager.workers[1].session.engineDigest);
+  await assert.rejects(manager.start(inherited.project.id, null, null, {
+    runtimeConfig: structuredClone(snapshots[0]),
+    expectedGameDigest: (await inspectEngine(b)).digest,
+  }), /构建不一致/);
+  assert.equal(launched.length, 3);
   await store.updateSettings({ GamePath: path.join(root, "missing.exe") });
   await assert.rejects(
     manager.start(inherited.project.id),
@@ -162,4 +170,10 @@ test("inherited launches follow global changes, overrides remain pinned, and pri
   assert.equal(joined.user_name, "JoinedSnapshot");
   assert.equal(joined.auto_join_game, false);
   assert.equal((await profiles.read(inherited.project.id)).raw, inherited.raw);
+  manager.gameOptions = { prepare: async () => {
+    await fs.writeFile(a, "build replaced during preparation");
+    return { changed: [] };
+  } };
+  await assert.rejects(manager.start(pinned.project.id), /启动准备期间已变化/);
+  assert.equal(launched.length, 4);
 });

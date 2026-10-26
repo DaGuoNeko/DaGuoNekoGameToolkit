@@ -5,20 +5,11 @@ import { useLogFollow } from "./log-follow.jsx";
 import { useDebugSession } from "../debug/debug-session.jsx";
 import { ReloadActions } from "../debug/debugger.jsx";
 import { logQuery, highlightTokens } from "../../../shared/log-search.cjs";
+import { joinLabel } from "../../../shared/join-status.cjs";
 const api = (method, args = {}) => window.toolkit.call(method, args);
 const logColors = Object.fromEntries(
   Object.entries(palette).map(([key, value]) => ["--log-" + key, value]),
 );
-function joinLabel(session) {
-  const join = session.autoJoin;
-  const phase = !session.running ? "已结束" : {
-    joined: "入房已验证",
-    failed: "加入失败",
-    needs_attention: "需要处理",
-    waiting_assertion: "需要处理",
-  }[join.phase] || "正在加入";
-  return `目标：${join.libraryWorldName || join.worldName} · ${phase}`;
-}
 const LogText = React.memo(function LogText({ text, stream, regex }) {
   return (
     <span className="log-text">

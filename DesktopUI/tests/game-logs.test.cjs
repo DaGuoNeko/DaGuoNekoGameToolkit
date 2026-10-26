@@ -87,6 +87,23 @@ test("native logs follow exact process files, split UTF-8 safely and isolate cli
   assert.equal(f.logs.snapshot(a).phase, "ended");
   assert.equal(f.logs.snapshot(b).phase, "capturing");
 });
+test("startup readiness requires an owned engine record and survives clearing visible logs", async t => {
+  const f = await fixture(t), w = f.workers[0], pid = w.session.pid + 1000;
+  const marker = "[2026-10-26 23:00:00:000 INFO PERF 1 2] SerialWorkList [OnAppStart] end summary. Total Duration: 18.2\n";
+  await fs.writeFile(path.join(f.directory, f.names[0]), marker);
+  await f.logs.tick();
+  assert.equal(f.logs.startupReady(w, pid), false);
+  f.names[0] = "Debug_Log2026-10-13_09-00-00.txt";
+  await fs.writeFile(path.join(f.directory, f.names[0]), marker);
+  await f.logs.tick();
+  assert.equal(f.logs.startupReady(w, pid), true);
+  assert.equal(f.logs.startupReady(f.workers[1], pid), false);
+  assert.equal(f.logs.startupReady(w, pid + 1), false);
+  f.logs.clear(w.session.id);
+  assert.equal(f.logs.startupReady(w, pid), true);
+  w.session.pid++;
+  assert.equal(f.logs.startupReady(w, pid), false);
+});
 test("truncation and rotations are bounded, PID changes stop reading and raw files survive history deletion", async (t) => {
   const f = await fixture(t),
     a = f.workers[0].session.id;

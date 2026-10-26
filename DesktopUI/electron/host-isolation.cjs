@@ -6,8 +6,7 @@ const { reserveIsolation } = require("./isolation-spawn.cjs");
 const { folderFor } = require("./domains/worlds/world-path.cjs");
 const { readWorldInfo } = require("./domains/worlds/world-info.cjs");
 const template = require("./domains/worlds/world-template.cjs");
-const GAME_HASH =
-  "489a164d5f37048fcebf941bfefba4a50ee0dabfbb7f2f2169c09600b2a4579c";
+const { profileForDigest } = require("./domains/client/engine-profiles.cjs");
 const MCDK_HASH =
   "2cd4348c05a1b3855f4397526a9c4c3deea359d2e57f07a61e2669bd5b47349b";
 const same = (a, b) =>
@@ -109,8 +108,10 @@ class HostIsolation {
       !same(launcher, path.join(this.runtime, "mcdk.exe"))
     )
       return null;
-    if ((await this.digest(config.game_executable_path)) !== GAME_HASH)
-      return null;
+    const guestProfile = profileForDigest(
+      await this.digest(config.game_executable_path),
+    );
+    if (!guestProfile?.isolatedClient) return null;
     if ((await this.digest(launcher)) !== MCDK_HASH)
       throw Error("独立联机客户端需要使用已验证的内置 MCDK");
     await directory(runDirectory);
@@ -186,7 +187,7 @@ class HostIsolation {
         },
         spawn: async (exe, args, options) => {
           if (
-            (await this.digest(config.game_executable_path)) !== GAME_HASH ||
+            (await this.digest(config.game_executable_path)) !== guestProfile.digest ||
             (await this.digest(exe)) !== MCDK_HASH
           )
             throw Error("游戏或启动器已变化");
@@ -210,8 +211,9 @@ class HostIsolation {
     )
       return null;
     if (!same(launcher, path.join(this.runtime, "mcdk.exe"))) return null;
-    const gameHash = await this.digest(config.game_executable_path);
-    const privateHost = allowPrivate && gameHash === GAME_HASH &&
+    const gameHash = await this.digest(config.game_executable_path),
+      gameProfile = profileForDigest(gameHash);
+    const privateHost = allowPrivate && !!gameProfile?.isolatedHost &&
       same(launcher, path.join(this.runtime, "mcdk.exe"));
     if (!privateHost && !runDirectory) return null;
     if ((await this.digest(launcher)) !== MCDK_HASH)

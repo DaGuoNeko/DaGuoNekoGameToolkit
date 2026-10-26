@@ -79,6 +79,9 @@ function fixture(t, mutate = {}) {
       pid: 10,
       userName: "Host",
       bridgeRegistrationId: "hr",
+      engineDigest: "engine-test",
+      engineVersion: "test",
+      engineProfile: { autoJoin: true },
     },
     sourceSnapshot: {
       config: {
@@ -95,6 +98,7 @@ function fixture(t, mutate = {}) {
       pid: 20,
       userName: "Joined",
       bridgeRegistrationId: "cr",
+      engineDigest: "engine-test",
     },
     log: (...v) => logs.push(v),
   };
@@ -133,6 +137,8 @@ function fixture(t, mutate = {}) {
       assert.deepEqual(b, { userName: "Joined" });
       assert.equal(a.localJoin, true);
       assert.equal(a.runtimeConfig.world_name, "Room");
+      assert.equal(a.expectedGameDigest, "engine-test");
+      a.preflight();
       this.workers.push(child);
       await a.prepareClient(child, cb);
       return { selectedSession: "child" };
@@ -172,7 +178,7 @@ function fixture(t, mutate = {}) {
   const transport = {
     async create() {
       if (mutate.unsupported) throw Error("unsupported engine");
-      return { engine: { version: "test" } };
+      return { engine: { version: "test", digest: "engine-test" } };
     },
     async prepare(c, w, b) {
       Object.assign(c, {
@@ -320,6 +326,7 @@ test("two guest groups retain the selected host snapshot, exact room identity an
       pid: workers.length + 10,
       userName: "Host" + key,
       bridgeRegistrationId: "reg-" + key,
+      engineDigest: "engine-" + key,
     };
     workers.push({
       session,
@@ -372,6 +379,7 @@ test("two guest groups retain the selected host snapshot, exact room identity an
           pid: b.mcdkPid,
           userName: blank.userName,
           bridgeRegistrationId: b.registrationId,
+          engineDigest: options.expectedGameDigest,
         },
         sourceSnapshot: { config: structuredClone(options.runtimeConfig) },
         log() {},
@@ -408,7 +416,8 @@ test("two guest groups retain the selected host snapshot, exact room identity an
   };
   const transport = {
     async create(config) {
-      return { key: config.world_name.slice(-1) };
+      const key = config.world_name.slice(-1);
+      return { key, engine: { digest: "engine-" + key } };
     },
     async prepare(c, w, b) {
       Object.assign(c, {
@@ -498,6 +507,22 @@ test("native startup rejects unsupported builds and numeric IDs before creating 
     assert.equal(f.sessions.workers.length, 1);
     assert.equal(f.stats().prepared, 0);
   }
+});
+test("changed host build rejects before proof or spawn; mismatched guest stops only itself", async (t) => {
+  const changed = fixture(t);
+  let closed = false;
+  changed.transport.create = async () => ({ engine: { digest: "different" } });
+  changed.transport.close = async () => { closed = true; };
+  await assert.rejects(changed.joiner.launch("host", "Joined"), /构建不一致/);
+  assert.equal(changed.sessions.workers.length, 1);
+  assert.equal(changed.stats().prepared, 0);
+  assert(closed);
+  assert(changed.host.session.running);
+  const guest = fixture(t);
+  guest.child.session.engineDigest = "different";
+  await assert.rejects(guest.joiner.launch("host", "Joined"), /主客机游戏构建不一致/);
+  assert.deepEqual(guest.stops, ["child"]);
+  assert(guest.host.session.running);
 });
 test("generation changes, unknown dispatch result and sealing failures stop only the new client", async (t) => {
   for (const mutate of [

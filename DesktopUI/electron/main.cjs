@@ -16,6 +16,7 @@ const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { WorkspaceStore, Launcher } = require("./services.cjs");
 const { discoverGames } = require("./domains/game/discovery.cjs");
+const { inspectEngine, profilesForDiscovery } = require("./domains/client/engine-profiles.cjs");
 const { formatLine } = require("./domains/game/history.cjs");
 const { GameLogs } = require("./domains/game/game-logs.cjs");
 const { DebugController } = require("./debug/controller.cjs");
@@ -570,8 +571,31 @@ async function dispatch(method, args, source = win) {
             ),
           );
       }
-      return discoverGames({ known });
+      const result = await discoverGames({ known });
+      for (const game of result.games) {
+        try {
+          const engine = await inspectEngine(game.path);
+          Object.assign(game, {
+            engineVersion: engine.version,
+            engineProfile: engine.profile,
+          });
+        } catch (error) {
+          Object.assign(game, {
+            engineVersion: null,
+            engineProfile: null,
+            engineError: error.message,
+          });
+        }
+      }
+      return result;
     }
+    case "games.inspect": {
+      if (typeof args.path !== "string" || !/\.exe$/i.test(args.path))
+        throw Error("请选择游戏 EXE");
+      return inspectEngine(args.path);
+    }
+    case "games.supported":
+      return profilesForDiscovery();
     case "project.read":
       return profiles.read(args.id);
     case "project.save": {

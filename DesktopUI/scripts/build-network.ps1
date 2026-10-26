@@ -24,10 +24,11 @@ foreach($file in $files) {
     $lines += ('{{"{0}","{1}"}},' -f $file,$hash)
 }
 $lines += '}; public static HashSet<string> Games = new HashSet<string> {'
-$engines = Get-Content -LiteralPath (Join-Path $root 'electron/supported-engines.json') -Raw | ConvertFrom-Json
+$engines = Get-Content -LiteralPath (Join-Path $root 'electron/supported-engines.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 if(-not @($engines.PSObject.Properties).Count){throw 'Supported engine list is empty'}
 foreach($entry in $engines.PSObject.Properties | Sort-Object Name) {
-    if($entry.Name -notmatch '^[a-f0-9]{64}$' -or $entry.Value -notmatch '^\d+\.\d+\.\d+\.\d+$'){throw 'Invalid supported engine entry'}
+    if($entry.Name -notmatch '^[a-f0-9]{64}$' -or $entry.Value.version -notmatch '^\d+\.\d+\.\d+\.\d+$' -or $entry.Value.autoJoin -isnot [bool]){throw 'Invalid supported engine entry'}
+    if(-not $entry.Value.autoJoin){continue}
     $lines += ('"{0}",' -f $entry.Name)
 }
 $lines += '}; }'

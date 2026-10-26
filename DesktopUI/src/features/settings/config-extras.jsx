@@ -1,14 +1,41 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Button, Field, Section, Select } from "../../app/ui.jsx";
 
 export function GameDiscovery({ value, change, report }) {
   const [games, setGames] = useState([]),
     [busy, setBusy] = useState(false),
-    [message, setMessage] = useState("");
+    [message, setMessage] = useState(""),
+    [scope, setScope] = useState("auto"),
+    [current, setCurrent] = useState(null),
+    [matrix, setMatrix] = useState([]),
+    [checking, setChecking] = useState(false);
+  const alive = useRef(false);
+  useEffect(() => {
+    alive.current = true;
+    window.toolkit.call("games.supported").then((rows) => {
+      if (alive.current) setMatrix(rows);
+    }).catch((error) => { if (alive.current) report(error); });
+    discover();
+    return () => { alive.current = false; };
+  }, []);
+  useEffect(() => {
+    let active = true;
+    setCurrent(null);
+    if (value) {
+      setChecking(true);
+      window.toolkit.call("games.inspect", { path: value }).then((engine) => {
+        if (active) setCurrent(engine);
+      }).catch((error) => {
+        if (active) setCurrent({ error: error.message });
+      }).finally(() => { if (active) setChecking(false); });
+    } else setChecking(false);
+    return () => { active = false; };
+  }, [value]);
   async function discover() {
     setBusy(true);
     try {
       const result = await window.toolkit.call("games.discover");
+      if (!alive.current) return;
       setGames(result.games);
       setMessage(
         result.games.length
@@ -17,9 +44,9 @@ export function GameDiscovery({ value, change, report }) {
       );
       if (result.warnings.length) setMessage(result.warnings.join("\n"));
     } catch (error) {
-      report(error);
+      if (alive.current) report(error);
     } finally {
-      setBusy(false);
+      if (alive.current) setBusy(false);
     }
   }
   return (
@@ -27,18 +54,51 @@ export function GameDiscovery({ value, change, report }) {
       <Button disabled={busy} onClick={discover}>
         {busy ? "正在发现…" : "发现游戏版本"}
       </Button>
+      <Field label="游戏版本用途">
+        <Select value={scope} onChange={setScope} options={[
+          { value: "auto", label: "自动联机 · 仅显示已验证构建" },
+          { value: "all", label: "手动启动 · 显示所有已发现版本" },
+        ]} />
+      </Field>
       {!!games.length && (
         <Field label="已发现的游戏版本">
           <Select
             value={value}
             placeholder="请选择游戏版本"
-            options={games.map((game) => ({
+            options={games.filter(game => scope === "all" || game.engineProfile?.autoJoin).map((game) => ({
               value: game.path,
-              label: `${game.version} · ${game.path}`,
+              label: `${game.engineVersion || game.version} · ${game.engineProfile?.label || "未验证 · 仅手动启动"} · ${game.path}`,
             }))}
             onChange={change}
           />
         </Field>
+      )}
+      {!busy && games.length > 0 && scope === "auto" && !games.some(game => game.engineProfile?.autoJoin) && (
+        <p className="muted">已发现的程序尚未通过自动联机验证，可切换到“手动启动”选择。</p>
+      )}
+      {value && (
+        <p className="muted" role="status">
+          当前程序：{checking ? "正在校验版本…" : current?.error || (current?.version
+            ? `${current.version} · ${current.profile.label}`
+            : "未验证构建；保留手动启动，不能自动联机。")}
+        </p>
+      )}
+      {matrix.length > 0 && (
+        <details className="engine-capabilities">
+          <summary>查看已登记游戏版本的能力</summary>
+          <p className="muted">按游戏程序实际构建校验。独立隔离需要内置启动器；未安装的版本需先安装后才能选择。</p>
+          <table>
+            <thead><tr><th>游戏版本</th><th>自动入房</th><th>独立主机</th><th>独立来宾</th></tr></thead>
+            <tbody>{matrix.map(p => (
+              <tr key={p.digest}>
+                <td>{p.version}</td>
+                <td>{p.autoJoin ? "已验证" : "待验证"}</td>
+                <td>{p.isolatedHost ? "已验证" : "待验证"}</td>
+                <td>{p.isolatedClient ? "已验证" : "待验证"}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </details>
       )}
       {message && (
         <p className="muted" role="status">

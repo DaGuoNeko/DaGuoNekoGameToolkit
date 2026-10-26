@@ -317,6 +317,23 @@ test("menu assertion waits without sending Enter, then initializes once after di
   assert.equal(notices.at(-1), null);
   assert.equal(c.assertionPending, false);
 });
+test("slow startup waits for readiness before its one menu action and expires without input", async () => {
+  let ready = false, waits = 0, plays = 0;
+  const transport = new OreJoin("unused", {
+    menuDelay: 0,
+    startupReady: () => ready,
+    window: async (r, w, p, mode) => { if (mode === "play") { assert(ready); plays++; } },
+    sleep: async () => { assert.equal(plays, 0); if (++waits === 3) ready = true; },
+    Cdp: class { async connect() {} async evaluate() {} close() {} },
+  });
+  const context = () => ({ attempted: true, pid: 1, preparedAt: Date.now(), script: scripts("k", "l", "j") });
+  await transport.open(context(), () => {}, () => {}, Date.now() + 1000);
+  assert.equal(plays, 1);
+  assert.equal(waits, 3);
+  ready = false;
+  await assert.rejects(transport.open(context(), () => {}, () => {}, Date.now() - 1), /初始化完成超时/);
+  assert.equal(plays, 1);
+});
 
 test("pending assertion cleanup skips blocked page code but seals the private native channel", async () => {
   const calls = [];
