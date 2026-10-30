@@ -148,7 +148,9 @@ class GameLogs {
   append(r, stream, text) {
     if (!text.trim()) return;
     // 只接受已核验进程的引擎启动记录，内容日志和脚本输出不能放行菜单操作。
-    if (stream === "engine" && /\] SerialWorkList \[OnAppStart\] end summary\. Total Duration: \d/.test(text))
+    // begin summary 在启动任务执行完毕后、输出各项耗时前记录；448891 的
+    // 空闲主菜单可能不刷新摘要末尾的文件缓冲，不能一直等 end summary 落盘。
+    if (stream === "engine" && /\] SerialWorkList \[OnAppStart\] (?:begin summary$|end summary\. Total Duration: \d)/.test(text))
       r.startupComplete = true;
     const entry = {
       id: ++r.serial,

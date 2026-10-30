@@ -7,6 +7,7 @@ const {
 } = require("./automation-tools.cjs");
 const { withMcdk } = require("./mcp-endpoint.cjs");
 const { sharedSources } = require("../../../shared/source-sharing.cjs");
+const { isolatedGameVersions } = require("../../host-isolation-support.cjs");
 class AutomationRouter {
   constructor({ sessions, debug, worlds, store, joiner, proxy = withMcdk }) {
     Object.assign(this, { sessions, debug, worlds, store, joiner, proxy });
@@ -53,6 +54,7 @@ class AutomationRouter {
           worldId: s.worldId,
           worldName: s.worldName,
           storageMode: s.storageMode || "shared",
+          isolationReason: s.isolationReason || null,
           engineVersion: s.engineVersion || null,
           engineDigest: s.engineDigest || null,
           engineProfile: s.engineProfile || null,
@@ -132,9 +134,7 @@ class AutomationRouter {
               !!this.sessions.isolation &&
               this.store.value.settings.IndependentWorlds !== false,
             isolatedHostGameVersions: this.sessions.isolation
-              ? profilesForDiscovery()
-                  .filter((p) => p.isolatedHost)
-                  .map((p) => p.version)
+              ? [...isolatedGameVersions]
               : [],
             gameVersions: profilesForDiscovery(),
             autoJoinTransport: this.joiner ? "oreui" : null,

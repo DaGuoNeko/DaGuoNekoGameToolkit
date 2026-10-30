@@ -70,7 +70,7 @@ class OreJoin {
       window = native.windowCall,
       Cdp = OreCdp,
       sleep = wait,
-      menuDelay = 10000,
+      menuDelay = null,
       startupReady = () => true,
     } = {},
   ) {
@@ -190,7 +190,11 @@ class OreJoin {
     Object.assign(context, { check, deadline, onAssertion });
     if (!context.attempted || !context.pid)
       throw Error("客户端没有完成原生调试初始化");
-    while (Date.now() - context.preparedAt < this.menuDelay) {
+    // 448891 的全新私有缓存实测会在启动后约 20 秒才显示主菜单。
+    // 这是输入前的启动等待，不延长入房期限或原生租约，也不重发 Enter。
+    const startupWait = this.menuDelay ??
+      (!context.reconnecting && context.engine?.version === "3.10.0.448891" ? 25000 : 10000);
+    while (Date.now() - context.preparedAt < startupWait) {
       check();
       if (Date.now() > deadline) throw Error("等待菜单超时");
       await this.sleep(200);
@@ -208,6 +212,7 @@ class OreJoin {
       }
     }
     check();
+    if (Date.now() >= deadline) throw Error("等待菜单超时");
     await this.window(this.runtime, context.worker, context.pid, "play");
     progress("finding_room", "正在读取游戏原生局域网房间列表");
     const end = Math.min(deadline, Date.now() + 20000);
@@ -225,6 +230,7 @@ class OreJoin {
         lastError = e;
         cdp.close();
         await this.inspect(context);
+        if (Date.now() >= deadline) throw Error("等待菜单超时");
         // A disconnect confirmation may consume the first Enter. Only advance
         // once more after the owned HTTP endpoint repeatedly confirms no OreUI
         // page exists; transport errors never authorize another key press.
@@ -249,6 +255,8 @@ class OreJoin {
     }
     if (!context.connected)
       throw Error("原生游戏菜单未就绪：" + (lastError?.message || "超时"));
+    check();
+    if (Date.now() >= deadline) throw Error("等待菜单超时");
     context.setup = true;
     await context.cdp.evaluate(context.script.init);
   }
@@ -259,6 +267,7 @@ class OreJoin {
   }
   async dispatch(context, row) {
     if (context.sent) throw Error("入房请求已经发送，不自动重放");
+    if (Date.now() >= context.deadline) throw Error("本次自动加入已超时，未发送入房请求");
     context.sent = true;
     await context.cdp.evaluate(context.script.send(row.id));
   }

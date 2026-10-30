@@ -14,6 +14,7 @@ test("engine profiles expose version and isolation capability without treating d
   assert.deepEqual(profiles.map((p) => p.version).sort(), [
     "3.10.0.420447",
     "3.10.0.436581",
+    "3.10.0.448891",
   ]);
   assert.equal(
     profileForDigest(
@@ -28,6 +29,11 @@ test("engine profiles expose version and isolation capability without treating d
     false,
   );
   assert.equal(profileForDigest("unknown"), null);
+  const newest = profileForDigest("248421df4f3eb4fe1a232887385e0adebca2d545d5958d728b18585658c339d5");
+  assert.equal(newest.version, "3.10.0.448891");
+  assert.equal(newest.autoJoin, true);
+  assert.equal(newest.isolatedHost, true);
+  assert.equal(newest.isolatedClient, true);
 });
 test("failed stopped join keeps the actionable result in logs", () => {
   assert.match(

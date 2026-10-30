@@ -4,6 +4,7 @@ const fs = require("node:fs/promises"),
   os = require("node:os"),
   assert = require("node:assert/strict");
 const { WorkspaceStore } = require("../electron/services.cjs");
+const { profilesForDiscovery } = require("../electron/domains/client/engine-profiles.cjs");
 (async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-versions-ui-"));
   let app;
@@ -20,8 +21,13 @@ const { WorkspaceStore } = require("../electron/services.cjs");
     await store.load();
     await store.updateSettings({ GamePath: games[0] });
     app = await electron.launch({
-      args: ["."],
-      env: { ...process.env, DGN_GAME_HEADLESS: "1", DGN_GAME_DATA_DIR: data },
+      args: ["tests/fixtures/game-versions-ui-entry.cjs"],
+      env: {
+        ...process.env,
+        DGN_GAME_HEADLESS: "1",
+        DGN_GAME_DATA_DIR: data,
+        DGN_GAME_VERSIONS_ROOT: path.join(root, "games"),
+      },
     });
     const page = await app.firstWindow();
     page.setDefaultTimeout(20000);
@@ -38,14 +44,21 @@ const { WorkspaceStore } = require("../electron/services.cjs");
       })
       .waitFor();
     await page.getByText("查看已登记游戏版本的能力", { exact: true }).click();
-    assert.equal(
-      await page.locator(".engine-capabilities tbody tr").count(),
-      2,
-    );
-    assert.match(
-      await page.locator(".engine-capabilities tbody tr").first().innerText(),
-      /3\.10\.0\.420447.*已验证.*待验证.*待验证/s,
-    );
+    const registered = profilesForDiscovery();
+    const rows = page.locator(".engine-capabilities tbody tr");
+    assert.equal(await rows.count(), registered.length);
+    for (const profile of registered) {
+      const row = rows.filter({
+        has: page.getByRole("cell", { name: profile.version, exact: true }),
+      });
+      assert.equal(await row.count(), 1);
+      assert.deepEqual(await row.locator("td").allTextContents(), [
+        profile.version,
+        profile.autoJoin ? "已验证" : "待验证",
+        profile.isolatedHost ? "已验证" : "待验证",
+        profile.isolatedClient ? "已验证" : "待验证",
+      ]);
+    }
     await page
       .getByRole("combobox", { name: "游戏版本用途", exact: true })
       .click();

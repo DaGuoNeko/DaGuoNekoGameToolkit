@@ -53,8 +53,8 @@ Module.prototype._compile = function (code, file) {
       const marker = "new ClientJoiner(launcher, debuggerService, runtimeRoot)";
       if (code.split(marker).length !== 2) throw Error("Client join fixture marker changed");
       code = code.replace(marker, "new ClientJoiner(launcher, debuggerService, runtimeRoot, { transport: globalThis.dgnLocalJoinProbe })");
-      const engineMarker = "engineInfo = inspectEngine2,";
-      if (code.split(engineMarker).length !== 2) throw Error("Engine fixture marker changed");
+      const engineMarker = /\bengineInfo = inspectEngine\d*,/g;
+      if ((code.match(engineMarker) || []).length !== 1) throw Error("Engine fixture marker changed");
       code = code.replace(engineMarker, 'engineInfo = async () => ({ digest: "fixture", version: "3.10.0.436581", profile: { autoJoin: true, isolatedHost: true, isolatedClient: true } }),');
       const workerMarker = "this.workers.push(worker);";
       if (code.split(workerMarker).length !== 2) throw Error("Worker fixture marker changed");

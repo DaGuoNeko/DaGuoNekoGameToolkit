@@ -104,6 +104,28 @@ test("startup readiness requires an owned engine record and survives clearing vi
   w.session.pid++;
   assert.equal(f.logs.startupReady(w, pid), false);
 });
+test("completed startup summary is usable when its tail stays buffered in an idle menu", async t => {
+  const f = await fixture(t), w = f.workers[0], pid = w.session.pid + 1000;
+  f.names[0] = "Debug_Log2026-10-13_09-00-00.txt";
+  const file = path.join(f.directory, f.names[0]);
+  const prefix = `[2026-10-30 12:00:00:000 INFO PERF 1 ${pid}] SerialWorkList `;
+  await fs.writeFile(file, prefix + "[OnAppStart] onDeviceRestoreFinish ending step (0.000052 sec)\n" +
+    prefix + "[OtherWork] begin summary\n" + prefix + "[OnAppStart] begin sum");
+  await f.logs.tick();
+  assert.equal(f.logs.startupReady(w, pid), false);
+  // 448891 的实测日志在统计摘要中途停在 4 KiB 边界，不等待尚未落盘的尾部。
+  await fs.appendFile(file, "mary\n" + prefix + "[OnAppStart] initStep1: calls 1, max_call 0.001472");
+  await f.logs.tick();
+  const entries = f.logs.snapshot(w.session.id, "engine").logs;
+  assert(entries.some(l => l.text.endsWith("[OnAppStart] begin summary")));
+  assert(!entries.some(l => l.text.includes("end summary")));
+  assert.equal(f.logs.startupReady(w, pid), true);
+  assert.equal(f.logs.startupReady(w, pid + 1), false);
+  assert.equal(f.logs.startupReady(f.workers[1], pid), false);
+  f.logs.clear(w.session.id);
+  assert.equal(f.logs.startupReady(w, pid), true);
+});
+
 test("truncation and rotations are bounded, PID changes stop reading and raw files survive history deletion", async (t) => {
   const f = await fixture(t),
     a = f.workers[0].session.id;

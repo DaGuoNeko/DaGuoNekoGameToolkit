@@ -17,7 +17,9 @@ async function fixture(t) {
   t.after(async () => {
     assert.equal(path.dirname(root), path.resolve(os.tmpdir()));
     assert(path.basename(root).startsWith("dgn-update-install-"));
-    await fs.rm(root, { recursive: true, force: true });
+    // Windows 启动夹具写出回执时进程可能尚在退出，短暂持有目录/EXE。
+    // 仅对本测试已校验的临时目录进行有界清理重试，保留所有业务断言。
+    await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
   const target = path.join(root, "app"),
     source = path.join(root, "new"),

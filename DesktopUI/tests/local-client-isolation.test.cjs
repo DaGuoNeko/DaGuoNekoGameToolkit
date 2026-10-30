@@ -56,12 +56,16 @@ test(
         },
       },
     );
+    let gameHash;
     isolation.digest = async (file) =>
       file === launcher
         ? "2cd4348c05a1b3855f4397526a9c4c3deea359d2e57f07a61e2669bd5b47349b"
-        : "489a164d5f37048fcebf941bfefba4a50ee0dabfbb7f2f2169c09600b2a4579c";
+        : gameHash;
     const clients = [];
     for (const name of ["a", "b"]) {
+      gameHash = name === "a"
+        ? "489a164d5f37048fcebf941bfefba4a50ee0dabfbb7f2f2169c09600b2a4579c"
+        : "248421df4f3eb4fe1a232887385e0adebca2d545d5958d728b18585658c339d5";
       const run = path.join(root, name),
         client = await isolation.prepareClient(run, config, launcher);
       clients.push(client);
@@ -94,6 +98,12 @@ test(
     assert.equal(launches[0].env.DGN_WORLD_VIEW, "");
     assert.equal(launches[0].env.APPDATA, clients[0].roaming);
     assert.equal(await fs.readFile(shared, "utf8"), original);
+    gameHash = "489a164d5f37048fcebf941bfefba4a50ee0dabfbb7f2f2169c09600b2a4579c";
+    await assert.rejects(
+      clients[1].spawn(launcher, [], { cwd: root, env: {} }),
+      /游戏或启动器已变化/,
+    );
+    gameHash = "248421df4f3eb4fe1a232887385e0adebca2d545d5958d728b18585658c339d5";
     await assert.rejects(
       isolation.prepareClient(path.join(root, "a"), config, launcher),
       /已存在/,

@@ -6,7 +6,11 @@ const { reserveIsolation } = require("./isolation-spawn.cjs");
 const { folderFor } = require("./domains/worlds/world-path.cjs");
 const { readWorldInfo } = require("./domains/worlds/world-info.cjs");
 const template = require("./domains/worlds/world-template.cjs");
-const { profileForDigest } = require("./domains/client/engine-profiles.cjs");
+const {
+  isolatedEngineVersion,
+  isolatedClientEngineVersion,
+  unsupportedGameReason,
+} = require("./host-isolation-support.cjs");
 const MCDK_HASH =
   "2cd4348c05a1b3855f4397526a9c4c3deea359d2e57f07a61e2669bd5b47349b";
 const same = (a, b) =>
@@ -108,10 +112,8 @@ class HostIsolation {
       !same(launcher, path.join(this.runtime, "mcdk.exe"))
     )
       return null;
-    const guestProfile = profileForDigest(
-      await this.digest(config.game_executable_path),
-    );
-    if (!guestProfile?.isolatedClient) return null;
+    const gameHash = await this.digest(config.game_executable_path);
+    if (!isolatedClientEngineVersion(gameHash)) return null;
     if ((await this.digest(launcher)) !== MCDK_HASH)
       throw Error("独立联机客户端需要使用已验证的内置 MCDK");
     await directory(runDirectory);
@@ -187,7 +189,7 @@ class HostIsolation {
         },
         spawn: async (exe, args, options) => {
           if (
-            (await this.digest(config.game_executable_path)) !== guestProfile.digest ||
+            (await this.digest(config.game_executable_path)) !== gameHash ||
             (await this.digest(exe)) !== MCDK_HASH
           )
             throw Error("游戏或启动器已变化");
@@ -202,19 +204,36 @@ class HostIsolation {
       throw e;
     }
   }
+  async assess(config, launcher, allowPrivate = true) {
+    if (process.platform !== "win32")
+      return { reason: "当前系统不支持 Windows 独立主机" };
+    if (config.world_source_path)
+      return {
+        reason: "此存档沿用旧式源地图启动方式，尚不支持独立主机；请通过存档导入入口重新登记地图",
+      };
+    if (!same(launcher, path.join(this.runtime, "mcdk.exe")))
+      return {
+        reason: "当前使用自定义启动器；请在设置中恢复内置启动器后重新启动",
+      };
+    const gameHash = await this.digest(config.game_executable_path);
+    const version = isolatedEngineVersion(gameHash);
+    return {
+      gameHash,
+      version,
+      reason: !allowPrivate
+        ? "设置中的“启用独立主机”已关闭，请开启后重新启动存档"
+        : !version
+          ? unsupportedGameReason(config.game_executable_path)
+          : null,
+    };
+  }
   async prepare(worldId, config, launcher, runDirectory, allowPrivate = true) {
     // Preserve legacy/custom launcher compatibility, but never allow it to run
     // a second host by pretending that its shared deployment is isolated.
-    if (
-      process.platform !== "win32" ||
-      config.world_source_path
-    )
-      return null;
-    if (!same(launcher, path.join(this.runtime, "mcdk.exe"))) return null;
-    const gameHash = await this.digest(config.game_executable_path),
-      gameProfile = profileForDigest(gameHash);
-    const privateHost = allowPrivate && !!gameProfile?.isolatedHost &&
-      same(launcher, path.join(this.runtime, "mcdk.exe"));
+    const assessment = await this.assess(config, launcher, allowPrivate);
+    if (!assessment.gameHash) return null;
+    const gameHash = assessment.gameHash;
+    const privateHost = !assessment.reason;
     if (!privateHost && !runDirectory) return null;
     if ((await this.digest(launcher)) !== MCDK_HASH)
       throw Error("原目录保护需要使用已验证的内置 MCDK，请在设置中恢复内置启动器");
@@ -355,6 +374,7 @@ class HostIsolation {
         roaming,
         actualWorld: before.actual,
         mode: privateHost ? "isolated" : "shared",
+        isolationReason: assessment.reason,
         stop: () => lease.stop(),
         options: () => privateHost ? this.gameOptions.prepareIsolated(optionsFile) : this.gameOptions.prepare(),
         spawn: async (exe, args, options) => {

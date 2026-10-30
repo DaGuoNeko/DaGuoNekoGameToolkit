@@ -335,6 +335,105 @@ test("slow startup waits for readiness before its one menu action and expires wi
   assert.equal(plays, 1);
 });
 
+test("new-build cold-start wait retains the original deadline, cancellation and single-input boundary", async (t) => {
+  let now = 0;
+  t.mock.method(Date, "now", () => now);
+  async function open(
+    version,
+    {
+      reconnecting = false,
+      deadline = 120000,
+      cancelAt = Infinity,
+      preparedAt = 0,
+      inspectDelay = 0,
+      connectDelay = 0,
+      absentMenu = false,
+    } = {},
+  ) {
+    now = 0;
+    const keys = [];
+    class Cdp {
+      async connect() {
+        now += connectDelay;
+        if (absentMenu)
+          throw Object.assign(Error("no menu"), {
+            code: "ORE_MENU_NOT_PRESENT",
+          });
+      }
+      async evaluate() {}
+      close() {}
+    }
+    const transport = new OreJoin("unused", {
+      Cdp,
+      sleep: async (ms) => {
+        now += ms;
+      },
+      window: async (r, w, p, mode) => {
+        if (mode === "play") keys.push(now);
+        else now += inspectDelay;
+      },
+    });
+    const context = {
+      attempted: true,
+      pid: 1,
+      preparedAt,
+      reconnecting,
+      engine: { version },
+      script: scripts("cold", "l", "j"),
+    };
+    const promise = transport.open(
+      context,
+      () => {
+        if (now >= cancelAt) throw Error("cancelled");
+      },
+      () => {},
+      deadline,
+    );
+    return { promise, keys, context, transport };
+  }
+  for (const [version, reconnecting, expected] of [
+    ["3.10.0.436581", false, 10000],
+    ["3.10.0.448891", false, 25000],
+    ["3.10.0.448891", true, 10000],
+  ]) {
+    const result = await open(version, { reconnecting });
+    await result.promise;
+    assert.deepEqual(result.keys, [expected]);
+    assert.equal(result.context.deadline, 120000);
+  }
+  const expired = await open("3.10.0.448891", { deadline: 10000 });
+  await assert.rejects(expired.promise, /等待菜单超时/);
+  assert.deepEqual(expired.keys, []);
+  const cancelled = await open("3.10.0.448891", { cancelAt: 1000 });
+  await assert.rejects(cancelled.promise, /cancelled/);
+  assert.deepEqual(cancelled.keys, []);
+  for (const options of [
+    { deadline: 25000 },
+    { deadline: -1, preparedAt: -30000 },
+    { deadline: 26000, inspectDelay: 2000 },
+  ]) {
+    const late = await open("3.10.0.448891", options);
+    await assert.rejects(late.promise, /等待菜单超时/);
+    assert.deepEqual(late.keys, []);
+  }
+  const reconnect = await open("3.10.0.448891", {
+    reconnecting: true,
+    deadline: 20000,
+    connectDelay: 4000,
+    absentMenu: true,
+  });
+  await assert.rejects(reconnect.promise, /等待菜单超时/);
+  assert.deepEqual(reconnect.keys, [10000]);
+  const dispatch = await open("3.10.0.448891");
+  await dispatch.promise;
+  now = dispatch.context.deadline;
+  await assert.rejects(
+    dispatch.transport.dispatch(dispatch.context, { id: "unused" }),
+    /未发送入房请求/,
+  );
+  assert.equal(dispatch.context.sent, undefined);
+});
+
 test("pending assertion cleanup skips blocked page code but seals the private native channel", async () => {
   const calls = [];
   const transport = new OreJoin("unused", {

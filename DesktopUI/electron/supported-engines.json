@@ -12,5 +12,12 @@
     "isolatedHost": true,
     "isolatedClient": true,
     "label": "自动入房、独立主机与来宾已验证"
+  },
+  "248421df4f3eb4fe1a232887385e0adebca2d545d5958d728b18585658c339d5": {
+    "version": "3.10.0.448891",
+    "autoJoin": true,
+    "isolatedHost": true,
+    "isolatedClient": true,
+    "label": "自动入房、独立主机与来宾已验证"
   }
 }

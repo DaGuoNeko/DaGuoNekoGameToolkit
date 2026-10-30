@@ -106,6 +106,23 @@ function fixture() {
   return { router, workers, bridges, calls };
 }
 const json = (value) => JSON.parse(value.content[0].text);
+test("MCP reports isolated engine versions and the actual running compatibility reason", async () => {
+  const { router, workers } = fixture();
+  router.sessions.isolation = {};
+  router.store.value.settings = { IndependentWorlds: true };
+  const status = json(await router.call("toolbox_status", {}));
+  assert.deepEqual(status.capabilities.isolatedHostGameVersions, [
+    "3.10.0.436581",
+    "3.10.0.448891",
+  ]);
+  workers[0].session.storageMode = "shared";
+  workers[0].session.isolationReason = "当前游戏程序尚未适配独立主机";
+  const clients = json(await router.call("list_clients", {})).clients;
+  assert.equal(clients[0].storageMode, "shared");
+  assert.equal(clients[0].isolationReason, workers[0].session.isolationReason);
+  assert.equal(clients[1].isolationReason, null);
+});
+
 test("automation publishes the same registered capabilities and immutable session identity", async () => {
   const { router, workers } = fixture();
   router.sessions.isolation = {};

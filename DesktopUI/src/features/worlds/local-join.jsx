@@ -89,7 +89,7 @@ export function LocalJoinDialog({ initialHostId = "", onClose, onStart }) {
           placeholder="请选择主存档"
           options={hosts.map((h) => ({
             value: h.sessionId,
-            label: `${h.worldName} · 房主 ${h.playerName} · ${h.engineVersion || "版本未验证"}${h.ready ? "" : "（未就绪）"}`,
+            label: `${h.worldName} · 房主 ${h.playerName} · ${h.engineVersion || "版本未验证"} · PID ${h.gamePid || h.launcherPid}${h.ready ? "" : "（未就绪）"}`,
             disabled: !h.ready || !h.autoJoinSupported,
           }))}
         />

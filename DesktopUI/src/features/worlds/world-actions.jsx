@@ -509,6 +509,9 @@ export function WorldDashboard({
               ? `${session.storageMode === "isolated" ? "独立主机" : "兼容主机"} · 房主 ${session.userName || "—"} · 启动器 PID ${session.pid}`
               : "可在启动前设置自动操作和自定义按钮"}
           </small>
+          {session?.running && session.storageMode !== "isolated" && session.isolationReason && (
+            <p className="muted">单主机运行：{session.isolationReason}</p>
+          )}
         </div>
         <div className="world-summary-controls">
           <span className={`action-status ${ready ? "ready" : ""}`}>

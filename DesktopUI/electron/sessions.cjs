@@ -308,6 +308,16 @@ class Sessions extends EventEmitter {
       this.workers.some((w) => w.session?.running && w.session.worldId)
     )
       throw Error("已有存档正在运行；当前启动环境未提供独立主机隔离");
+    const sharedWorld = worldId && this.workers.find(
+      (w) =>
+        w.session?.running &&
+        w.session.worldId &&
+        w.session.storageMode !== "isolated",
+    );
+    if (sharedWorld)
+      throw Error(
+        `存档“${sharedWorld.session.worldName || sharedWorld.session.worldId}”正以共享兼容模式运行，不能同时启动其他主存档。请先保存并退出该存档，再使用已适配的游戏和内置启动器重新启动；开启独立主机不会改变已经运行的会话`,
+      );
     this.starting = true;
     this.publish();
     let isolated,
@@ -411,6 +421,7 @@ class Sessions extends EventEmitter {
         }
       }
       let launchActions = [];
+      let isolationAssessment;
       const engine = await this.engineInfo(config.game_executable_path);
       if (
         automation?.expectedGameDigest &&
@@ -450,10 +461,21 @@ class Sessions extends EventEmitter {
             if (e.code !== "ENOENT") throw e;
           }
         }
+        const launcher = this.store.value.settings.LauncherPath || this.runtime;
+        isolationAssessment = await this.isolation?.assess?.(
+          config,
+          launcher,
+          this.store.value.settings.IndependentWorlds !== false,
+        );
+        if (
+          isolationAssessment?.reason &&
+          this.workers.some((w) => w.session?.running && w.session.worldId)
+        )
+          throw Error("无法同时启动此主存档：" + isolationAssessment.reason);
         isolated = await this.isolation?.prepare(
           worldId,
           config,
-          this.store.value.settings.LauncherPath || this.runtime,
+          launcher,
           runDir,
           this.store.value.settings.IndependentWorlds !== false,
         );
@@ -462,7 +484,10 @@ class Sessions extends EventEmitter {
           this.workers.some((w) => w.session?.running && w.session.worldId)
         )
           throw Error(
-            "已有存档正在运行；请在设置中开启独立主机，并使用内置启动器与已支持的开发版游戏",
+            "无法同时启动此主存档：" +
+              (isolated?.isolationReason ||
+                isolationAssessment?.reason ||
+                "当前启动环境未建立独立主机隔离，请保存退出后检查启动环境"),
           );
         if (world.embeddedPacks)
           config.included_mod_dirs = await this.worlds.prepareWorldPacks(
@@ -652,6 +677,8 @@ class Sessions extends EventEmitter {
         quickTest: !!quickTest,
         runDirectory: runDir,
         storageMode: isolated?.mode || (isolated ? "isolated" : "shared"),
+        isolationReason:
+          isolated?.isolationReason || isolationAssessment?.reason || null,
         isolationRoot: isolated?.roaming || null,
         actualWorldPath: isolated?.actualWorld || null,
         sourceRoots,
