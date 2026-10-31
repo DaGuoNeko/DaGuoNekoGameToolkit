@@ -123,7 +123,11 @@ const release = (tag = "v0.1.1") => ({
 });
 async function fixture(t, fetchImpl) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-update-test-"));
-  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  t.after(async () => {
+    assert.equal(await fs.realpath(root), root);
+    assert.equal(path.dirname(root), await fs.realpath(os.tmpdir()));
+    await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  });
   const service = new UpdateService({
     currentVersion: "0.1.0",
     dataRoot: root,
@@ -417,6 +421,5 @@ test(
     assert.equal(state.phase, "downloaded");
     assert.match(state.error, /游戏刚刚启动/);
     await fs.access(service.plan + ".cancelled");
-    await new Promise((resolve) => setTimeout(resolve, 700));
   },
 );

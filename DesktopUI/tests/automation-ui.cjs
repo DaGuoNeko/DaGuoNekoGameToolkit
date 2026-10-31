@@ -64,6 +64,28 @@ const {
     };
     const status = await call("toolbox_status");
     assert(status.online);
+    const operation = {instanceId:status.instanceId,confirmed:true};
+    const created = await call("create_project", {...operation,requestId:"ui-profile",name:"AI 配置"});
+    await call("update_project", {projectId:created.project.id,revision:created.revision,patch:{user_name:"AIPlayer"}});
+    const loaded = await page.evaluate(id=>window.toolkit.call("project.read",{id}),created.project.id);
+    assert.equal(loaded.config.user_name,"AIPlayer");
+    const staleProfile = await client.callTool({name:"update_project",arguments:{projectId:created.project.id,revision:created.revision,patch:{user_name:"stale"}}});
+    assert(staleProfile.isError);
+    const preferences = await call("read_settings");
+    await call("update_settings", {revision:preferences.revision,patch:{AppearanceMode:"Dark"}});
+    await page.waitForFunction(()=>document.documentElement.dataset.theme==="dark");
+    const source = path.join(root,"source-world");
+    await fs.mkdir(path.join(source,"db"),{recursive:true});
+    await fs.writeFile(path.join(source,"level.dat"),require("./fixtures/zip.cjs").levelData());
+    const imported = await call("import_world", {...operation,requestId:"ui-import",source,name:"AI 导入副本"});
+    const duplicate = await call("clone_world", {...operation,requestId:"ui-clone",worldId:imported.world.id,name:"AI 克隆副本"});
+    assert.notEqual(imported.world.id,duplicate.world.id);
+    assert.equal((await page.evaluate(()=>window.toolkit.call("worlds.list"))).worlds.length,2);
+    const template = await call("read_game_options");
+    await call("update_game_options",{revision:template.revision,overrides:{gfx_max_framerate:"30"}});
+    assert.equal((await page.evaluate(()=>window.toolkit.call("game-options.read"))).overrides.gfx_max_framerate,"30");
+    const updatedTemplate = await call("read_game_options");
+    await call("update_game_options",{revision:updatedTemplate.revision,overrides:{}});
     assert.equal(status.capabilities.autoJoin, true);
     assert.equal(status.capabilities.autoJoinAssertionPolicy, "pause_preserve");
     assert(

@@ -1,10 +1,24 @@
 const Ajv = require("ajv");
+const { settingsSchema, projectSchema } = require("./automation-config.cjs");
 const text = (maxLength = 128) => ({ type: "string", minLength: 1, maxLength });
 const target = {
   sessionId: text(),
   generation: { type: "integer", minimum: 0 },
 };
 const launch = { instanceId: text(), requestId: text(), playerName: text(64) };
+const operation = {
+  instanceId: text(),
+  requestId: text(),
+  confirmed: { const: true },
+};
+const vector = {type:"array",minItems:3,maxItems:3,items:{type:"number",minimum:-30000000,maximum:30000000}};
+const scene = {type:"object",additionalProperties:false,properties:{
+  position:vector,dimension:{type:"integer",minimum:0,maximum:1000000},
+  rotation:{...vector,items:{type:"number",minimum:-360,maximum:360}},
+  fov:{type:"number",minimum:30,maximum:110},perspective:{enum:[0,1,2]},
+  timeOfDay:{type:"integer",minimum:0,maximum:23999},weather:{enum:["clear","rain","thunder"]},
+  hudHidden:{type:"boolean"},chunkRadius:{type:"integer",minimum:0,maximum:4},
+},dependencies:{dimension:["position"]}};
 const localMultiplayer = {
   scope: "local_host_and_clients",
   steps: [
@@ -12,11 +26,12 @@ const localMultiplayer = {
     "list_clients",
     "list_worlds",
     "launch_world",
+    "wait_client_ready",
     "launch_joined_client",
     "list_clients",
   ],
   guidance:
-    "本地多人测试默认使用存档房主 + 多开客户端。先复用明确匹配的运行房主，或 launch_world 启动目标 worldId 并等待 game_ready；再用 launch_joined_client 指定 hostSessionId 和不同玩家名。每个新增客户端使用独立 requestId，同一次请求重试复用原 ID。轮询 autoJoin.phase，只有 joined 才算入房成功。多个主机必须逐个核对 worldId/sessionId，禁止默认连接主游戏。",
+    "本地多人测试默认使用存档房主 + 多开客户端。先复用明确匹配的运行房主，或 launch_world 启动目标 worldId，再用 wait_client_ready 核对世界与玩家；game_ready 只表示调试状态。随后 launch_joined_client 指定 hostSessionId 和不同玩家名。每个新增客户端使用独立 requestId，同一次请求重试复用原 ID。轮询 autoJoin.phase，只有 joined 才算入房成功。多个主机必须逐个核对 worldId/sessionId，禁止默认连接主游戏。",
   remoteRooms:
     "联机房间页面用于邀请异地朋友，通过 EasyTier/樱花建立远程网络。本地同机测试不创建分享房间、邀请码、隧道或虚拟网卡；只有用户明确要求远程联机时才使用此页。",
 };
@@ -87,7 +102,10 @@ const tools = [
   tool(
     "launch_world",
     "用存档已绑定配置启动主机，本次运行开启调试模组与 MCP，不改配置模板。内置 MCDK 配合具备 isolatedHost 能力的构建支持多个不同存档同时运行；同一存档禁止重复启动。先检查 toolbox_status.capabilities.isolatedWorldHosts 与 gameVersions，再按返回的 sessionId/generation 分别控制；list_clients.storageMode 是本次实际隔离模式。sharedSources 提示共用源码；若需要独立修改源码，请使用不同目录或工作副本。重复启动请求复用 requestId。",
-    { instanceId: text(), requestId: text(), worldId: text() },
+    { instanceId: text(), requestId: text(), worldId: text(),
+      assetPreflight: {enum:["strict","report"],description:"默认 strict 阻止静态资源问题；report 仅记录预检结果后尝试启动，需要 confirmed=true，不代表资源已修复。"},
+      confirmed: {type:"boolean"},
+    },
     ["instanceId", "requestId", "worldId"],
   ),
   tool(
@@ -147,6 +165,125 @@ const tools = [
     },
     ["sessionId", "generation", "name", "arguments"],
   ),
+  tool(
+    "client_readiness",
+    "读取指定客户端的分层就绪状态。不会点击、恢复或切换窗口；generation 可用于拒绝过期会话。",
+    {
+      sessionId: text(),
+      generation: { type: "integer", minimum: 0 },
+    },
+    ["sessionId"],
+    true,
+  ),
+  tool(
+    "wait_client_ready",
+    "在有限期限内等待客户端进入可执行世界状态，返回最后一次完整观察；不会重启、重载或重放输入。",
+    {
+      sessionId: text(),
+      generation: { type: "integer", minimum: 0 },
+      timeoutMs: { type: "integer", minimum: 100, maximum: 60000 },
+      pollMs: { type: "integer", minimum: 100, maximum: 5000 },
+    },
+    ["sessionId"],
+    true,
+  ),
+  tool(
+    "list_client_assertions",
+    "读取指定客户端当前所属的引擎断言弹窗。只检查进程、窗口和已有自动入房状态，不抢焦点。",
+    {
+      sessionId: text(),
+      generation: { type: "integer", minimum: 0 },
+    },
+    ["sessionId", "generation"],
+    true,
+  ),
+  tool(
+    "resolve_client_assertion",
+    "按 list_client_assertions/client_readiness 最新返回的断言 ID，向所属弹窗发送一次忽略按钮通知（等同忽略助记键，不抢焦点）。用户明确授权 confirmed=true 后，同类再次出现也可逐次尝试；次数仅提示，不禁止继续。一次请求只处理一个弹窗，超时或结果未知先重新读取，已发送的同一次操作不重放；忽略不代表资源修复或世界就绪。",
+    {
+      sessionId: text(),
+      generation: { type: "integer", minimum: 0 },
+      assertionId: text(256),
+      action: { const: "ignore" },
+      confirmed: { const: true },
+    },
+    ["sessionId", "generation", "assertionId", "action", "confirmed"],
+  ),
+  tool(
+    "capture_client_window",
+    "通过 Windows Graphics Capture 按所属窗口句柄捕获原始客户区 PNG，支持被遮挡的窗口，不切换焦点。返回会话、尺寸、捕获时间、QPC 帧时间戳、窗口状态和帧摘要。系统不支持、最小化、无窗口、尺寸不符或空白帧明确失败。freshness=unknown 表示未验证游戏渲染推进；requireChanged 仅要求相对基准图发生变化。",
+    {
+      sessionId: text(),
+      generation: { type: "integer", minimum: 0 },
+      requireChanged: { type: "boolean" },
+    },
+    ["sessionId", "generation"],
+    true,
+  ),
+  tool("list_projects", "列出启动配置及其项目目录。", {}, [], true),
+  tool(
+    "read_project",
+    "读取指定启动配置的当前内容和 revision。",
+    { projectId: text() },
+    ["projectId"],
+    true,
+  ),
+  tool(
+    "update_project",
+    "按 revision 局部更新启动配置白名单字段，保留 JSONC 与未知字段；不会改写运行快照。",
+    {
+      projectId: text(),
+      revision: text(128),
+      patch: projectSchema,
+    },
+    ["projectId", "revision", "patch"],
+  ),
+  tool("read_settings", "读取工具箱设置。", {}, [], true),
+  tool(
+    "update_settings",
+    "按 read_settings 的 revision 更新公开设置白名单，不允许通过当前连接关闭 MCP。",
+    { patch: settingsSchema, revision:text(128) },
+    ["patch", "revision"],
+  ),
+  tool(
+    "import_world",
+    "从绝对路径导入存档。支持文件夹、ZIP、MCWORLD、linked 原目录和 copy 独立副本；必须确认，重复请求复用 instanceId/requestId。",
+    {
+      ...operation,
+      profileId: text(),
+      name: text(80),
+      source: text(4096),
+      mode: { enum: ["copy", "linked"] },
+    },
+    ["instanceId", "requestId", "name", "source", "confirmed"],
+  ),
+  tool("read_game_options", "读取游戏设置覆盖模板和当前 options.txt 摘要。", {}, [], true),
+  tool(
+    "update_game_options",
+    "按 revision 更新游戏设置覆盖模板；运行中的游戏不会被直接改写。",
+    {
+      revision: { type: ["string", "null"] },
+      overrides: { type: "object" },
+    },
+    ["revision", "overrides"],
+  ),
+  tool(
+    "capture_scene",
+    "固定指定存档主机的拍摄参数：位置、维度、相机角度、FOV、视角、时间和天气。先检测 API，再设置、等区块加载及回读匹配，截图前后复核。当前 HUD 无可靠回读，传 hudHidden 会在修改前明确拒绝。时间/天气会暂停对应周期，参数保留；失败可能部分生效，不自动恢复或重放。",
+    {
+      sessionId: text(),
+      generation: { type: "integer", minimum: 0 },
+      ...operation,
+      settings: scene,
+      timeoutMs: { type: "integer", minimum: 1000, maximum: 60000 },
+      requireChanged: { type: "boolean" },
+    },
+    ["sessionId", "generation", "instanceId", "requestId", "confirmed", "settings"],
+  ),
+  tool("create_project", "新建或复制启动配置；模组目录再用 update_project 设置。", {...operation,name:text(80),copyId:text()}, ["instanceId","requestId","confirmed","name"]),
+  tool("inspect_world_source", "只读检查导入来源、包和元数据，不登记存档或创建配置。", {source:text(4096)}, ["source"], true),
+  tool("validate_world_assets", "启动前扫描指定存档的 PNG 结构、JSON/JSONC 空资源路径和可解析资源引用；不会启动游戏或修改文件。", {worldId:text()}, ["worldId"], true),
+  tool("clone_world", "复制已登记且停止的存档为独立数据副本，自动创建干净配置；外部模组源码不会被复制。", {...operation,worldId:text(),name:text(80),profileId:text()}, ["instanceId","requestId","confirmed","worldId","name"]),
 ];
 const ajv = new Ajv({ allErrors: true, strict: false });
 const validators = new Map(

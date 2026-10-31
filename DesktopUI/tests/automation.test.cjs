@@ -47,6 +47,8 @@ function fixture() {
     mcdkPid: w.session.pid,
     connected: true,
     connectionGeneration: 4,
+    stateSequence: 1,
+    minecraftPid: 200 + i,
     state: "game_ready",
     gameIpcConnected: true,
     debugCapabilityEnabled: true,
@@ -75,6 +77,8 @@ function fixture() {
     },
     async code(...args) {
       calls.push(["code", ...args]);
+      if (String(args[2]).includes("DGN_AUTOMATION_READINESS"))
+        return { world: "fixture-world", playerId: "123", position:[0,4,0],topUI:"hud_screen" };
       return "ok";
     },
     async reload(args) {
@@ -89,12 +93,53 @@ function fixture() {
       list: async () => ({
         worlds: [{ id: "world", profileId: "profile", name: "world" }],
       }),
+      importWorld: async (profileId, name, source, mode) => ({
+        id: "w_imported",
+        profileId,
+        name,
+        source,
+        mode,
+      }),
     },
     store: {
       value: {
+        settings: { IndependentWorlds: true, AutomationEnabled: true },
         projects: [{ id: "profile", name: "fixture", secret: "not exposed" }],
       },
+      async updateSettings(patch) {
+        this.value.settings = { ...this.value.settings, ...patch };
+        return this.value;
+      },
+      async settingsRevision() { return "settings-rev"; },
     },
+    profiles: {
+      async read(id) {
+        return {
+          project: { id, name: "fixture", root: "C:/fixture" },
+          revision: "rev",
+          raw: '{"user_name":"fixture"}',
+          config: { user_name: "fixture" },
+        };
+      },
+      async save(id, revision, patch, raw) {
+        return {
+          project: { id, name: "fixture", root: "C:/fixture" },
+          revision: "next",
+          raw: raw || JSON.stringify(patch),
+          config: patch || { user_name: "fixture" },
+        };
+      },
+    },
+    gameOptions: {
+      async snapshot() {
+        return { revision: "options-rev", overrides: {}, current: {} };
+      },
+      async save(revision, overrides) {
+        return { revision: "options-next", overrides, current: {} };
+      },
+    },
+    inspectWindow: async () => ({pid:200,processCreatedAt:"123",window:{hwnd:12,width:800,height:500,visible:true,minimized:false},assertions:[]}),
+    captureWindow: async () => ({data:Buffer.from("image"),width:800,height:500,backend:"fixture",frameTimestamp:null}),
     proxy: async (worker, check, action) => {
       check();
       calls.push(["proxy", worker.session.id, action]);
@@ -106,6 +151,16 @@ function fixture() {
   return { router, workers, bridges, calls };
 }
 const json = (value) => JSON.parse(value.content[0].text);
+test("asset preflight report mode requires explicit confirmation and retains its findings", async () => {
+  const {router,calls}=fixture();
+  router.worlds.validateAssets=async()=>({ok:false,digest:"fixture-digest",errors:[{type:"fixture_warning"}]});
+  const args={instanceId:router.instanceId,worldId:"world"};
+  await assert.rejects(router.call("launch_world",{...args,requestId:"strict"}),/PREFLIGHT_FAILED/);
+  await assert.rejects(router.call("launch_world",{...args,requestId:"unconfirmed",assetPreflight:"report"}),/确认/);
+  assert.equal(calls.length,0);
+  const result=json(await router.call("launch_world",{...args,requestId:"confirmed",assetPreflight:"report",confirmed:true}));
+  assert.equal(calls.length,1);assert.equal(result.assetPreflight.errorCount,1);assert.equal(result.assetPreflight.ok,false);
+});
 test("MCP reports isolated engine versions and the actual running compatibility reason", async () => {
   const { router, workers } = fixture();
   router.sessions.isolation = {};
@@ -138,6 +193,85 @@ test("automation publishes the same registered capabilities and immutable sessio
   assert.equal(status.clients[0].engineDigest, profiles[0].digest);
   assert.equal(status.clients[0].engineProfile.isolatedHost, false);
 });
+
+test("control-plane MCP observes clients and routes project, settings, import and scene operations", async () => {
+  const { router } = fixture();
+  const ready = json(
+    await router.call("client_readiness", {
+      sessionId: "client1",
+      generation: 4,
+    }),
+  );
+  assert.equal(ready.ready, true);
+  assert.equal(ready.world, "fixture-world");
+  assert.equal(ready.playerLoaded, true);
+  const waited = json(
+    await router.call("wait_client_ready", {
+      sessionId: "client1",
+      generation: 4,
+      timeoutMs: 100,
+      pollMs: 100,
+    }),
+  );
+  assert.equal(waited.timedOut, false);
+  assert.deepEqual(
+    json(await router.call("list_client_assertions", { sessionId: "client1", generation:4 })).assertions,
+    [],
+  );
+  assert.equal(json(await router.call("list_projects")).projects[0].id, "profile");
+  assert.equal(
+    json(await router.call("read_project", { projectId: "profile" })).revision,
+    "rev",
+  );
+  assert.equal(
+    json(
+      await router.call("update_project", {
+        projectId: "profile",
+        revision: "rev",
+        patch: { user_name: "next" },
+      }),
+    ).revision,
+    "next",
+  );
+  assert.equal(json(await router.call("read_settings")).settings.IndependentWorlds, true);
+  assert.equal(
+    json(await router.call("update_settings", { revision:"settings-rev", patch: { IndependentWorlds: false } })).settings
+      .IndependentWorlds,
+    false,
+  );
+  assert.equal(json(await router.call("read_game_options")).revision, "options-rev");
+  assert.equal(
+    json(
+      await router.call("update_game_options", {
+        revision: "options-rev",
+        overrides: { gfx_max_framerate: "30" },
+      }),
+    ).revision,
+    "options-next",
+  );
+  const imported = json(
+    await router.call("import_world", {
+      instanceId: router.instanceId,
+      requestId: "import-one",
+      name: "fixture world",
+      source: "C:/fixture-world",
+      confirmed: true,
+    }),
+  );
+  assert.equal(imported.world.mode, "copy");
+  const screenshot = await router.call("capture_client_window", {
+    sessionId: "client1",
+    generation: 4,
+  });
+  assert.equal(screenshot.content[0].type, "image");
+  await assert.rejects(router.call("capture_scene", {
+    sessionId: "client1",
+    generation: 4,
+    confirmed: true,
+    instanceId:router.instanceId,requestId:"scene",settings:{},
+  }), /SCENE_HOST_REQUIRED/);
+});
+
 test("automation routes logs/code/MCDK/stop to explicit client and rejects stale/foreign session", async () => {
   const { router, calls, bridges } = fixture();
   assert.equal(
@@ -384,7 +518,7 @@ test("authenticated loopback bridge + real SDK stdio client supports offline too
   ).localMultiplayer;
   assert.equal(guidance.scope, "local_host_and_clients");
   assert.ok(guidance.steps.includes("launch_joined_client"));
-  assert.equal((await client.listTools()).tools.length, 15);
+  assert.equal((await client.listTools()).tools.length, 33);
   assert.equal(
     json(await client.callTool({ name: "toolbox_status", arguments: {} }))
       .online,
@@ -405,7 +539,7 @@ test("authenticated loopback bridge + real SDK stdio client supports offline too
       .online,
     false,
   );
-  assert.equal((await client.listTools()).tools.length, 15);
+  assert.equal((await client.listTools()).tools.length, 33);
 });
 test("MCDK proxy performs real HTTP initialize/list/call and preserves image content", async (t) => {
   const http = require("node:http");

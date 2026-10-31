@@ -70,6 +70,8 @@ const runtimeFiles = new Set([
   "README.md",
   "update-config.json",
   "automation/ore-window.ps1",
+  "automation/automation-window.ps1",
+  "automation/automation-window.dll",
   "automation/content-log-owner.ps1",
   "automation/update-helper.ps1",
   "native/koffi.node",

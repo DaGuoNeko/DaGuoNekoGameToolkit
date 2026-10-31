@@ -26,6 +26,29 @@ async function setup(t) {
   return { root, store, worlds, flags, id: store.value.projects[0].id };
 }
 
+test("world status remains readable while an import is copying", async (t) => {
+  const {root,worlds,id}=await setup(t);
+  const source=path.join(root,"pending-source");
+  await fs.mkdir(path.join(source,"db"),{recursive:true});
+  await fs.writeFile(path.join(source,"level.dat"),levelData());
+  let entered,release,timer;
+  const started=new Promise(resolve=>{entered=resolve;});
+  const gate=new Promise(resolve=>{release=resolve;});
+  const copy=fs.cp.bind(fs);
+  t.mock.method(fs,"cp",async(...args)=>{entered();await gate;return copy(...args);});
+  const importing=worlds.importWorld(id,"pending",source);
+  await started;
+  try {
+    const snapshot=await Promise.race([worlds.list(),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error("Read waited for the copy")),1000);})]);
+    assert.equal(snapshot.worlds.length,1);
+    assert.equal(snapshot.worlds[0].copying,true);
+  } finally {
+    clearTimeout(timer);release();await importing;
+  }
+  const snapshot=await worlds.list();
+  assert.equal(snapshot.worlds.length,1);assert(!snapshot.worlds[0].copying);
+});
+
 test("linked directories use the same files on both sides and recycle/purge never delete the source", async (t) => {
   const { root, store, worlds, id } = await setup(t);
   const source = path.join(root, "编辑中的地图");

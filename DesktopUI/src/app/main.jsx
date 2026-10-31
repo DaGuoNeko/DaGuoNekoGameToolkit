@@ -162,8 +162,30 @@ function App() {
     }
   }
   useEffect(() => {
-    const offTheme = window.toolkit.onTheme(({ dark }) => {
+    const offTheme = window.toolkit.onTheme(({ dark, settings: latestSettings }) => {
       document.documentElement.dataset.theme = dark ? "dark" : "light";
+      if (latestSettings) setSettings(latestSettings);
+    });
+    const offAutomation = window.toolkit.onAutomationData(() => {
+      api("profiles.list").then(async (list) => {
+        setProjects(list);
+        const current = profileDraft.current;
+        if (!current.snapshot) return;
+        const edited = current.raw !== current.snapshot.raw ||
+          JSON.stringify(patchFor(current.form || {})) !== JSON.stringify(patchFor(current.snapshot.config || {}));
+        if (edited) {
+          setNotice("配置列表已更新；当前未保存草稿已保留，保存前请核对配置是否仍存在。");
+          return;
+        }
+        if (!list.some(p => p.id === current.snapshot.project.id)) {
+          ++loadTicket.current;
+          applySnapshot(null);
+          return;
+        }
+        const value = await api("project.read", {id:current.snapshot.project.id});
+        const latest = profileDraft.current;
+        if (latest.snapshot === current.snapshot && latest.raw === current.raw && latest.form === current.form) applySnapshot(value);
+      }).catch(report);
     });
     const offState = window.toolkit.onSession(receive);
     const offLog = window.toolkit.onLogs(receive);
@@ -203,6 +225,7 @@ function App() {
     return () => {
       clearInterval(updateTimer);
       offTheme();
+      offAutomation();
       offState();
       offLog();
       offUpdate();

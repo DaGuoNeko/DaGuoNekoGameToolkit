@@ -53,7 +53,7 @@ const { zip, levelData } = require("./fixtures/zip.cjs");
     });
     app = await electron.launch({
       executablePath: process.env.DGN_GAME_TEST_EXE || undefined,
-      args: process.env.DGN_GAME_TEST_EXE ? [] : ["."],
+      args: process.env.DGN_GAME_TEST_EXE ? [] : [process.env.DGN_UI_ISOLATE_PROCESSES ? "tests/fixtures/isolated-ui-entry.cjs" : "."],
       env: {
         ...process.env,
         DGN_GAME_HEADLESS: "1",
@@ -95,7 +95,17 @@ const { zip, levelData } = require("./fixtures/zip.cjs");
       .getByRole("article", { name: "模组 模组A", exact: true })
       .getByRole("button", { name: "打开文件夹", exact: true })
       .click();
-    assert.deepEqual(await app.evaluate(() => globalThis.opened), [mod]);
+    async function expectOpened(expected) {
+      const deadline=Date.now()+5000;
+      let actual;
+      do {
+        actual=await app.evaluate(() => globalThis.opened);
+        if(actual.length>=expected.length)break;
+        await new Promise(resolve=>setTimeout(resolve,25));
+      } while(Date.now()<deadline);
+      assert.deepEqual(actual,expected);
+    }
+    await expectOpened([mod]);
     const catalog = await page.evaluate(() => window.toolkit.call("mods.list"));
     await page.evaluate(
       (value) =>
@@ -126,7 +136,7 @@ const { zip, levelData } = require("./fixtures/zip.cjs");
     await page
       .getByRole("button", { name: "打开模组文件夹 模组A", exact: true })
       .click();
-    assert.deepEqual(await app.evaluate(() => globalThis.opened), [mod, mod]);
+    await expectOpened([mod, mod]);
     await nav("存档");
     const cdp = await page.context().newCDPSession(page);
     async function drop(file) {
@@ -239,11 +249,17 @@ const { zip, levelData } = require("./fixtures/zip.cjs");
     await page.getByText(/原目录、游戏进度和模组文件保留/).waitFor();
     await page.getByRole("button", { name: "移入回收站", exact: true }).click();
     await page.getByRole("dialog").waitFor({ state: "hidden" });
+    assert(!(await page.evaluate(() => window.toolkit.call("profiles.list"))).some(p => p.id === linked.profileId));
+    await nav("启动配置");
+    await page.getByText("外部世界（自动匹配）", { exact: true }).waitFor({state:"hidden"});
+    await nav("存档");
     await page.evaluate(
       (id) => window.toolkit.call("worlds.restore", { worldId: id }),
       linked.id,
     );
+    assert((await page.evaluate(() => window.toolkit.call("profiles.list"))).some(p => p.id === linked.profileId));
     await nav("启动配置");
+    await page.getByText("外部世界（自动匹配）", { exact: true }).waitFor();
     await nav("存档");
     await drop(archive);
     await page

@@ -102,7 +102,9 @@ export function WorldHome({
   };
   useEffect(() => {
     refresh();
+    const offAutomation = window.toolkit.onAutomationData(() => refresh());
     return () => {
+      offAutomation();
       ticket.current++;
     };
   }, [
@@ -199,8 +201,6 @@ export function WorldHome({
           mode: importMode,
         });
         setDialog(null);
-        if (profileId === AUTO_IMPORT_PROFILE)
-          onProfiles(await call("profiles.list"));
       }
       if (kind === "delete")
         await call("worlds.recycle", { worldId: w.id, confirmed: true });
@@ -214,12 +214,13 @@ export function WorldHome({
       await refresh();
     } catch (e) {
       setError(e.message);
-      if (dialog.kind === "import") await refresh();
+      if (["import", "edit", "delete", "restore"].includes(dialog.kind)) await refresh();
       if (dialog.kind === "purge" || dialog.kind === "empty") {
         setDialog(null);
         await refresh();
       }
     } finally {
+      await call("profiles.list").then(onProfiles).catch(e => setError(e.message));
       setWorking(false);
     }
   }
@@ -605,7 +606,7 @@ export function WorldHome({
                 </ul>
                 {dialog.kind === "empty" && (
                   <p className="muted">
-                    包括被搜索条件隐藏的回收站存档。正常存档、启动配置和模组文件均保留。
+                    包括被搜索条件隐藏的回收站存档。仅由这些存档使用、未经修改的自动匹配配置会一并移除登记；手动配置和模组文件保留。
                   </p>
                 )}
               </>
@@ -830,11 +831,12 @@ export function WorldHome({
               <p>
                 {dialog.w.linkedPath
                   ? `将“${dialog.w.name}”的登记移入回收站，可恢复；原目录、游戏进度和模组文件保留。`
-                  : `将“${dialog.w.name}”移入库内回收站，可恢复，不删除启动配置或模组。`}
+                  : `将“${dialog.w.name}”移入库内回收站，可恢复，模组文件保留。`}
+                仅由此存档使用、未经修改的自动匹配配置随存档回收，恢复存档时一并恢复。
               </p>
             )}
             {dialog.kind === "restore" && (
-              <p>恢复“{dialog.w.name}”，不覆盖其他存档。</p>
+              <p>恢复“{dialog.w.name}”及随它回收的自动匹配配置，不覆盖其他存档。</p>
             )}
             <ErrorBox>{error}</ErrorBox>
           </fieldset>

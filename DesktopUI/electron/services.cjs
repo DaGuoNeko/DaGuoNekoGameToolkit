@@ -207,7 +207,7 @@ function validateConfig(config) {
 class WorkspaceStore {
   constructor(directory) {
     this.file = path.join(directory, "settings.json");
-    this.value = { settings: structuredClone(defaults), projects: [] };
+    this.value = { settings: structuredClone(defaults), projects: [], recycledProfiles: [] };
     this.queue = Promise.resolve();
     this.projectQueues = new Map();
     this.warning = "";
@@ -220,6 +220,10 @@ class WorkspaceStore {
         stored = JSON.parse(text.replace(/^\uFEFF/, ""));
         if (!stored || typeof stored !== "object" || Array.isArray(stored))
           throw new SyntaxError("设置根节点无效");
+        if (stored.recycledProfiles !== undefined &&
+            (!Array.isArray(stored.recycledProfiles) || stored.recycledProfiles.some(p =>
+              !p || typeof p.id !== "string" || typeof p.root !== "string" || !path.isAbsolute(p.root) || !p.automaticImport)))
+          throw new SyntaxError("回收配置索引无效");
       } catch (error) {
         if (!(error instanceof SyntaxError)) throw error;
         const backup = this.file + ".corrupt-" + Date.now() + ".bak";
@@ -239,6 +243,7 @@ class WorkspaceStore {
               path.isAbsolute(p.root),
           )
         : [];
+      this.value.recycledProfiles = stored.recycledProfiles || [];
       for (const [key, value] of Object.entries(stored.settings || {}))
         if (
           Object.hasOwn(defaults, key) &&
@@ -391,18 +396,37 @@ class WorkspaceStore {
         this.value.settings[key] = defaults[key];
     return this.value;
   }
-  mutate(update) {
+  async settingsRevision() {
+    const text = await optionalRead(this.file);
+    if (text) {
+      const disk = JSON.parse(text.replace(/^\uFEFF/, ""));
+      if (JSON.stringify(disk.projects) !== JSON.stringify(this.value.projects) ||
+          JSON.stringify(disk.recycledProfiles || []) !== JSON.stringify(this.value.recycledProfiles || []) ||
+          Object.entries(disk.settings || {}).some(([key,value]) => Object.hasOwn(defaults,key) && JSON.stringify(value) !== JSON.stringify(this.value.settings[key])))
+        throw Error("设置已被外部修改，请重新打开工具箱后读取；未覆盖外部内容");
+    }
+    return hash(JSON.stringify(this.value.settings) + "\0" + (text || ""));
+  }
+  mutate(update, expectedRevision) {
     const operation = this.queue.then(async () => {
+      if (expectedRevision !== undefined && expectedRevision !== await this.settingsRevision())
+        throw Error("设置已变化，请重新 read_settings");
       const next = structuredClone(this.value);
       update(next);
-      await atomicWrite(this.file, JSON.stringify(next, null, 2));
+      if (expectedRevision !== undefined) {
+        const before = await optionalRead(this.file);
+        if (before !== null) await atomicWrite(this.file + ".bak", before);
+        if (expectedRevision !== await this.settingsRevision()) throw Error("设置文件在保存期间变化");
+      }
+      const disk = expectedRevision !== undefined ? JSON.parse((await optionalRead(this.file) || "{}").replace(/^\uFEFF/, "")) : null;
+      await atomicWrite(this.file, JSON.stringify(disk ? {...disk,...next,settings:{...disk.settings,...next.settings}} : next, null, 2));
       this.value = next;
       return next;
     });
     this.queue = operation.catch(() => {});
     return operation;
   }
-  updateSettings(patch) {
+  updateSettings(patch, expectedRevision) {
     return this.mutate((next) => {
       for (const [key, value] of Object.entries(patch)) {
         if (key === "GameWindowSize") {
@@ -447,7 +471,7 @@ class WorkspaceStore {
           next.settings[key] > max
         )
           throw Error("无效设置：" + key);
-    });
+    }, expectedRevision);
   }
   async addProject(root) {
     root = path.resolve(root);

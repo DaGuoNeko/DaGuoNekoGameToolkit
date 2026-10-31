@@ -7,6 +7,7 @@ const { loadWorldInfo } = require("./world-info.cjs");
 const { openWorldZip } = require("./world-zip.cjs");
 const { inspectWorldPacks, prepareWorldPacks } = require("./world-packs.cjs");
 const { AUTO_IMPORT_PROFILE } = require("../../../shared/world-import-model.cjs");
+const { validateWorldAssets } = require("./asset-validation.cjs");
 const { validateModIds } = require("../reload/quick-test.cjs");
 const FORMAT = "DaGuoNekoGameToolkit.WorldLibrary/1";
 const RULE_KEYS = [
@@ -64,6 +65,9 @@ class WorldLibrary {
     this.busy = options.busy || (() => false);
     this.mutationGuard = options.mutationGuard;
     this.createImportProfile = options.createImportProfile;
+    this.profiles = options.profiles;
+    this.profileInUse = options.profileInUse;
+    this.onProfilesChanged = options.onProfilesChanged;
     this.gameRunning =
       options.gameRunning ||
       async function () {
@@ -74,6 +78,13 @@ class WorldLibrary {
     const result = this.queue.catch(() => {}).then(task);
     this.queue = result;
     return result;
+  }
+  async syncProfiles(data) {
+    if (!this.profiles) return;
+    if ((await this.read())._revision !== data._revision)
+      throw Error("存档索引已被外部修改，未清理自动配置");
+    if (await this.profiles.reconcileAutomatic(data.worlds, this.profileInUse))
+      this.onProfilesChanged?.();
   }
   async safeDirectory(dir, create = false) {
     if (create) await fs.mkdir(dir, { recursive: true });
@@ -160,6 +171,10 @@ class WorldLibrary {
     if (!project) return true;
     if (w.profileId) return w.profileId === project.id;
     return w.projectId === project.id || same(w.projectRoot, project.root);
+  }
+  scopedProject(id) {
+    return this.store.value.projects.find(p => p.id === id) ||
+      this.store.value.recycledProfiles?.find(p => p.id === id) || this.store.project(id);
   }
   find(data, project, id) {
     if (!ID.test(id)) throw Error("无效存档 ID");
@@ -267,9 +282,9 @@ class WorldLibrary {
       }
     }
   }
-  list(projectId) {
-    return this.run(async () => {
-      const project = projectId ? this.store.project(projectId) : null,
+  async list(projectId) {
+      // 原子索引已记录 copying；只读查询不等待大型复制完成。
+      const project = projectId ? this.scopedProject(projectId) : null,
         data = await this.read();
       const worlds = [];
       for (const w of data.worlds.filter((w) => this.owns(w, project))) {
@@ -290,7 +305,6 @@ class WorldLibrary {
         }
       }
       return { root: this.root, worlds };
-    });
   }
   create(projectId, options) {
     return this.run(async () => {
@@ -328,7 +342,7 @@ class WorldLibrary {
       const data = await this.read(),
         w = this.find(
           data,
-          projectId ? this.store.project(projectId) : null,
+          projectId ? this.scopedProject(projectId) : null,
           id,
         );
       w.name = title(name);
@@ -365,7 +379,7 @@ class WorldLibrary {
     const id = managedId(config.world_folder_name);
     if (!id) return null;
     const data = await this.read(),
-      w = this.find(data, projectId ? this.store.project(projectId) : null, id),
+      w = this.find(data, projectId ? this.scopedProject(projectId) : null, id),
       info = await this.inspect(w);
     if (info.deleted || w.copying)
       throw Error(
@@ -390,15 +404,20 @@ class WorldLibrary {
       const data = await this.read(),
         w = this.find(
           data,
-          projectId ? this.store.project(projectId) : null,
+          projectId ? this.scopedProject(projectId) : null,
           id,
         ),
         info = await this.inspect(w);
-      if (info.deleted) throw Error("该存档已在回收站");
+      if (info.deleted) {
+        if (!w.deletedAt) { w.deletedAt = new Date().toISOString(); await this.write(data); }
+        await this.syncProfiles(data);
+        return true;
+      }
       if (w.linkedPath) {
         await this.detachLinked(w);
         w.deletedAt = new Date().toISOString();
         await this.write(data);
+        await this.syncProfiles(data);
         return true;
       }
       const target = this.location(id, true);
@@ -414,6 +433,7 @@ class WorldLibrary {
         if (info.present) await fs.rename(target, info.path);
         throw e;
       }
+      await this.syncProfiles(data);
       return true;
     });
   }
@@ -423,11 +443,14 @@ class WorldLibrary {
       const data = await this.read(),
         w = this.find(
           data,
-          projectId ? this.store.project(projectId) : null,
+          projectId ? this.scopedProject(projectId) : null,
           id,
         ),
         info = await this.inspect(w);
-      if (!info.deleted) throw Error("该存档不在回收站");
+      if (!info.deleted) {
+        await this.syncProfiles(data);
+        return true;
+      }
       if (w.purging)
         throw Error("该存档已开始永久删除，不能恢复，请重试永久删除");
       if (w.linkedPath) {
@@ -435,6 +458,7 @@ class WorldLibrary {
           throw Error("原存档目录不存在或缺少 level.dat，请先恢复原路径");
         delete w.deletedAt;
         await this.write(data);
+        await this.syncProfiles(data);
         return true;
       }
       if (info.present) throw Error("原位置已有数据，不能覆盖恢复");
@@ -449,6 +473,7 @@ class WorldLibrary {
         if (info.inTrash) await fs.rename(info.path, this.location(id, true));
         throw e;
       }
+      await this.syncProfiles(data);
       return true;
     });
   }
@@ -501,6 +526,7 @@ class WorldLibrary {
           if (present) await fs.rm(target, { recursive: true, force: false });
           data.worlds = data.worlds.filter((item) => item.id !== w.id);
           await this.write(data);
+          await this.syncProfiles(data);
           deleted++;
         } catch (e) {
           throw Error(
@@ -601,6 +627,7 @@ class WorldLibrary {
         }
       }
       if (changed) await this.write(data);
+      await this.syncProfiles(data);
     });
   }
   update(id, values) {
@@ -635,6 +662,7 @@ class WorldLibrary {
       if (values.profileId) w.profileId = values.profileId;
       if (values.name !== undefined) w.name = title(values.name);
       await this.write(data);
+      await this.syncProfiles(data);
       return true;
     });
   }
@@ -686,9 +714,36 @@ class WorldLibrary {
       );
     });
   }
-  importWorld(profileId, name, source, mode = "copy") {
+  async inspectSource(source) {
+    if (typeof source !== "string" || !path.isAbsolute(source)) throw Error("请输入来源绝对路径");
+    source = path.resolve(source);
+    const s = await stat(source);
+    if (!s || s.isSymbolicLink() || !same(await fs.realpath(source), source)) throw Error("来源不存在或被重定向");
+    if (s.isDirectory()) {
+      await this.noLinks(source);
+      return {source,kind:"folder",metadata:await loadWorldInfo(path.join(source,"level.dat")),packs:await inspectWorldPacks(source),assets:await validateWorldAssets(source)};
+    }
+    if (!/\.(zip|mcworld)$/i.test(source)) throw Error("只支持存档文件夹、ZIP 或 MCWORLD");
+    const archive = await openWorldZip(source);
+    try { return {source,kind:"archive",metadata:archive.metadata,packs:null,assets:null}; }
+    finally { await archive.close(); }
+  }
+  async validateAssets(id) {
+    const data = await this.read(), w = this.find(data, null, id), info = await this.inspect(w);
+    if (info.deleted || w.copying) throw Error("存档已删除或仍在复制");
+    const assets = await validateWorldAssets(info.path);
+    return { worldId:id, worldName:w.name, path:info.path, ...assets };
+  }
+  importWorld(profileId, name, source, mode = "copy", sourceWorldId) {
     return this.run(async () => {
       await this.idle(true);
+      if (sourceWorldId) {
+        const original = this.find(await this.read(), null, sourceWorldId);
+        const info = await this.inspect(original);
+        if (info.deleted || original.copying || !info.ready) throw Error("源存档不可复制");
+        source = info.path;
+        mode = "copy";
+      }
       if (!["copy", "linked"].includes(mode)) throw Error("无效的存档导入方式");
       const automatic = profileId === AUTO_IMPORT_PROFILE;
       const profile = automatic ? null : this.store.project(profileId);
@@ -709,7 +764,7 @@ class WorldLibrary {
         !path.isAbsolute(relative) &&
         relative !== ".." &&
         !relative.startsWith(".." + path.sep);
-      if (within(fromLibrary) || within(toLibrary))
+      if (!sourceWorldId && (within(fromLibrary) || within(toLibrary)))
         throw Error("导入源不能是存档库、库内内容或存档库的上级目录");
       const sourceStat = await stat(source);
       if (
@@ -805,7 +860,7 @@ class WorldLibrary {
         // Create only after the copied save and pack list have been validated.
         // A failed copy never creates an unrelated empty configuration.
         if (automatic) {
-          createdProfile = await this.createImportProfile(w.name);
+          createdProfile = await this.createImportProfile(w.name, w.id);
           const selected = this.store.project(createdProfile.project.id);
           w.profileId = selected.id;
           w.projectId = selected.id;

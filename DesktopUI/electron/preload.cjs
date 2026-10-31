@@ -168,6 +168,7 @@ contextBridge.exposeInMainWorld("toolkit", {
       ),
     ),
   onTheme: (listener) => subscribe("theme", listener),
+  onAutomationData: (listener) => subscribe("automation-data-changed", listener),
   onWindowState: (listener) => subscribe("window-state", listener),
   onCloseRequested: (listener) => subscribe("close-requested", listener),
   onSession: (listener) => subscribe("session-state", listener),

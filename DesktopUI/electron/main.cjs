@@ -36,6 +36,7 @@ let reloadSources;
 const { HostIsolation } = require("./host-isolation.cjs");
 const { MenuName } = require("./domains/client/menu-name.cjs");
 const { AutomationRouter } = require("./domains/automation/automation-router.cjs");
+const { captureWindow } = require("./domains/automation/automation-observation.cjs");
 const {
   AutomationBridge,
   installAutomation,
@@ -1027,8 +1028,13 @@ else {
               "minecraftWorlds",
             ),
         {
-          createImportProfile: (name) =>
-            profiles.create(name.slice(0, 68) + "（自动匹配）"),
+          createImportProfile: (name, worldId) =>
+            profiles.createAutomatic(name.slice(0, 68) + "（自动匹配）", worldId),
+          profiles,
+          profileInUse: async (id) => !!(dirty || launcher?.starting || launcher?.profileRunning(id) || await gameProcesses.any()),
+          onProfilesChanged: () => {
+            if (win && !win.isDestroyed()) win.webContents.send("automation-data-changed", {method:"worlds.profiles"});
+          },
           appDataOverride: process.env.DGN_GAME_DATA_DIR
             ? path.join(dataRoot, "game-data")
             : null,
@@ -1129,6 +1135,16 @@ else {
           worlds,
           store,
           joiner: clientJoiner,
+          profiles,
+          gameOptions,
+          runtime: runtimeRoot,
+          captureWindow: (snapshot, worker, bridge) => captureWindow(runtimeRoot, worker, bridge, snapshot),
+          onDataChanged: (value) => {
+            if (win && !win.isDestroyed()) win.webContents.send("automation-data-changed", value);
+          },
+          onSettingsChanged: async (next, patch) => {
+            settingsChanged();
+          },
         }),
       );
       await installAutomation(

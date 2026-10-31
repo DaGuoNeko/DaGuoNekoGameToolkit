@@ -24,6 +24,8 @@ const WORLD_KEYS = [
   "experiment_options",
 ];
 const isWorld = (key) => WORLD_KEYS.includes(key);
+const { ID: WORLD_ID } = require("../worlds/world-path.cjs");
+const revisionOf = (text) => crypto.createHash("sha256").update(text).digest("hex");
 function withDebugMod(raw) {
   return jsonc.applyEdits(
     raw,
@@ -147,7 +149,11 @@ class Profiles {
   create(name, copyId) {
     return this.run(() => this.createRecord(name, copyId));
   }
-  async createRecord(name, copyId) {
+  createAutomatic(name, worldId) {
+    if (!WORLD_ID.test(worldId)) throw Error("自动配置的存档 ID 无效");
+    return this.run(() => this.createRecord(name, undefined, worldId));
+  }
+  async createRecord(name, copyId, worldId) {
     name = profileName(name);
     const id = crypto.randomUUID(),
       folder = path.join(this.directory, id);
@@ -164,9 +170,66 @@ class Profiles {
         root: folder,
         baseDirectory: source?.project.baseDirectory || folder,
         profile: true,
+        ...(worldId ? { automaticImport: { worldId, name, revision: revisionOf(raw) } } : {}),
       }),
     );
     return this.read(id);
+  }
+  reconcileAutomatic(worlds, inUse = () => false) {
+    return this.run(async () => {
+      await this.store.queue;
+      await Promise.all([...this.store.projectQueues.values()]);
+      const active = this.store.value.projects;
+      const archived = this.store.value.recycledProfiles || [];
+      const plans = [];
+      for (const p of [...active, ...archived]) {
+        const origin = p.automaticImport;
+        if (!origin) continue;
+        const wasArchived = archived.some(item => item.id === p.id);
+        const expected = path.join(this.directory, p.id);
+        if (!/^[a-f0-9-]{36}$/.test(p.id) || !WORLD_ID.test(origin.worldId) ||
+            typeof p.root !== "string" || path.resolve(p.root).toLowerCase() !== expected.toLowerCase())
+          throw Error("自动配置来源记录无效，未清理配置");
+        const references = worlds.filter(w => (w.profileId || w.projectId) === p.id ||
+          (w.copying && w.id === origin.worldId && w.profileId === "__auto_import__"));
+        let pristine = false;
+        try {
+          const dir = await fs.lstat(p.root);
+          const file = path.join(p.root, ".mcdev.json");
+          const stat = await fs.lstat(file);
+          if (dir.isSymbolicLink() || !dir.isDirectory() || stat.isSymbolicLink() || !stat.isFile() ||
+              (await fs.realpath(p.root)).toLowerCase() !== expected.toLowerCase() || stat.size > 2 * 1024 * 1024)
+            throw Error("自动配置文件被重定向或不是普通文件，未清理配置");
+          pristine = p.name === origin.name && revisionOf(await fs.readFile(file, "utf8")) === origin.revision;
+        } catch (error) {
+          if (error.code !== "ENOENT") throw error;
+        }
+        // 修改过、无法核验或仍在使用的配置属于独立用户数据，不自动回收。
+        const keep = !pristine || references.some(w => !w.deletedAt && !w.purging);
+        let destination = keep ? "active" : references.length ? "archived" : "remove";
+        if (destination === (wasArchived ? "archived" : "active")) continue;
+        // 只为确实需要回收的配置查询进程，正常启动不为每份配置重复枚举系统进程。
+        const used = destination !== "active" && await inUse(p.id);
+        if (used) destination = "active";
+        if (destination === (wasArchived ? "archived" : "active")) continue;
+        plans.push({ profile: p, wasArchived, destination, used });
+      }
+      if (!plans.length) return false;
+      const expectedRevision = await this.store.settingsRevision();
+      await this.store.mutate(next => {
+        for (const plan of plans) {
+          const p = plan.profile;
+          const current = (plan.wasArchived ? next.recycledProfiles : next.projects).find(item => item.id === p.id);
+          if (JSON.stringify(current) !== JSON.stringify(p)) throw Error("配置登记已变化，未覆盖");
+          if (plan.used && plan.destination !== "active") continue;
+          next.projects = next.projects.filter(item => item.id !== p.id);
+          next.recycledProfiles = next.recycledProfiles.filter(item => item.id !== p.id);
+          if (plan.destination === "active") next.projects.push(p);
+          if (plan.destination === "archived") next.recycledProfiles.push(p);
+        }
+      }, expectedRevision);
+      return true;
+    });
   }
   rename(id, name) {
     return this.run(async () => {

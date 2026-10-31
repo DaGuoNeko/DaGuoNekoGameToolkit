@@ -1,11 +1,16 @@
 import { build } from "esbuild";
-import { mkdir, copyFile, readFile, writeFile } from "node:fs/promises";
+import { mkdir, copyFile, readFile, writeFile, rm } from "node:fs/promises";
 import { stripWasmDebug } from "./wasm-release.mjs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import path from "node:path";
 import updateConfig from "../electron/domains/update/update-config.cjs";
 if (process.platform === "win32") {
+  await promisify(execFile)(
+    path.join(process.env.SystemRoot, "System32/WindowsPowerShell/v1.0/powershell.exe"),
+    ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", path.resolve("scripts/build-capture.ps1")],
+    { windowsHide: true },
+  );
   await promisify(execFile)(
     path.join(process.env.SystemRoot, "System32/WindowsPowerShell/v1.0/powershell.exe"),
     ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", path.resolve("scripts/build-update.ps1")],
@@ -28,6 +33,8 @@ if (process.platform === "win32") {
   );
 }
 await mkdir("dist", { recursive: true });
+await rm("dist/capture.html", { force: true });
+await rm("runtime/automation/automation-window.cs", { force: true });
 await build({
   entryPoints: ["src/app/main.jsx"],
   bundle: true,
@@ -85,6 +92,7 @@ await writeFile(
   "utf8",
 );
 await copyFile("electron/ore-window.ps1", "runtime/automation/ore-window.ps1");
+await copyFile("electron/automation-window.ps1", "runtime/automation/automation-window.ps1");
 await copyFile(
   "electron/content-log-owner.ps1",
   "runtime/automation/content-log-owner.ps1",
