@@ -6,7 +6,7 @@ import React, {
   useContext,
   createContext,
 } from "react";
-import { Button, Modal, ErrorBox } from "../../app/ui.jsx";
+import { Button, Modal, ErrorBox, Icon } from "../../app/ui.jsx";
 import {
   buildScene,
   parseDocument,
@@ -921,18 +921,19 @@ export function UiEditorPage({ draft, setDraft }) {
         <div className="ue-toolbar">
           <strong>UI 编辑器</strong>
           <Button
+            icon="plus"
             disabled={busy}
             onClick={() => guard(() => setDraft(newDocument()))}
           >
             新建
           </Button>
-          <Button disabled={busy} onClick={() => guard(open)}>
+          <Button icon="folder" disabled={busy} onClick={() => guard(open)}>
             打开 UI 文件
           </Button>
-          <Button disabled={!doc || busy} onClick={() => save()}>
+          <Button primary={!!doc && dirty} icon="check" disabled={!doc || busy} onClick={() => save()}>
             保存
           </Button>
-          <Button disabled={!doc || busy} onClick={() => save(true)}>
+          <Button icon="copy" compact disabled={!doc || busy} onClick={() => save(true)}>
             另存为
           </Button>
           <span className="ue-file" title={doc?.file}>
@@ -940,12 +941,14 @@ export function UiEditorPage({ draft, setDraft }) {
             {dirty ? " ●" : ""}
           </span>
           <Button
+            icon="arrow" compact
             disabled={!doc?.undo.length || busy || !!doc?.propertyDraft}
             onClick={() => undo()}
           >
             撤销
           </Button>
           <Button
+            icon="refresh" compact
             disabled={!doc?.redo.length || busy || !!doc?.propertyDraft}
             onClick={() => undo(true)}
           >
@@ -1013,6 +1016,7 @@ export function UiEditorPage({ draft, setDraft }) {
         )}
         {!doc ? (
           <div className="ue-welcome">
+            <Icon name="layout-edit" size={52} />
             <h2>创建你的游戏界面</h2>
             <p>打开资源包 ui 目录中的 JSON 文件，或从空白画布开始。</p>
             <p>控件结构 · 本地画布 · 属性编辑 · 源码保留</p>

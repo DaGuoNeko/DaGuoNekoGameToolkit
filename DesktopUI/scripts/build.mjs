@@ -86,6 +86,11 @@ await build({
 });
 await copyFile("assets/icon.ico", "dist/icon.ico");
 await mkdir("runtime/automation", { recursive: true });
+await build({
+  entryPoints:["electron/domains/worlds/map-preview-worker.cjs"],
+  bundle:true,outfile:"runtime/automation/map-preview-worker.cjs",platform:"node",
+  mainFields:["module","main"],target:"node22",
+});
 await writeFile(
   "runtime/update-config.json",
   JSON.stringify(updateConfig, null, 2) + "\n",

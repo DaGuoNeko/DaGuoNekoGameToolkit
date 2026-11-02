@@ -27,6 +27,8 @@ const { WorldActions } = require("./domains/worlds/world-actions.cjs");
 let worldActions;
 const { ArchitectureImport } = require("./domains/worlds/architecture-import.cjs");
 let architectureImport;
+const { MapPreviewJobs } = require("./domains/worlds/map-preview-jobs.cjs");
+let mapPreviewJobs;
 const { GameTitles } = require("./domains/game/game-titles.cjs");
 let gameTitles;
 const { Profiles } = require("./domains/profiles/profiles.cjs");
@@ -112,9 +114,8 @@ const gameOptions = new GameOptions(
       (!process.env.DGN_GAME_DATA_DIR && (await gameProcesses.any())),
   },
 );
-const approvedImages = new Set();
-const approvedDirectories = new Set();
-const approvedWorldArchives = new Set();
+const { FileSelections } = require("./file-selection.cjs");
+const fileSelections = new FileSelections();
 let win,
   launcher,
   debuggerService,
@@ -148,12 +149,11 @@ function emitTheme() {
       });
     }
 }
-function settingsChanged() {
+async function settingsChanged() {
   nativeTheme.themeSource = { System: "system", Light: "light", Dark: "dark" }[
     store.value.settings.AppearanceMode
   ];
-  if (store.value.settings.BgImagePath)
-    approvedImages.add(normalize(store.value.settings.BgImagePath));
+  await fileSelections.setSavedImage(store.value.settings.BgImagePath);
   emitTheme();
 }
 function sourceRoots(snapshot) {
@@ -445,26 +445,17 @@ async function dispatch(method, args, source = win) {
       return true;
     }
     case "settings.update": {
+      if(args.BgImagePath && args.BgImagePath!==store.value.settings.BgImagePath) await fileSelections.require(args.BgImagePath,"image");
       const result = await store.updateSettings(args);
       if (Object.hasOwn(args, "AutomationEnabled"))
         await automation.setEnabled(result.settings.AutomationEnabled);
-      settingsChanged();
+      await settingsChanged();
       return result.settings;
     }
     case "update.state":
       return updateService.snapshot();
-    case "update.auth.state":
-      return updateService.authState();
-    case "update.auth.begin": {
-      const state = await updateService.authorize();
-      if (state.verificationUri) await shell.openExternal(state.verificationUri);
-      return state;
-    }
-    case "update.auth.logout":
-      await updateService.clearAuth();
-      return updateService.snapshot();
     case "update.check":
-      return updateService.check({ automatic: args.automatic === true });
+      return updateService.check();
     case "update.history":
       return updateService.loadMoreHistory();
     case "update.download":
@@ -510,8 +501,7 @@ async function dispatch(method, args, source = win) {
       return true;
     }
     case "projects.add": {
-      if (args.root && !approvedDirectories.has(normalize(args.root)))
-        throw Error("请先选择或拖入项目目录");
+      if (args.root) await fileSelections.require(args.root,"directory");
       const result = args.root
         ? { canceled: false, filePaths: [args.root] }
         : await dialog.showOpenDialog(win, {
@@ -645,11 +635,8 @@ async function dispatch(method, args, source = win) {
     case "architecture.state":
       return architectureImport.state();
     case "architecture.prepare":
-      if (!approvedDirectories.has(normalize(args.source)) &&
-          !approvedWorldArchives.has(normalize(args.source)))
-        throw Error("请先选择或拖入来源世界");
-      if (args.kind === "java" && !approvedDirectories.has(normalize(args.chunkerJar)))
-        throw Error("请先选择 Chunker CLI JAR");
+      await fileSelections.require(args.source,["directory","archive"]);
+      if(args.kind==="java") await fileSelections.require(args.chunkerJar,"chunker");
       return architectureImport.call("prepare", args);
     case "architecture.start-source":
       return architectureImport.call("startSource", args);
@@ -682,19 +669,14 @@ async function dispatch(method, args, source = win) {
         properties: ["openFile"],
       });
       if (result.canceled || !result.filePaths.length) return null;
-      approvedDirectories.add(normalize(result.filePaths[0]));
+      await fileSelections.allow(result.filePaths[0],"chunker");
       return result.filePaths[0];
     }
     case "worlds.update":
       if (launcher.starting) throw Error("正在准备启动，请稍后修改存档设置");
       return worlds.update(args.worldId, args);
     case "worlds.import": {
-      if (
-        typeof args.source !== "string" ||
-        (!approvedDirectories.has(normalize(args.source)) &&
-          !approvedWorldArchives.has(normalize(args.source)))
-      )
-        throw Error("请先选择或拖入存档文件夹/ZIP");
+      await fileSelections.require(args.source,["directory","archive"]);
       return worlds.importWorld(
         args.profileId,
         args.name,
@@ -713,9 +695,7 @@ async function dispatch(method, args, source = win) {
           : {}),
       });
       if (result.canceled) return null;
-      (archive ? approvedWorldArchives : approvedDirectories).add(
-        normalize(result.filePaths[0]),
-      );
+      await fileSelections.allow(result.filePaths[0],archive?"archive":"directory");
       return result.filePaths[0];
     }
     case "project.open-folder": {
@@ -733,7 +713,7 @@ async function dispatch(method, args, source = win) {
       if (result.canceled) return [];
       if (args.kind === "background")
         for (const file of result.filePaths)
-          approvedImages.add(normalize(file));
+          await fileSelections.allow(file,"image");
       return result.filePaths;
     }
     case "files.directory": {
@@ -742,15 +722,11 @@ async function dispatch(method, args, source = win) {
         properties: ["openDirectory"],
       });
       if (result.canceled || !result.filePaths.length) return null;
-      approvedDirectories.add(normalize(result.filePaths[0]));
+      await fileSelections.allow(result.filePaths[0],"directory");
       return result.filePaths[0];
     }
     case "image.read": {
-      if (
-        typeof args.path !== "string" ||
-        !approvedImages.has(normalize(args.path))
-      )
-        throw Error("背景图片尚未选择");
+      if(typeof args.path!=="string") throw Error("背景图片尚未选择");
       const types = {
         ".png": "png",
         ".jpg": "jpeg",
@@ -760,11 +736,11 @@ async function dispatch(method, args, source = win) {
         ".gif": "gif",
       };
       const type = types[path.extname(args.path).toLowerCase()];
-      if (!type || (await fs.stat(args.path)).size > 20 * 1024 * 1024)
+      if (!type)
         throw Error("背景图片格式不支持或超过 20 MB");
       return (
         `data:image/${type};base64,` +
-        (await fs.readFile(args.path)).toString("base64")
+        (await fileSelections.readImage(args.path)).toString("base64")
       );
     }
     case "launch.start":
@@ -814,6 +790,40 @@ async function dispatch(method, args, source = win) {
       );
       const error = await shell.openPath(dir);
       if (error) throw Error(error);
+      return true;
+    }
+    case "map-preview.pick": {
+      const archive = args.kind === "zip";
+      const result = await dialog.showOpenDialog(win, {
+        title: "选择要预览的 Minecraft 存档",
+        defaultPath: worlds.worldsRoot,
+        properties: [archive ? "openFile" : "openDirectory"],
+        ...(archive ? { filters: [{ name: "Minecraft 世界", extensions: ["zip", "mcworld"] }] } : {}),
+      });
+      if (result.canceled || !result.filePaths.length) return null;
+      const selected = result.filePaths[0], stat = await fs.stat(selected);
+      if (stat.isFile() && !/\.(zip|mcworld)$/i.test(selected)) throw Error("请选择存档文件夹或 ZIP / MCWORLD");
+      await fileSelections.allow(selected,stat.isDirectory()?"directory":"archive");
+      return selected;
+    }
+    case "map-preview.render": {
+      return mapPreviewJobs.render(args.requestId,{format:args.format||"auto",dimension:args.dimension||"overworld",maxChunks:args.maxChunks??2500,centerX:args.centerX??0,centerZ:args.centerZ??0,relief:args.relief??true},async()=>{
+        let source=args.source;
+        if(args.worldId) {
+          const record=worlds.find(await worlds.read(),null,args.worldId),info=await worlds.inspect(record);
+          if(info.deleted||!info.ready||!info.present)throw Error("存档尚未生成或已移除");
+          source=info.path;
+        }
+        if(typeof source!=="string"||!path.isAbsolute(source))throw Error("请选择地图来源");
+        const identity=args.worldId?undefined:await fileSelections.require(source,["directory","archive"]);
+        return {source,identity};
+      });
+    }
+    case "map-preview.state": return mapPreviewJobs.state(args.requestId);
+    case "map-preview.cancel": return mapPreviewJobs.cancel(args.requestId);
+    case "map-preview.copy": {
+      if (typeof args.text !== "string" || args.text.length > 200 || /[\0\r\n]/.test(args.text)) throw Error("地图坐标文本无效");
+      await clipboard.writeText(args.text);
       return true;
     }
     case "launch.stop":
@@ -975,11 +985,12 @@ else {
     .then(async () => {
       await store.load();
       await profiles.initialize();
-      settingsChanged();
+      await settingsChanged();
       const runtimeRoot = path.join(
         app.isPackaged ? process.resourcesPath : app.getAppPath(),
         "runtime",
       );
+      mapPreviewJobs=new MapPreviewJobs(dataRoot,path.join(runtimeRoot,"automation/map-preview-worker.cjs"));
       debuggerService = new DebugController(store, runtimeRoot);
       tracyProfiler = new TracyProfiler(dataRoot, runtimeRoot, debuggerService);
       debuggerService.nativeViewerGuard = async (session, port) => {
@@ -1143,7 +1154,7 @@ else {
             if (win && !win.isDestroyed()) win.webContents.send("automation-data-changed", value);
           },
           onSettingsChanged: async (next, patch) => {
-            settingsChanged();
+            await settingsChanged();
           },
         }),
       );
@@ -1277,12 +1288,12 @@ else {
           throw Error("请拖入文件或目录，最多 200 项");
         const result = [];
         for (const file of files) {
-          const stat = await fs.stat(file);
-          if (stat.isDirectory()) approvedDirectories.add(normalize(file));
+          const stat = await fs.lstat(file);
+          if (stat.isDirectory()) await fileSelections.allow(file,"directory");
           else if (stat.isFile() && /\.(zip|mcworld)$/i.test(file))
-            approvedWorldArchives.add(normalize(file));
+            await fileSelections.allow(file,"archive");
           else if (stat.isFile() && /\.(png|jpe?g|webp|bmp|gif)$/i.test(file))
-            approvedImages.add(normalize(file));
+            await fileSelections.allow(file,"image");
           else if (!stat.isFile()) throw Error("不支持此文件类型");
           result.push({ path: file, directory: stat.isDirectory() });
         }
@@ -1359,6 +1370,8 @@ else {
     if (!closing && launcher) {
       event.preventDefault();
       Promise.resolve(automation?.setEnabled(false))
+        .then(() => mapPreviewJobs?.dispose())
+        .then(() => fileSelections.dispose())
         .then(() => architectureImport?.dispose())
         .then(() => worldActions?.dispose())
         .then(() => gameTitles?.dispose())

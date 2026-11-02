@@ -1,6 +1,6 @@
+const { runPython3 } = require("./fixtures/python3.cjs");
 const test = require("node:test"),
   assert = require("node:assert/strict");
-const { spawnSync } = require("node:child_process");
 const { normalizeBiome } = require("../shared/biome-model.cjs");
 const {
   biomePlan,
@@ -164,7 +164,7 @@ ns={};exec(compile(sources[1],'batch','exec'),ns)
 assert ns['_result']=={'ok':False,'completed':1}
 print('ok')
 `;
-  const r = spawnSync("python", ["-c", script], {
+  const r = runPython3(["-c", script], {
     input: JSON.stringify(sources),
     encoding: "utf8",
     windowsHide: true,
@@ -208,7 +208,7 @@ ns={};exec(compile(source,'range','exec'),ns)
 assert ns['_result']=={'ok':True,'completed':1}
 assert written==set(range(82,131))
 `;
-  const r = spawnSync("python", ["-c", script], {
+  const r = runPython3(["-c", script], {
     input: JSON.stringify(source),
     encoding: "utf8",
     windowsHide: true,

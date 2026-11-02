@@ -39,69 +39,38 @@ export function UpdatePanel({ version, report }) {
   return (
     <Section
       title="工具箱更新"
-      description={`当前版本 ${version || "读取中…"}。私有仓库成员首次授权后自动检查更新。`}
+      description={`当前版本 ${version || "读取中…"}。工具箱会自动检查公开正式版本。`}
     >
       <div className="update-panel">
         <div className="toolbar update-actions">
           <Button
-            primary={state?.authenticated}
-            disabled={busy || !state?.authenticated || phase === "downloaded"}
+            primary={phase === "available"}
+            disabled={busy || phase === "downloaded"}
             onClick={() => run("update.check")}
           >
             {phase === "checking" ? "检查中…" : "检查更新"}
           </Button>
-          {!state?.authenticated ? (
-            <>
-              <Button
-                primary
-                disabled={busy || !!state?.authAction}
-                onClick={() => run("update.auth.begin")}
-              >
-                {state?.authAction ? "等待 GitHub 授权…" : "授权 GitHub"}
-              </Button>
-              {state?.authAction && (
-                <Button onClick={() => run("update.auth.logout")}>
-                  取消授权
-                </Button>
-              )}
-            </>
-          ) : (
-            <Button disabled={busy} onClick={() => run("update.auth.logout")}>
-              退出 GitHub 授权
+          {phase === "available" && (
+            <Button
+              primary
+              disabled={!state.canDownload || !state.canInstall || busy}
+              onClick={() => run("update.download")}
+            >
+              下载更新
             </Button>
           )}
         </div>
-        {state?.userCode && (
-          <div className="update-auth-code">
-            <span>请在已打开的 GitHub 页面输入验证码</span>
-            <strong>{state.userCode}</strong>
-          </div>
-        )}
-        {(state?.authenticated || state?.checkedAt) && (
+        {state?.checkedAt && (
           <div className="update-meta">
-            {state?.authenticated && (
-              <div className="update-meta-item">
-                <span className="update-meta-label">GitHub 账号</span>
-                <strong className="update-meta-value">
-                  {state.account || "已授权"}
-                </strong>
-              </div>
-            )}
-            {state?.checkedAt && (
-              <div className="update-meta-item">
-                <span className="update-meta-label">上次检查</span>
-                <strong className="update-meta-value">
-                  {new Date(state.checkedAt).toLocaleString("zh-CN")}
-                </strong>
-              </div>
-            )}
+            <div className="update-meta-item">
+              <span className="update-meta-label">上次检查</span>
+              <strong className="update-meta-value">
+                {new Date(state.checkedAt).toLocaleString("zh-CN")}
+              </strong>
+            </div>
           </div>
         )}
-        {state?.authenticated && (
-          <p className="update-meta-note">
-            启动时及运行期间每 6 小时自动检查。
-          </p>
-        )}
+        <p className="update-meta-note">启动时及运行期间每 6 小时自动检查，也可随时手动检查。</p>
         {phase === "no-release" && (
           <p className="update-status" role="status">
             <span className="update-status-dot" />
@@ -125,13 +94,6 @@ export function UpdatePanel({ version, report }) {
               <span className="update-badge">可更新</span>
             </div>
             <div className="toolbar">
-              <Button
-                primary
-                disabled={!state.canDownload || !state.canInstall}
-                onClick={() => run("update.download")}
-              >
-                下载更新
-              </Button>
               {state.releaseUrl && (
                 <Button onClick={() => call("update.open-release").catch(report)}>
                   查看 GitHub 更新条目

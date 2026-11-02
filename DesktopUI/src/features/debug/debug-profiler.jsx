@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Button, Field, Select, ErrorBox, Empty } from "../../app/ui.jsx";
+import { Button, Field, Select, ErrorBox, Empty, HelpDisclosure } from "../../app/ui.jsx";
 const api = (method, args = {}) => window.toolkit.call(method, args);
 const ms = (seconds) => Number(seconds * 1000).toFixed(3);
 const size = (bytes) => `${(bytes / 1024).toFixed(2)} KiB`;
@@ -164,13 +164,13 @@ export function ProfilerPanel({ kind, context, ready, snapshot }) {
               </>
             )}
           </div>
-          <p className="muted">
+          <HelpDisclosure label="采样方式与限制">
             {kind === "python"
               ? "基于 Yappi，采样期间请操作需要分析的功能。仅汇总项目脚本，统计单位为毫秒。"
               : kind === "memory"
                 ? "比较采样前后的 tracemalloc 快照，客户端和服务端共享进程内存；正数表示净增长。"
                 : "自动匹配所选游戏 PID 的 Tracy 端口。采样消耗额外资源，游戏需支持 Tracy 0.11.1；原始数据可导出为 .tracy。"}
-          </p>
+          </HelpDisclosure>
           <div className="toolbar">
             <Button
               primary

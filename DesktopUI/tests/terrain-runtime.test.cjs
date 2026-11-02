@@ -1,4 +1,5 @@
-const test = require("node:test"), assert = require("node:assert/strict"), { spawnSync } = require("node:child_process");
+const { runPython3 } = require("./fixtures/python3.cjs");
+const test = require("node:test"), assert = require("node:assert/strict");
 const runtime = require("../electron/domains/worlds/terrain-runtime.cjs");
 test("terrain Python guards unloaded/changed dimensions, compares before writes, detects partial failure and safely undoes", () => {
   const air = { name: "minecraft:air", states: {}, entity: null }, stone = { name: "minecraft:stone", states: {}, entity: null };
@@ -61,7 +62,7 @@ state['timers'].pop()()
 assert not state['areas'] and all(b['name']=='minecraft:air' for b in world.values())
 print('ok')
 `;
-  const result = spawnSync("python", ["-"], { input: script, encoding: "utf8", windowsHide: true });
+  const result = runPython3(["-"], { input: script, encoding: "utf8", windowsHide: true });
   assert.equal(result.status, 0, result.stderr + result.stdout);
   assert.match(result.stdout, /ok/);
 });

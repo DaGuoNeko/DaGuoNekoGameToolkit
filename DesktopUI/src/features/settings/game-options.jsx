@@ -7,6 +7,7 @@ import {
   Select,
   ErrorBox,
   Modal,
+  HelpDisclosure,
 } from "../../app/ui.jsx";
 import { optionFields, validateOverrides } from "../../../shared/game-options-model.cjs";
 import "./game-options.css";
@@ -157,12 +158,14 @@ export function GameOptionsPage({ draft, setDraft }) {
           {Object.keys(draft?.values || {}).length} 项启动覆盖
         </span>
       </div>
+      <HelpDisclosure label="配置文件与生效范围">
       <p className="muted break-all">
         实际配置文件：{snapshot?.optionsFile || "正在读取…"}
       </p>
       <p className="muted">
         保存只记录启动设置，游戏文件在启动前备份并更新。未覆盖的项保留游戏原值；取消覆盖不会恢复以前的值。不同客户端共用此文件，有游戏运行时禁止改写。
       </p>
+      </HelpDisclosure>
       {snapshot?.running && (
         <p role="status">
           检测到开发测试端正在运行，可先保存下一次启动的设置；需要改写文件时，请先退出相关测试端。
@@ -215,7 +218,7 @@ export function GameOptionsPage({ draft, setDraft }) {
                     current = snapshot?.current[f.key],
                     value = draft.values[f.key] ?? current ?? f.initial;
                   return (
-                    <div className="game-option" key={f.key}>
+                    <div className="game-option" data-overridden={overridden} key={f.key}>
                       <Field label={f.label} hint={f.hint}>
                         {options ? (
                           <Select
@@ -272,7 +275,7 @@ export function GameOptionsPage({ draft, setDraft }) {
                       <p className="muted game-option-current">
                         文件当前值：{display(f, current)}
                       </p>
-                      <code className="muted">{f.key}</code>
+                      <HelpDisclosure label="配置键"><code>{f.key}</code></HelpDisclosure>
                     </div>
                   );
                 })}

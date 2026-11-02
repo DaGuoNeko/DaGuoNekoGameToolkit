@@ -14,6 +14,7 @@ import "./worlds.css";
 import { WorldDashboard } from "./world-actions.jsx";
 import { QuickTestDialog } from "./quick-test.jsx";
 import { LocalJoinDialog } from "./local-join.jsx";
+import { MapPreview } from "./map-preview.jsx";
 import {
   AUTO_IMPORT_PROFILE,
   AUTO_IMPORT_LABEL,
@@ -62,7 +63,8 @@ export function WorldHome({
     [working, setWorking] = useState(false),
     [dialog, setDialog] = useState(null),
     [trash, setTrash] = useState(false),
-    [query, setQuery] = useState("");
+     [query, setQuery] = useState(""),
+     [mapWorld, setMapWorld] = useState(null);
   const [name, setName] = useState(""),
     [profileId, setProfileId] = useState(""),
     [options, setOptions] = useState(defaults),
@@ -288,12 +290,12 @@ export function WorldHome({
     >
       <Intro
         title="存档"
-        subtitle="每个存档选择自己的启动配置；联机客户端可单独打开游戏。"
+        subtitle="每个存档选择自己的启动配置。可拖入文件夹或 ZIP 导入副本，原文件保留；导入前请退出游戏。"
       >
         <Button primary disabled={busy} onClick={() => setJoinTarget({ hostSessionId: "" })}>
           启动联机客户端
         </Button>
-        <Button primary disabled={busy} onClick={() => open("menu")}>
+        <Button disabled={busy} onClick={() => open("menu")}>
           启动空白客户端
         </Button>
         <Button
@@ -305,6 +307,7 @@ export function WorldHome({
         <Button disabled={busy || running} onClick={() => open("import")}>
           导入旧存档
         </Button>
+         <Button disabled={busy} onClick={() => setMapWorld({})}>地图预览</Button>
         <Button
           onClick={() =>
             call("worlds.folder").catch((e) => setError(e.message))
@@ -313,9 +316,6 @@ export function WorldHome({
           打开存档库
         </Button>
       </Intro>
-      <p className="world-import-hint muted">
-        将存档文件夹或 ZIP 拖到此页即可导入副本，原文件保留。导入前请退出游戏。
-      </p>
       {!profiles.length && (
         <Empty
           title="可直接导入存档并自动匹配配置"
@@ -374,6 +374,7 @@ export function WorldHome({
           return (
             <article
               className="world-card"
+              data-state={active ? "running" : w.error || w.copying ? "warning" : w.deleted ? "archived" : "ready"}
               key={w.id}
               aria-label={"存档 " + w.name}
             >
@@ -493,12 +494,14 @@ export function WorldHome({
                         {active ? "打开控制台" : "功能配置"}
                       </Button>
                       <Button
+                        icon="settings" compact
                         disabled={busy || working}
                         onClick={() => open("edit", w)}
                       >
                         {config ? "存档设置" : "选择启动配置"}
                       </Button>
                       <Button
+                        icon="trash" compact
                         danger
                         disabled={busy || active || working || !!w.error}
                         title={active ? "请先保存并退出该存档" : undefined}
@@ -509,6 +512,7 @@ export function WorldHome({
                     </>
                   )}
                   <Button
+                    icon="folder" compact
                     onClick={() =>
                       call("worlds.folder", { worldId: w.id }).catch((e) =>
                         setError(e.message),
@@ -517,6 +521,13 @@ export function WorldHome({
                   >
                     打开目录
                   </Button>
+                   <Button
+                     icon="image" compact
+                     disabled={working || !!w.error || w.copying}
+                     onClick={() => setMapWorld(w)}
+                   >
+                     地图预览
+                   </Button>
                 </div>
               </div>
             </article>
@@ -842,6 +853,7 @@ export function WorldHome({
           </fieldset>
         </Modal>
       )}
+      {mapWorld && <MapPreview worldId={mapWorld.id} initialSource={mapWorld.path} onClose={() => setMapWorld(null)} />}
       {quickDialog}
       {joinDialog}
     </FileDropZone>

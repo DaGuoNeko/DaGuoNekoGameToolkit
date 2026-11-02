@@ -1,6 +1,6 @@
+const { runPython3 } = require("./fixtures/python3.cjs");
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { spawnSync } = require("node:child_process");
 const {
   properties,
   parseValue,
@@ -54,7 +54,7 @@ test("selection cache patches omit unchanged trees and visibility changes preser
 });
 test("native picker accepts selection events only, ignores properties/errors, and never echoes a passive selection", () => {
   const script = `import sys,types,json\nbasestring=str;long=int\ngui=types.ModuleType('gui');gui.get_netease_ui_debugger_enable=lambda:True;gui.set_netease_ui_debugger_enable=lambda v:None;gui.nud_set_bounds_visible=lambda v:None;gui.get_all_screen_fullnames=lambda:['hud.hud_screen'];gui.get_control_def_type=lambda s,p:10\nlogger=types.ModuleType('mobile_logger');logger.OPEN_SAFAIA_TEST_LOGGER=False\ncommon=types.ModuleType('common');common.eventUtil=types.SimpleNamespace(instance=types.SimpleNamespace(ListenForEngineClient=lambda *a:None))\nsys.modules.update({'gui':gui,'_gui':gui,'mobile_logger':logger,'common':common})\nexec(${JSON.stringify(live.pickerEnableCode(false))})\ndef event(handle,data,success=True):_mcdev_ui_listener.on_event({'data':json.dumps({'handle':handle,'success':success,'data':data})})\nevent(6,{'/hud_screen/root':{'visible':True}})\nassert _mcdev_ui_event is None\nevent(7,['/hud_screen/root'],False)\nassert _mcdev_ui_event is None\nevent(7,['/hud_screen/root'])\nassert _mcdev_ui_event==[None,'hud.hud_screen','/hud_screen/root']\nevent(4,{})\nassert _mcdev_ui_event is None and _mcdev_ui_screen_changed\nexec(${JSON.stringify(live.pickerPollCode())})\nassert _result[2] is True and not _mcdev_ui_screen_changed\nprint('ok')`;
-  const run = spawnSync("python", ["-c", script], {
+  const run = runPython3(["-c", script], {
     encoding: "utf8",
     windowsHide: true,
   });
@@ -79,7 +79,7 @@ const {
 } = require("../shared/ui-inspector-model.cjs");
 test("live inspector scripts return bounded visible pages, combined selection and fresh visibility toggles", () => {
   const script = `import json,sys,types\ngui=types.ModuleType('gui')\nstate={'visible':True,'selected':None}\ndef get_visible(s,p):return state['visible']\ndef set_visible(s,p,v):state['visible']=v\ndef select(v):state['selected']=json.loads(v)\ngui.get_visible=get_visible;gui.set_visible=set_visible\ngui.get_control_def_type=lambda s,p:10\ngui.get_root_children_names=lambda s:['root']\ngui.get_children_name_from_parent=lambda s,p:[]\ngui.nud_set_selected_controls=select;gui.nud_get_controls_data=lambda p:None\nsys.modules['gui']=gui;sys.modules['_gui']=gui\nexec(${JSON.stringify(live.visibleChildren("hud", "", 0))})\nchildren=_result\nexec(${JSON.stringify(live.selectionCode("hud", "/root", true, true))})\nselection=_result\nexec(${JSON.stringify(live.toggleVisibilityCode("hud", "/root"))})\nfirst=_result\nexec(${JSON.stringify(live.toggleVisibilityCode("hud", "/root"))})\nprint(json.dumps({'children':children,'selection':selection,'selected':state['selected'],'first':first,'second':_result}))`;
-  const run = spawnSync("python", ["-c", script], {
+  const run = runPython3(["-c", script], {
     encoding: "utf8",
     windowsHide: true,
   });
@@ -122,7 +122,7 @@ function runMutation(property, value, expected, current) {
     expected,
   });
   const script = `import json,sys,types\nstate={'value':json.loads(${JSON.stringify(JSON.stringify(current))}),'writes':0}\ndef get(*args): return state['value']\ndef set(*args):\n state['value']=args[2];state['writes']+=1\ngui=types.ModuleType('gui')\nfor key in ['position','text','visible']: setattr(gui,'get_'+key,get);setattr(gui,'set_'+key,set)\nsys.modules['gui']=gui\ntry:\n exec(${JSON.stringify(source)})\n print(json.dumps({'result':_result,'writes':state['writes']}))\nexcept Exception as error:\n print(json.dumps({'error':str(error),'writes':state['writes']}))\n`;
-  const result = spawnSync("python", ["-c", script], {
+  const result = runPython3(["-c", script], {
     encoding: "utf8",
     windowsHide: true,
   });

@@ -7,6 +7,7 @@ import {
   Button,
   ErrorBox,
   Modal,
+  HelpDisclosure,
 } from "../../app/ui.jsx";
 import "./rooms.css";
 const call = (method, args = {}) => window.toolkit.call(method, args);
@@ -137,10 +138,10 @@ export function RoomsPage({ draft, onDraft }) {
         title="联机房间"
         subtitle="远程联机：通过 EasyTier 和樱花映射，邀请异地朋友共同制作地图与测试模组。"
       />
-      <p className="muted">
+      <HelpDisclosure label="本机多人测试与远程联机的区别">
         本机多人测试请在“存档”页启动房主，再多开客户端加入。AI
         自动测试也使用这一流程，无需在此创建房间或配置隧道。
-      </p>
+      </HelpDisclosure>
       <ErrorBox>{error || state.error}</ErrorBox>
       {notice && (
         <div className="notice" role="status">
@@ -149,16 +150,17 @@ export function RoomsPage({ draft, onDraft }) {
       )}
       <Section
         title={phases[state.phase] || state.phase}
+        descriptionInline
         description={
           state.message || "房主配置樱花 TCP 隧道；朋友粘贴邀请即可开始连接。"
         }
       >
         <div className="room-status" aria-live="polite">
-          <span>虚拟网络：{state.networkReady ? "已启动" : "未连接"}</span>
+          <span data-ready={!!state.networkReady}>虚拟网络：{state.networkReady ? "已启动" : "未连接"}</span>
           {state.network?.transport && (
             <span>连接方式：{state.network.transport}</span>
           )}
-          <span>游戏：{state.gameReady ? "已就绪" : "尚未完成入房"}</span>
+          <span data-ready={!!state.gameReady}>游戏：{state.gameReady ? "已就绪" : "尚未完成入房"}</span>
           {state.name && <span>存档：{state.name}</span>}
           {state.network?.latencyMs != null && (
             <span>网络延迟：{Math.round(state.network.latencyMs)} ms</span>
@@ -269,12 +271,12 @@ export function RoomsPage({ draft, onDraft }) {
                 onChange={(e) => edit("localPort", e.target.value)}
               />
             </Field>
-            <p className="room-hint">
+            <HelpDisclosure label="联机组件、授权与自动重连">
               首次使用会下载并校验官方 EasyTier 联机组件。开启网络时 Windows
               会请求管理员授权。房主需保持樱花隧道在线；网络流量通过樱花 TCP
               入口。
               双方工具箱保持运行时，房主恢复同一存档后可用原邀请自动重连；朋友客户端会保留。
-            </p>
+            </HelpDisclosure>
             <Button
               primary
               disabled={
@@ -309,9 +311,9 @@ export function RoomsPage({ draft, onDraft }) {
                 autoComplete="off"
               />
             </Field>
-            <p className="room-hint">
+            <HelpDisclosure label="邀请保存说明">
               邀请和名字会自动保存在本机，下次直接加入。完整邀请包含樱花地址；仅填写房主自定义的短码无法定位房间。
-            </p>
+            </HelpDisclosure>
             <Button
               disabled={busy}
               onClick={() => {
@@ -329,10 +331,10 @@ export function RoomsPage({ draft, onDraft }) {
                 autoComplete="off"
               />
             </Field>
-            <p className="room-hint">
+            <HelpDisclosure label="游戏版本与入房验证">
               使用“设置 →
               全局游戏程序”中的开发版游戏，无需选择启动配置或预装房主模组。若游戏提示资源包，请选择“下载并加入”。进入世界且房主确认玩家身份后，才会显示联机成功。
-            </p>
+            </HelpDisclosure>
             <Button
               primary
               disabled={busy || !draft.invitation || !draft.playerName}

@@ -1,3 +1,4 @@
+const { runPython3 } = require("./fixtures/python3.cjs");
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
@@ -11,7 +12,6 @@ const {
 } = require("../electron/domains/worlds/world-actions.cjs");
 const { WorkspaceStore } = require("../electron/services.cjs");
 const { WorldLibrary } = require("../electron/domains/worlds/worlds.cjs");
-const { spawnSync } = require("node:child_process");
 const command = (id = "one", extra = {}) => ({
   id,
   name: id,
@@ -297,7 +297,7 @@ except RuntimeError:
  pass
 print(json.dumps(calls,ensure_ascii=True))
 `;
-  const result = spawnSync("python", ["-c", script], {
+  const result = runPython3(["-c", script], {
     input: JSON.stringify(sources),
     encoding: "utf8",
     windowsHide: true,

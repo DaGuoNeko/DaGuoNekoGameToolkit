@@ -9,6 +9,7 @@
 - 启动与配置流程研究参考 Dofes/mcdev-tools，提交 `a31d4a4514593c78745dded5cad19eab0d87fb4b`。未整体移植其 VS Code 调试器。
 - MCDK 及已知依赖的许可证随本目录分发。NBT、BinaryStream 的 MPL-2.0 源码可在上述 MCDK 源码仓库对应 `libs/nbt` 及 `libs/nbt/libs/binarystream` 目录取得。本项目未修改这些库。
 - React、React DOM、jsonc-parser：对应版权及许可证文件附于本目录。
+- 地图预览使用 `@jsprismarine/leveldb` 0.16.0（MIT）和 `prismarine-nbt` 2.8.0（MIT）；前者随 npm 包提供许可证，后者的上游包未携带许可证文件，项目保留 `prismarine-nbt-MIT.txt`。
 - ZIP 存档导入使用 yauzl 3.4.0 与 pend 1.2.0（MIT），许可证见 `yauzl-MIT.txt`、`pend-MIT.txt`。
 - Electron 运行时的许可证与 Chromium 第三方说明保留在发布目录中。
 - 本机多主机的 NetherNet 局域网发现报文参考 df-mc/go-nethernet 的 `discovery`（提交 `215e46422b5831d6ddc6146003617dc3f1ff7c26`，MIT），协议封装使用 Node 内置密码库重新实现；未引入 Go 运行时。许可证见 `NetherNet-MIT.txt`，来源：https://github.com/df-mc/go-nethernet。

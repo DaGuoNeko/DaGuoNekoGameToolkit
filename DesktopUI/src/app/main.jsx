@@ -35,9 +35,11 @@ import { AutomationSettings } from "../features/settings/automation-settings.jsx
 import { UpdatePanel } from "../features/settings/update-panel.jsx";
 import { TracyPage } from "../features/performance/tracy-profiler.jsx";
 import { RoomsPage } from "../features/rooms/rooms.jsx";
+import { SettingsWorkspace, SettingsGroup } from "../features/settings/settings-workspace.jsx";
 
 import "./styles.css";
 import "./launcher.css";
+import "./visual-refresh.css";
 const api = (method, args = {}) => window.toolkit.call(method, args);
 const nav = [
   { id: "launch", label: "存档", icon: "archive" },
@@ -53,6 +55,23 @@ const nav = [
   { id: "settings", label: "设置", icon: "gear" },
   { id: "about", label: "关于", icon: "info" },
 ];
+const navGroups = [
+  {
+    id: "workspace",
+    label: "工作台",
+    items: ["launch", "rooms", "config", "mods"],
+  },
+  { id: "observe", label: "观察", items: ["logs"] },
+  {
+    id: "develop",
+    label: "开发",
+    items: ["debug", "ui-debug", "ui-editor", "tracy"],
+  },
+  { id: "system", label: "系统", items: ["game-options", "settings", "about"] },
+].map((group) => ({
+  ...group,
+  items: group.items.map((id) => nav.find((item) => item.id === id)),
+}));
 const fields = [
   "included_mod_dirs",
   "game_executable_path",
@@ -209,7 +228,7 @@ function App() {
         receive(value);
         document.documentElement.dataset.theme = value.dark ? "dark" : "light";
         if (value.projects[0]) loadProject(value.projects[0].id);
-        return api("update.auth.state");
+        return value;
       })
       .then(() => api("update.check", { automatic: true }))
       .catch(report);
@@ -437,6 +456,7 @@ function App() {
       </div>
     );
   const title = nav.find((item) => item.id === page).label;
+  const runningSessions = runtimeState.sessions?.filter((item) => item.running).length || 0;
   return (
     <div
       className={`app ${settings.SidebarCollapsed ? "collapsed" : ""} ${settings.BgImagePath ? "has-background" : ""}`}
@@ -474,48 +494,46 @@ function App() {
           />
         </div>
         <nav aria-label="主要导航">
-          {nav.slice(0, 6).map((item) => (
-            <button
-              key={item.id}
-              title={item.label}
-              aria-label={item.label}
-              aria-current={page === item.id ? "page" : undefined}
-              className={`nav-item ${page === item.id ? "active" : ""}`}
-              onClick={() => go(item.id)}
-            >
-              <Icon name={item.icon} />
-              {!settings.SidebarCollapsed && item.label}
-            </button>
+          {navGroups.map((group) => (
+            <div className={`nav-group nav-group-${group.id}`} key={group.id}>
+              {!settings.SidebarCollapsed && (
+                <span className="nav-group-label">{group.label}</span>
+              )}
+              {group.items.map((item) => (
+                <button
+                  key={item.id}
+                  title={item.label}
+                  aria-label={item.label}
+                  aria-current={page === item.id ? "page" : undefined}
+                  className={`nav-item ${page === item.id ? "active" : ""}`}
+                  onClick={() => go(item.id)}
+                >
+                  <Icon name={item.icon} />
+                  {!settings.SidebarCollapsed && <span>{item.label}</span>}
+                </button>
+              ))}
+            </div>
           ))}
         </nav>
         <div className="sidebar-bottom">
-          {nav.slice(6).map((item) => (
-            <button
-              key={item.id}
-              title={item.label}
-              aria-label={item.label}
-              aria-current={page === item.id ? "page" : undefined}
-              className={`nav-item ${page === item.id ? "active" : ""}`}
-              onClick={() => go(item.id)}
-            >
-              <Icon name={item.icon} />
-              {!settings.SidebarCollapsed && item.label}
-            </button>
-          ))}
           {!settings.SidebarCollapsed && (
-            <div className="session-note">
+            <div className={`session-note ${active ? "is-active" : ""}`}>
               <span className="status-dot" />
-              {active ? "游戏会话运行中" : "独立运行 · 无需 VS Code"}
+              <span>{active ? `${runningSessions || 1} 个游戏会话运行中` : "工具箱已就绪"}</span>
             </div>
           )}
         </div>
       </aside>
       <div className="main-shell">
         <header className="app-bar">
-          <span className="breadcrumb">
-            游戏工具箱<span>/</span>
-            <strong>{title}</strong>
-          </span>
+          <div className="app-bar-title">
+            <span className="eyebrow">大果喵游戏工具箱</span>
+            <span className="breadcrumb"><strong>{title}</strong></span>
+          </div>
+          <div className="app-bar-status" aria-live="polite">
+            <span className={`status-dot ${active ? "is-active" : ""}`} />
+            <span>{active ? `${runningSessions || 1} 个会话运行中` : "就绪"}</span>
+          </div>
         </header>
         <main
           key={page}
@@ -652,6 +670,8 @@ function App() {
                   title="设置"
                   subtitle="主题、背景和启动器设置独立保存，不影响模组工具箱。"
                 />
+                <SettingsWorkspace>
+                <SettingsGroup id="game">
                 <Section
                   title="全局游戏程序"
                   description="新建启动配置默认使用这里的程序；已有配置单独指定的版本保持不变。修改用于下一次启动。"
@@ -718,16 +738,24 @@ function App() {
                     每个存档使用独立的游戏设置与模组运行目录；存档本身保留原位置。同一存档不可同时打开。若启动环境不支持隔离，可关闭此选项使用兼容模式。更改在下一次启动时生效。
                   </p>
                 </Section>
+                </SettingsGroup>
+                <SettingsGroup id="window">
                 <WindowSizeSettings
                   value={settings.GameWindowSize}
                   save={saveSettings}
                 />
+                </SettingsGroup>
+                <SettingsGroup id="automation">
                 <AutomationSettings
                   settings={settings}
                   save={saveSettings}
                   report={report}
                 />
+                </SettingsGroup>
+                <SettingsGroup id="update">
                 <UpdatePanel version={version} report={report} />
+                </SettingsGroup>
+                <SettingsGroup id="appearance">
                 <Section title="外观">
                   <Field label="界面主题">
                     <Select
@@ -787,11 +815,15 @@ function App() {
                     </Field>
                   ))}
                 </Section>
+                </SettingsGroup>
+                <SettingsGroup id="shortcuts">
                 <ReloadSettings
                   options={settings.ReloadKeys}
                   save={saveSettings}
                   report={report}
                 />
+                </SettingsGroup>
+                <SettingsGroup id="launcher">
                 <Section title="启动器">
                   <p className="muted break-all">内置 MCDK v1.6.1：{runtime}</p>
                   <PathField
@@ -812,6 +844,8 @@ function App() {
                     </Button>
                   )}
                 </Section>
+                </SettingsGroup>
+                </SettingsWorkspace>
               </>
             )}
             {page === "about" && (
@@ -913,7 +947,7 @@ function App() {
             </>
           }
         >
-          <p>已授权 GitHub 的成员可以在设置页下载并安装更新。</p>
+          <p>发现公开正式版本，可在设置页下载并安装。更新不会修改存档、模组或配置。</p>
           {updateNotice.notes && (
             <pre style={{ whiteSpace: "pre-wrap", maxHeight: 300, overflow: "auto" }}>
               {updateNotice.notes}

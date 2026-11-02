@@ -61,6 +61,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Updater UI acceptance failed' }
           node tests/terrain-ui.cjs
           if ($LASTEXITCODE -ne 0) { throw 'Terrain import UI acceptance failed' }
+          node tests/map-preview-ui.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Map preview UI acceptance failed' }
           node tests/local-join-ui.cjs
           if ($LASTEXITCODE -ne 0) { throw 'Local host selection UI acceptance failed' }
           node tests/game-versions-ui.cjs
@@ -71,6 +73,8 @@ jobs:
           $env:DGN_GAME_TEST_EXE = (Resolve-Path 'release/DaGuoNeko-Game-Toolkit-win32-x64/DaGuoNeko-Game-Toolkit.exe').Path
           node tests/distribution-ui.cjs
           if ($LASTEXITCODE -ne 0) { throw 'Packaged client acceptance failed' }
+          node tests/map-preview-ui.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged map preview acceptance failed' }
       - name: Publish complete release
         env:
           GH_TOKEN: ${{ github.token }}

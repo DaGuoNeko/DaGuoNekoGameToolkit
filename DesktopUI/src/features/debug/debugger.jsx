@@ -8,6 +8,7 @@ import {
   Empty,
   Section,
   Modal,
+  Icon,
 } from "../../app/ui.jsx";
 import { useDebugSession, DebugSessionBar } from "./debug-session.jsx";
 import { ProfilerPanel } from "./debug-profiler.jsx";
@@ -42,7 +43,7 @@ export function DebugPage({ projectId, draft, setDraft }) {
               setTab(id);
             }}
           >
-            {label}
+            <Icon name={id === "code" ? "terminal" : id === "functions" ? "tools" : "activity"} size={16} />{label}
           </button>
         ))}
       </div>

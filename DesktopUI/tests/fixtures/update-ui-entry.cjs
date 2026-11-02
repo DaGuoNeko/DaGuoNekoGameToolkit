@@ -1,7 +1,7 @@
 // 只替换网络边界；界面、preload、IPC 与更新服务均使用构建产物。
 const fs = require("node:fs/promises");
 const path = require("node:path");
-const { app, net, safeStorage, dialog } = require("electron");
+const { app, net, dialog } = require("electron");
 dialog.showErrorBox = (title, message) => {
   console.error(title + ": " + message);
   app.exit(1);
@@ -34,8 +34,25 @@ net.fetch = async (url, options) => {
     process.env.DGN_UPDATE_FIXTURE_CONTROL,
     "utf8",
   );
-  if (!url.startsWith(`https://api.github.com/repos/${repository}/`))
-    throw Error("Unexpected fixture URL");
+  if (url.startsWith("https://github.com/")) {
+    if (mode === "denied") return Response.json({ message: "failure" }, { status: 503 });
+    if (!url.endsWith("latest.json")) return new Response("fixture");
+    if (mode === "empty") return Response.json({ message: "Not Found" }, { status: 404 });
+    const version = mode === "current" ? app.getVersion() : mode === "future" ? "99.0.1" : "99.0.0";
+    return Response.json({
+      version,
+      platform: "win32",
+      arch: "x64",
+      releaseName: `大果喵游戏工具箱 ${version}`,
+      releaseUrl: `https://github.com/${repository}/releases/tag/v${version}`,
+      assetName: `DaGuoNeko-Game-Toolkit-${version}-win-x64.zip`,
+      assetUrl: `https://github.com/${repository}/releases/download/v${version}/DaGuoNeko-Game-Toolkit-${version}-win-x64.zip`,
+      checksumUrl: `https://github.com/${repository}/releases/download/v${version}/DaGuoNeko-Game-Toolkit-${version}-win-x64.zip.sha256`,
+      sha256: "0".repeat(64),
+      notes: "更新内容\n\n- 公开更新测试",
+    });
+  }
+  if (!url.startsWith(`https://api.github.com/repos/${repository}/`)) throw Error("Unexpected fixture URL");
   if (mode === "denied")
     return Response.json({ message: "Not Found" }, { status: 404 });
   if (url.endsWith("/latest")) {
@@ -55,20 +72,4 @@ net.fetch = async (url, options) => {
   }
   throw Error("Unexpected fixture path");
 };
-app.whenReady().then(() => {
-  const syncFs = require("node:fs");
-  const directory = path.join(process.env.DGN_GAME_DATA_DIR, "update");
-  syncFs.mkdirSync(directory, { recursive: true });
-  syncFs.writeFileSync(
-    path.join(directory, "github-auth.json"),
-    JSON.stringify({
-      encrypted: safeStorage
-        .encryptString(
-          JSON.stringify({ token: "fixture-token", account: "fixture-member" }),
-        )
-        .toString("base64"),
-    }),
-    "utf8",
-  );
-});
 require(path.join(root, "dist/main.cjs"));

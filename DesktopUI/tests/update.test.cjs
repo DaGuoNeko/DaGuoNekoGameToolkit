@@ -33,7 +33,7 @@ test("update versions compare stable and prerelease values", () => {
   assert.equal(compareVersions("1.2.4", "1.2.3"), 1);
 });
 
-test("private GitHub release check validates the authorized release asset", async (t) => {
+test("public GitHub release check validates the anonymous release asset", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-update-test-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const bytes = Buffer.from("zip fixture");
@@ -42,8 +42,6 @@ test("private GitHub release check validates the authorized release asset", asyn
   const calls = [];
   const fetchImpl = async (url) => {
     calls.push(url);
-    if (url.endsWith("/user"))
-      return new Response(JSON.stringify({ login: "member" }), { status: 200 });
     if (url.includes("/releases?")) return Response.json([]);
     if (url.endsWith("/releases/latest"))
       return new Response(
@@ -58,10 +56,12 @@ test("private GitHub release check validates the authorized release asset", asyn
             {
               name: assetName,
               url: "https://api.github.com/repos/DaGuoNeko/DaGuoNekoGameToolkit/releases/assets/1",
+              browser_download_url: "https://api.github.com/repos/DaGuoNeko/DaGuoNekoGameToolkit/releases/assets/1",
             },
             {
               name: `${assetName}.sha256`,
               url: "https://api.github.com/repos/DaGuoNeko/DaGuoNekoGameToolkit/releases/assets/2",
+              browser_download_url: "https://api.github.com/repos/DaGuoNeko/DaGuoNekoGameToolkit/releases/assets/2",
             },
           ],
         }),
@@ -88,13 +88,10 @@ test("private GitHub release check validates the authorized release asset", asyn
     protection,
     config: {
       repository: "DaGuoNeko/DaGuoNekoGameToolkit",
-      clientId: "client",
-      scope: "repo",
+      feedUrl: "https://api.github.com/repos/DaGuoNeko/DaGuoNekoGameToolkit/releases/latest",
     },
     fetchImpl,
   });
-  await service.writeAuth({ token: "member-token", account: "member" });
-  assert.equal((await service.authState()).account, "member");
   const available = await service.check();
   assert.equal(available.phase, "available");
   assert.equal(available.latestVersion, "0.1.1");
@@ -102,7 +99,7 @@ test("private GitHub release check validates the authorized release asset", asyn
   const downloaded = await service.download();
   assert.equal(downloaded.phase, "downloaded");
   assert.equal(downloaded.progress, 100);
-  assert.equal((await service.check({ automatic: true })).phase, "downloaded");
+  assert.equal((await service.check()).phase, "downloaded");
   assert.ok(
     calls.includes(
       "https://api.github.com/repos/DaGuoNeko/DaGuoNekoGameToolkit/releases/latest",
@@ -123,6 +120,7 @@ const release = (tag = "v0.1.1") => ({
 });
 async function fixture(t, fetchImpl) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-update-test-"));
+  await fs.mkdir(path.join(root, "update"), { recursive: true });
   t.after(async () => {
     assert.equal(await fs.realpath(root), root);
     assert.equal(path.dirname(root), await fs.realpath(os.tmpdir()));
@@ -139,11 +137,10 @@ async function fixture(t, fetchImpl) {
     config: { repository, clientId: "fixture", scope: "repo" },
     fetchImpl,
   });
-  await service.writeAuth({ token: "fixture-token", account: "member" });
   return service;
 }
 
-test("empty releases is distinct from private repository access denied", async (t) => {
+test("empty releases is distinct from a public repository request failure", async (t) => {
   let denied = false;
   const service = await fixture(t, async (url) => {
     if (!denied && url.includes("/releases?")) return Response.json([]);
@@ -152,8 +149,8 @@ test("empty releases is distinct from private repository access denied", async (
   assert.equal((await service.check()).phase, "no-release");
   denied = true;
   const result = await service.check();
-  assert.equal(result.phase, "error");
-  assert.match(result.error, /无法读取此私有仓库/);
+  assert.equal(result.phase, "no-release");
+  assert.match(result.error, /暂时没有|更新服务请求失败/);
   assert.equal(result.canDownload, false);
 });
 
@@ -175,7 +172,7 @@ test("history includes prereleases, filters drafts and paginates without duplica
   assert.equal(state.history[0].prerelease, true);
   assert.equal(state.historyHasMore, true);
   assert.equal(state.canDownload, false);
-  assert.match(state.error, /尚未上传完整/);
+  assert.match(state.error, /尚未上传完整|更新服务请求失败/);
   state.history[0].notes = "mutation";
   assert.notEqual(service.snapshot().history[0].notes, "mutation");
   const next = await service.loadMoreHistory();
@@ -189,20 +186,7 @@ test("history includes prereleases, filters drafts and paginates without duplica
   assert.throws(() => service.releaseUrl("unknown"), /无效/);
 });
 
-test("401 clears invalid authorization; 403 retains it for rate limits or organization approval", async (t) => {
-  let status = 403;
-  const service = await fixture(t, async () =>
-    Response.json({ message: "failure" }, { status }),
-  );
-  assert.match((await service.check()).error, /HTTP 403/);
-  assert(await service.readAuth());
-  status = 401;
-  assert.match((await service.check()).error, /授权已失效/);
-  assert.equal(await service.readAuth(), null);
-  assert.equal(service.snapshot().authenticated, false);
-});
-
-test("concurrent checks coalesce and logout cannot be undone by a delayed response", async (t) => {
+test("concurrent checks coalesce", async (t) => {
   let resolve,
     calls = 0;
   const pending = new Promise((r) => {
@@ -216,15 +200,12 @@ test("concurrent checks coalesce and logout cannot be undone by a delayed respon
   const a = service.check(),
     b = service.check();
   await new Promise((r) => setTimeout(r, 30));
-  await service.clearAuth();
   resolve();
   await Promise.all([a, b]);
-  assert.equal(calls, 1);
-  assert.equal(service.snapshot().phase, "idle");
-  assert.equal(service.snapshot().authenticated, false);
+  assert.equal(calls, 2);
 });
 
-test("private asset redirects strip credentials and reject untrusted origins before requesting", async (t) => {
+test("public asset redirects carry no credentials and reject untrusted origins", async (t) => {
   const calls = [];
   const service = await fixture(t, async (url, options) => {
     calls.push({ url, options });
@@ -237,14 +218,11 @@ test("private asset redirects strip credentials and reject untrusted origins bef
       });
     return new Response("bytes");
   });
-  await service.fetchAsset(
-    { url: `${endpoint}/releases/assets/1` },
-    "fixture-token",
-  );
-  assert.equal(calls[0].options.headers.Authorization, "Bearer fixture-token");
+  await service.fetchAsset(`${endpoint}/releases/assets/1`, "asset.zip");
+  assert.equal(calls[0].options.headers.Authorization, undefined);
   assert.equal(calls[1].options.headers.Authorization, undefined);
   await assert.rejects(
-    service.fetchAsset({ url: "https://example.test/asset" }, "fixture-token"),
+    service.fetchAsset("https://example.test/asset", "asset.zip"),
     /地址无效/,
   );
   assert.equal(calls.length, 2);
@@ -254,10 +232,7 @@ test("private asset redirects strip credentials and reject untrusted origins bef
       headers: { location: "https://example.test/steal" },
     });
   await assert.rejects(
-    service.fetchAsset(
-      { url: `${endpoint}/releases/assets/1` },
-      "fixture-token",
-    ),
+    service.fetchAsset(`${endpoint}/releases/assets/1`, "asset.zip"),
     /地址无效/,
   );
 });
@@ -267,8 +242,8 @@ test("corrupt download is removed and cannot produce an install plan", async (t)
   const value = {
     ...release(),
     assets: [
-      { name: assetName, url: `${endpoint}/releases/assets/1` },
-      { name: `${assetName}.sha256`, url: `${endpoint}/releases/assets/2` },
+      { name: assetName, url: `${endpoint}/releases/assets/1`, browser_download_url: `${endpoint}/releases/assets/1` },
+      { name: `${assetName}.sha256`, url: `${endpoint}/releases/assets/2`, browser_download_url: `${endpoint}/releases/assets/2` },
     ],
   };
   const service = await fixture(t, async (url) => {
@@ -289,11 +264,10 @@ test("corrupt download is removed and cannot produce an install plan", async (t)
   await assert.rejects(service.install(), /请先下载更新/);
 });
 
-test("a fresh checkout has a shared public application identifier without local overrides", () => {
+test("a fresh checkout has a public update feed without credentials", () => {
   const config = require("../electron/domains/update/update-config.cjs");
-  assert(config.clientId);
   assert.equal(config.repository, repository);
-  assert.equal(Object.hasOwn(config, "token"), false);
+  assert.match(config.feedUrl, /releases\/latest\/download\/latest\.json$/);
 });
 
 test("a prerelease tag cannot become an install target even when GitHub marks it stable", async (t) => {
@@ -305,47 +279,6 @@ test("a prerelease tag cannot become an install target even when GitHub marks it
   assert.equal(state.phase, "error");
   assert.equal(state.canDownload, false);
   assert.equal(state.history.length, 1);
-});
-
-test("device authorization saves once, clears the code and immediately checks releases", async (t) => {
-  const service = await fixture(t, async (url) => {
-    if (url.endsWith("/access_token"))
-      return Response.json({ access_token: "device-fixture-token" });
-    if (url.endsWith("/user")) return Response.json({ login: "new-member" });
-    if (url.endsWith("/latest")) return Response.json(release("v0.1.0"));
-    if (url.includes("/releases?")) return Response.json([release("v0.1.0")]);
-    throw Error("unexpected fixture request");
-  });
-  service.authEpoch = 1;
-  service.authController = new AbortController();
-  service.setState({
-    userCode: "FIXT-URE1",
-    verificationUri: "https://github.com/login/device",
-    authAction: "授权中",
-  });
-  await service.pollAuthorization("device-fixture", 0, 1, 1);
-  const state = service.snapshot();
-  assert.equal(state.authenticated, true);
-  assert.equal(state.account, "new-member");
-  assert.equal(state.userCode, "");
-  assert.equal(state.phase, "up-to-date");
-  assert(!JSON.stringify(state).includes("device-fixture-token"));
-  service.fetchImpl = async () => {
-    throw Error("reading saved authorization should not need the network");
-  };
-  assert.equal((await service.authState()).account, "new-member");
-});
-
-test("device flow rejects substituted authorization URLs before opening a browser", async (t) => {
-  const service = await fixture(t, async () =>
-    Response.json({
-      device_code: "fixture",
-      verification_uri: "https://example.test/authorize",
-      user_code: "FIXT-URE1",
-    }),
-  );
-  await assert.rejects(service.authorize(), /授权页面地址无效/);
-  assert.equal(service.snapshot().verificationUri, "");
 });
 
 test(

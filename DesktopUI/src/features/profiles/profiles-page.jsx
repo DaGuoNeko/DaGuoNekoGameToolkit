@@ -153,7 +153,7 @@ export function ProfilesPage({
         </p>
       )}
       {!editing && (
-        <>
+        <div className="profile-library">
           <div className="profiles-toolbar">
             <input
               aria-label="搜索启动配置"
@@ -189,6 +189,7 @@ export function ProfilesPage({
                   <article
                     key={p.id}
                     className="profile-card"
+                    data-state={draft ? "warning" : running ? "running" : "ready"}
                     aria-label={"启动配置 " + p.name}
                   >
                     <div className="profile-cover">
@@ -216,8 +217,9 @@ export function ProfilesPage({
                                 config.game_executable_path || globalGamePath
                               }
                             >
-                              {config.game_executable_path ||
-                                `全局 · ${globalGamePath || "尚未设置"}`}
+                              {(config.game_executable_path || globalGamePath)
+                                ? `${config.game_executable_path ? "独立" : "全局"} · ${(config.game_executable_path || globalGamePath).split(/[\\/]/).slice(-2).join(" / ")}`
+                                : "尚未设置游戏程序"}
                             </dd>
                           </div>
                           <div>
@@ -256,18 +258,21 @@ export function ProfilesPage({
                           启动客户端
                         </Button>
                         <Button
+                          icon="copy" compact
                           disabled={busy || working || dirty || !config}
                           onClick={() => edit("copy", p)}
                         >
                           复制配置
                         </Button>
                         <Button
+                          icon="edit" compact
                           disabled={busy || working || dirty}
                           onClick={() => edit("rename", p)}
                         >
                           重命名
                         </Button>
                         <Button
+                          icon="trash" compact
                           danger
                           disabled={
                             busy ||
@@ -295,7 +300,7 @@ export function ProfilesPage({
             !profiles.some((p) =>
               p.name.toLowerCase().includes(query.toLowerCase()),
             ) && <Empty title="没有匹配的启动配置">试试其他名称。</Empty>}
-        </>
+        </div>
       )}
       {editing && snapshot && (
         <>

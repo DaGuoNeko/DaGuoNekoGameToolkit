@@ -196,15 +196,18 @@ export function Button({
   children,
   primary,
   danger,
+  compact = false,
   className = "",
+  title,
   ...props
 }) {
   return (
     <button
-      className={`button ${primary ? "primary" : ""} ${danger ? "danger" : ""} ${!children ? "icon-button" : ""} ${className}`}
+      className={`button ${primary ? "primary" : ""} ${danger ? "danger" : ""} ${!children || compact ? "icon-button" : ""} ${className}`}
+      title={title ?? (compact && typeof children === "string" ? children : undefined)}
       {...props}
     >
-      {icon && <Icon name={icon} />} {children}
+      {icon && <Icon name={icon} />} {compact ? <span className="visually-hidden">{children}</span> : children}
     </button>
   );
 }
@@ -645,13 +648,23 @@ export function Empty({ icon = "folder", title, children, action }) {
     </div>
   );
 }
-export function Section({ title, description, children, action }) {
+export function HelpDisclosure({ label = "使用说明", children }) {
+  return (
+    <details className="help-disclosure">
+      <summary><Icon name="info" size={14} />{label}</summary>
+      <div className="help-disclosure-body">{children}</div>
+    </details>
+  );
+}
+export function Section({ title, description, children, action, descriptionInline = false }) {
   return (
     <section className="section">
       <div className="section-heading">
         <div>
           <h2>{title}</h2>
-          {description && <p>{description}</p>}
+          {description && (descriptionInline ? <p>{description}</p> : (
+            <HelpDisclosure label={title + "说明"}>{description}</HelpDisclosure>
+          ))}
         </div>
         {action}
       </div>
@@ -802,7 +815,7 @@ export function Intro({ title, subtitle, children }) {
     <div className="intro">
       <div>
         <h1>{title}</h1>
-        <p>{subtitle}</p>
+        {subtitle && <HelpDisclosure label={title + "使用说明"}>{subtitle}</HelpDisclosure>}
       </div>
       <div className="intro-actions">{children}</div>
     </div>

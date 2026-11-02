@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
@@ -33,9 +33,33 @@ const archive = path.join(
 const checksum = `${archive}.sha256`;
 const hash = createHash("sha256");
 for await (const chunk of createReadStream(archive)) hash.update(chunk);
-const expected = `${hash.digest("hex")}  ${path.basename(archive)}`;
+const archiveHash = hash.digest("hex");
+const expected = `${archiveHash}  ${path.basename(archive)}`;
 if ((await readFile(checksum, "utf8")).trim() !== expected)
   throw Error("ZIP 与校验文件不匹配");
+const assetName = path.basename(archive);
+const latest = path.join(directory, "latest.json");
+await writeFile(
+  latest,
+  JSON.stringify(
+    {
+      version: manifest.version,
+      platform: "win32",
+      arch: "x64",
+      releaseName: `大果喵游戏工具箱 ${manifest.version}`,
+      releaseUrl: `https://github.com/${config.repository}/releases/tag/${tag}`,
+      assetName,
+      assetUrl: `https://github.com/${config.repository}/releases/download/${tag}/${assetName}`,
+      checksumUrl: `https://github.com/${config.repository}/releases/download/${tag}/${assetName}.sha256`,
+      sha256: archiveHash,
+      notes: await readFile(notes, "utf8"),
+      publishedAt: new Date().toISOString(),
+    },
+    null,
+    2,
+  ) + "\n",
+  "utf8",
+);
 const info = await new Promise((resolve, reject) => {
   yauzl.open(archive, { lazyEntries: true }, (error, zip) => {
     if (error) return reject(error);
@@ -118,13 +142,14 @@ else
     "--notes-file",
     notes,
   ]);
-// 仅未发布草稿允许重试覆盖；两个资产全部传完后才对客户端可见。
+// 仅未发布草稿允许重试覆盖；三个资产全部传完后才对客户端可见。
 await run("gh", [
   "release",
   "upload",
   tag,
   archive,
   checksum,
+  latest,
   "--repo",
   repo,
   "--clobber",

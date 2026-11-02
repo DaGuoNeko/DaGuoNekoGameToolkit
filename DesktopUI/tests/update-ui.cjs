@@ -68,12 +68,12 @@ const assert = require("node:assert/strict");
     await fs.writeFile(control, "empty", "utf8");
     await page.getByRole("button", { name: "检查更新", exact: true }).click();
     await page
-      .getByText("仓库已连接，尚未发布正式版本。", { exact: true })
+      .getByText("暂时没有可用的正式版本。", { exact: true })
       .waitFor();
     assert.equal(await history.count(), 0);
     await fs.writeFile(control, "denied", "utf8");
     await page.getByRole("button", { name: "检查更新", exact: true }).click();
-    await page.getByText(/当前 GitHub 授权无法读取此私有仓库/).waitFor();
+    await page.getByText(/更新服务请求失败|暂时没有可用的正式版本/).waitFor();
     await fs.writeFile(control, "current", "utf8");
     await page.getByRole("button", { name: "检查更新", exact: true }).click();
     await page.getByText("当前已是最新正式版本。", { exact: true }).waitFor();
@@ -102,13 +102,6 @@ const assert = require("node:assert/strict");
     await page.clock.fastForward(6 * 60 * 60 * 1000);
     await page.waitForFunction(async () => (await window.toolkit.call("update.state")).phase === "available");
     assert.equal(await page.getByRole("heading", { name: "发现新版本", exact: true }).count(), 0);
-    await page.locator(".sidebar").getByRole("button", { name: "设置", exact: true }).click();
-    await page
-      .getByRole("button", { name: "退出 GitHub 授权", exact: true })
-      .click();
-    await page
-      .getByRole("button", { name: "授权 GitHub", exact: true })
-      .waitFor();
     assert.equal(await history.count(), 0);
     assert.deepEqual(errors, []);
     assert(
@@ -133,10 +126,9 @@ const assert = require("node:assert/strict");
             "deduplication",
             "light/dark",
             "no releases",
-            "private permissions",
+            "public feed errors",
             "current version",
             "sandbox",
-            "logout",
           ],
         },
         null,
@@ -145,7 +137,7 @@ const assert = require("node:assert/strict");
       "utf8",
     );
     console.log(
-      "PASS update UI through real IPC/service: startup popup, history, pagination, errors, themes, logout, sandbox",
+      "PASS update UI through real IPC/service: startup popup, history, pagination, errors, themes, sandbox",
     );
   } catch (error) {
     console.error("Update UI failed:", error.message, stderr.join(""));

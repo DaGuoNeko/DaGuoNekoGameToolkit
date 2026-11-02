@@ -1,4 +1,4 @@
-// 显式执行的联网验收：复用本 Windows 用户已有的加密授权，绝不输出或解密令牌到测试进程。
+// 显式执行的联网验收：只读取公开 Release，不需要用户授权。
 const { _electron: electron } = require("playwright");
 const fs = require("node:fs/promises");
 const os = require("node:os");
@@ -14,14 +14,6 @@ const assert = require("node:assert/strict");
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-update-live-"));
   let app;
   try {
-    await fs.mkdir(path.join(root, "update"));
-    await fs.copyFile(
-      path.join(
-        process.env.LOCALAPPDATA,
-        "DaGuoNeko_GameToolkit/update/github-auth.json",
-      ),
-      path.join(root, "update/github-auth.json"),
-    );
     await fs.mkdir(path.join(root, "Electron"));
     await fs.copyFile(
       path.join(
@@ -67,13 +59,6 @@ const assert = require("node:assert/strict");
     const errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
     await page.getByRole("heading", { name: "存档", exact: true }).waitFor();
-    const auth = await page.evaluate(() =>
-      window.toolkit.call("update.auth.state"),
-    );
-    assert(
-      auth.authenticated,
-      "Saved authorization cannot be reused in the isolated profile",
-    );
     const state = await page.evaluate(() =>
       window.toolkit.call("update.check"),
     );

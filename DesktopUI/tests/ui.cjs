@@ -11,6 +11,8 @@ for (const file of [
   "tests/log-search-ui.cjs",
   "tests/import-ui.cjs",
   "tests/terrain-ui.cjs",
+  "tests/map-preview-ui.cjs",
+  "tests/file-selection-ui.cjs",
 ]) {
   const result = spawnSync(process.execPath, [file], {
     stdio: "inherit",

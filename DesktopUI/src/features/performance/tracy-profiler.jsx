@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Button, Select, ErrorBox, Modal } from "../../app/ui.jsx";
+import { Button, Select, ErrorBox, Modal, HelpDisclosure } from "../../app/ui.jsx";
 import { useDebugSession } from "../debug/debug-session.jsx";
 import "./tracy-profiler.css";
 const api = (method, args = {}) => window.toolkit.call(method, args);
@@ -174,10 +174,10 @@ export function TracyPage() {
             : "帧时间线、函数统计、内存与调用栈在官方界面中操作。"}
         </div>
       </div>
-      <p className="tracy-hint">
+      <HelpDisclosure label="采样、保存与退出说明">
         切页后采样继续，保存请使用 Tracy 内的 Save。与 Native
         采样共用游戏连接；同一游戏不能同时连接两份分析器。退出工具箱会将分析器恢复为独立窗口，保留未保存数据。
-      </p>
+      </HelpDisclosure>
       {confirm && (
         <Modal title="关闭 Tracy 分析器" onClose={() => setConfirm(false)}>
           <p>

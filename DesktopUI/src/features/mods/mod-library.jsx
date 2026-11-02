@@ -8,6 +8,7 @@ import {
   ErrorBox,
   Empty,
   FileDropZone,
+  Icon,
 } from "../../app/ui.jsx";
 import { modRows, setModOption } from "../../../shared/mod-selection.cjs";
 import "./mod-library.css";
@@ -269,6 +270,7 @@ function ModCatalog({
           <article
             className={`mod-library-card ${selecting ? "pick-row" : ""} ${m.enabled ? "enabled" : ""}`}
             key={m.key || m.id}
+            data-available={m.available !== false}
             aria-label={"模组 " + m.name}
           >
             {selecting && (
@@ -286,6 +288,7 @@ function ModCatalog({
                 }
               />
             )}
+            {!selecting && <div className="mod-glyph" aria-hidden="true"><Icon name="cube" size={26} /></div>}
             <div className="mod-library-info">
               <h3 title={m.name}>{m.name}</h3>
               <p title={m.path}>{m.path}</p>
@@ -352,10 +355,11 @@ function ModCatalog({
                 >
                   打开文件夹
                 </Button>
-                <Button disabled={working} onClick={() => open("edit", m)}>
+                <Button icon="edit" compact disabled={working} onClick={() => open("edit", m)}>
                   编辑模组
                 </Button>
                 <Button
+                  icon="trash" compact
                   danger
                   disabled={working}
                   onClick={() => open("remove", m)}

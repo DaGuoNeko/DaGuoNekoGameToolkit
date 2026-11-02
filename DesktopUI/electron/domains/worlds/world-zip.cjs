@@ -73,7 +73,7 @@ function checkedStream(entry, limit) {
     },
   });
 }
-async function openWorldZip(source) {
+async function openWorldZip(source, metadataReader = readWorldInfo) {
   const zip = await yauzl.openPromise(source, {
     lazyEntries: true,
     autoClose: false,
@@ -137,7 +137,7 @@ async function openWorldZip(source) {
         },
       }),
     );
-    const metadata = readWorldInfo(Buffer.concat(chunks));
+    const metadata = metadataReader(Buffer.concat(chunks));
     if (zipError) throw zipError;
     return {
       metadata,

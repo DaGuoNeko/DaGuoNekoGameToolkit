@@ -74,6 +74,7 @@ const runtimeFiles = new Set([
   "automation/automation-window.dll",
   "automation/content-log-owner.ps1",
   "automation/update-helper.ps1",
+  "automation/map-preview-worker.cjs",
   "native/koffi.node",
   "native/mcdev-tracy-bridge.dll",
   "native/menu-name-helper.exe",

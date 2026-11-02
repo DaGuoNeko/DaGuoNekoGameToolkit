@@ -1,3 +1,4 @@
+const { runPython3 } = require("./fixtures/python3.cjs");
 // Adapted from Dofes/mcdev-tools (MIT), pinned source listed in electron/debug/vendor/SOURCES.md.
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -22,7 +23,6 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 var import_strict = __toESM(require("node:assert/strict"));
-var import_node_child_process = require("node:child_process");
 var import_node_test = __toESM(require("node:test"));
 var import_pythonProfiler = require("../electron/debug/vendor/pythonProfiler.cjs");
 (0, import_node_test.default)("Python profiler scripts stay bounded and distinguish client and server projects", () => {
@@ -130,7 +130,7 @@ var import_pythonProfiler = require("../electron/debug/vendor/pythonProfiler.cjs
     (0, import_pythonProfiler.buildPythonProfilerCleanupCode)()
   ];
   for (const script of scripts) {
-    const result = (0, import_node_child_process.spawnSync)("python", [
+    const result = runPython3([
       "-c",
       "import sys; compile(sys.stdin.read(), '<mcdev-profiler>', 'exec')"
     ], { input: script, encoding: "utf8" });
