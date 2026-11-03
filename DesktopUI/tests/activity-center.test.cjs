@@ -1,0 +1,22 @@
+const { test } = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs/promises");
+const os = require("node:os");
+const path = require("node:path");
+const { ActivityCenter } = require("../electron/activity-center.cjs");
+
+test("activity center persists events and task state", async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-activity-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const center = new ActivityCenter(root);
+  await center.load();
+  const task = center.start("worlds.import", { projectId: "p", message: "准备" });
+  center.update(task.id, { completed: 1, total: 2, message: "复制中" });
+  center.finish(task.id, "success");
+  await center.queue;
+  const reopened = new ActivityCenter(root);
+  await reopened.load();
+  const snapshot = reopened.snapshot({ projectId: "p" });
+  assert.equal(snapshot.tasks[0].status, "success");
+  assert(snapshot.events.some(event => event.operationId === task.id));
+});

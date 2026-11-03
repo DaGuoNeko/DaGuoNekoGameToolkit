@@ -6,6 +6,7 @@ const { spawnSync } = require("node:child_process");
 const assert = require("node:assert/strict");
 const { WorkspaceStore } = require("../electron/services.cjs");
 const { WorldLibrary } = require("../electron/domains/worlds/worlds.cjs");
+const { testResultsRoot } = require("./fixtures/artifacts.cjs");
 (async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-actions-ui-"));
   let app;
@@ -193,7 +194,7 @@ const { WorldLibrary } = require("../electron/domains/worlds/worlds.cjs");
     await page.getByRole("combobox", { name: "横向范围", exact: true }).click();
     await page.getByRole("option", { name: "圆形", exact: true }).click();
     await page.getByLabel("半径 R（方块）", { exact: true }).fill("3");
-    await fs.mkdir("test-results", { recursive: true });
+    await fs.mkdir(testResultsRoot, { recursive: true });
     const biomeEditor = await app.evaluate(async ({ BrowserWindow }) =>
       (
         await BrowserWindow.getAllWindows()[0].webContents.capturePage(
@@ -205,7 +206,7 @@ const { WorldLibrary } = require("../electron/domains/worlds/worlds.cjs");
         .toString("base64"),
     );
     await fs.writeFile(
-      "test-results/biome-action-editor.png",
+      path.join(testResultsRoot, "biome-action-editor.png"),
       Buffer.from(biomeEditor, "base64"),
     );
     await page.getByRole("button", { name: "保存功能", exact: true }).click();
@@ -246,7 +247,7 @@ const { WorldLibrary } = require("../electron/domains/worlds/worlds.cjs");
       savedBiome.actions.find((a) => a.name === "圆形沙漠").radius,
       3,
     );
-    await fs.mkdir("test-results", { recursive: true });
+    await fs.mkdir(testResultsRoot, { recursive: true });
     const shot = await app.evaluate(async ({ BrowserWindow }) =>
       (
         await BrowserWindow.getAllWindows()[0].webContents.capturePage(
@@ -258,7 +259,7 @@ const { WorldLibrary } = require("../electron/domains/worlds/worlds.cjs");
         .toString("base64"),
     );
     await fs.writeFile(
-      "test-results/world-actions.png",
+      path.join(testResultsRoot, "world-actions.png"),
       Buffer.from(shot, "base64"),
     );
     await page
@@ -299,7 +300,7 @@ const { WorldLibrary } = require("../electron/domains/worlds/worlds.cjs");
       "World actions UI passed: persistence, auto once, quick command, item target, errors, navigation, edit/delete, shutdown",
     );
     await fs.writeFile(
-      "test-results/world-actions-ui.json",
+      path.join(testResultsRoot, "world-actions-ui.json"),
       JSON.stringify(
         { passed: true, worldId: world.id, requests: await records(), errors },
         null,

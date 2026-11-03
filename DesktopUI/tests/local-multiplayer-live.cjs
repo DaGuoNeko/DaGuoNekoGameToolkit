@@ -21,6 +21,7 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const game = process.env.DGN_LIVE_GAME_EXE || process.env.DGN_MULTIPLAYER_GAME_EXE;
 if (!game || !path.isAbsolute(game))
   throw Error("请指定 DGN_LIVE_GAME_EXE；此测试仅使用新建地图");
+const { artifactRoot, testResultsRoot } = require("./fixtures/artifacts.cjs");
 (async () => {
   const digest = crypto
     .createHash("sha256")
@@ -29,7 +30,7 @@ if (!game || !path.isAbsolute(game))
   const version = isolatedEngineVersion(digest);
   assert(version, "Real-game acceptance requires a registered isolated engine");
   const nonce = crypto.randomBytes(4).toString("hex");
-  const root = path.resolve("../.miao/test-data/local-live-" + nonce);
+  const root = path.join(artifactRoot, "data");
   // Match the game's Python loader path depth; keep MCDK deployment below MAX_PATH.
   const data = path.join(os.homedir(), ".dgv", "live-" + nonce);
   await fs.mkdir(root, { recursive: true });
@@ -450,9 +451,9 @@ if (!game || !path.isAbsolute(game))
       path.join(root, "result.json"),
       JSON.stringify(report, null, 2),
     );
-    await fs.mkdir("test-results", { recursive: true });
+    await fs.mkdir(testResultsRoot, { recursive: true });
     await fs.writeFile(
-      "test-results/local-multiplayer-live.json",
+      path.join(testResultsRoot, "local-multiplayer-live.json"),
       JSON.stringify(report, null, 2),
     );
     if (!report.passed || report.cleanupErrors.length) process.exitCode = 1;

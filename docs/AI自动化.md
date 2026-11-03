@@ -6,7 +6,7 @@
 
 ## 工具目录
 
-原有 15 个工具保持兼容，新增 18 个，共 33 个；以当前安装实例 `tools/list` 为准。更新源码后需要构建并重新启动对应工具箱实例，已有发行程序不会自动获得接口。
+当前工具目录以安装实例 `tools/list` 为准，包含客户端控制、配置/存档、固定拍摄、运行时地形探针和架构导入任务接口。更新源码后需要构建并重新启动对应工具箱实例，已有发行程序不会自动获得接口。按领域理解工具即可，不要依赖工具总数。
 
 | 范围 | 新工具 | 约束 |
 |---|---|---|
@@ -19,6 +19,8 @@
 | 存档 | `inspect_world_source`、`import_world`、`clone_world` | 检查来源、复制/原目录导入、复制已登记存档；沿用运行冲突、路径、ZIP 和备份保护 |
 | 预检 | `validate_world_assets` | 启动前扫描 PNG 结构、空资源路径、JSON/JSONC 资源引用和缺失目标 |
 | 固定拍摄 | `capture_scene` | 结构化参数、能力检查、区块等待、参数回读和截图前后核对；HUD 回读暂不支持 |
+| 地形探针 | `probe_dimension_runtime`、`probe_build_height` | 读取实体所在维度的实际高度边界和候选 Y 方块；高度写入只允许 isolated 会话，写前保存、回读并恢复 |
+| 架构导入 | `terrain_prepare`、`terrain_capture_source`、`terrain_preview`、`terrain_apply`、`terrain_rollback`、`terrain_status` | 复用 UI 的来源副本、维度边界、预览、覆盖/保留、空气策略、备份、写入和撤销状态机；支持 `externalDataRoot` |
 
 ## 会话和结果语义
 
@@ -27,6 +29,23 @@
 `game_ready` 是原有调试桥状态。`client_readiness.ready` 额外要求原生窗口观察成功、无断言、客户端返回有效玩家/位置/世界以及已确认的游戏 HUD 界面；未知 UI、加载界面或探针错误均不判为就绪。窗口最小化与渲染状态单独返回：可执行游戏逻辑不等于能够截图，更不等于所有地图资源或业务初始化已完成。
 
 `validate_world_assets(worldId)` 可以在启动前独立执行；`launch_world` 也会自动执行相同预检。默认 `assetPreflight:"strict"` 遇到预检问题停止；使用者已经核验且明确要求尝试启动时，可传 `assetPreflight:"report", confirmed:true`，返回预检摘要后继续，保留存档锁、进程归属和路径保护。预检范围是存档内的包目录，不包含配置指向的外部模组；PNG 检查结构与 CRC，不进行完整像素解码。引用检查可能无法解析原版、跨包或动态别名。静态预检不能判断游戏警告是否致命；结果保留以便后续排查。
+
+## 地形与维度自动化
+
+`probe_dimension_runtime` 绑定指定客户端的当前玩家和 generation，使用玩家实体所在维度创建 `ChunkSource`，返回当前/目标维度、玩家坐标、chunk 坐标、`GetChunkMinPos`、`GetChunkMaxPos` 和候选 Y 的方块读取。传入 `dimension` 时必须同时传 `confirmed:true`；工具尝试跨维度后会恢复原维度和位置，恢复失败会明确返回错误。它不会猜测主世界边界，也不会把 JSON 或显示版本当成实际高度。
+
+`probe_build_height` 只允许 `storageMode="isolated"` 的客户端，必须 `confirmed:true`。它在玩家所在位置测试候选 Y：先读取原方块和方块实体，写入临时石块，回读，再恢复每个原状态，返回 `before`、`write`、`readback`、`restored`。共享存档、原目录模式、无法确认玩家维度或恢复结果时均拒绝，不把“请求已发送”当作测试通过。
+
+架构导入按以下顺序调用：
+
+1. `terrain_prepare`：准备 Java/基岩来源副本，Java 由 Chunker 转换；可选 `externalDataRoot` 将任务、运行快照、备份和游戏日志放入用户指定的独立目录。
+2. `terrain_capture_source`：指定 `sourceDimension` 与源坐标，读取来源方块快照。
+3. `terrain_preview`：指定 `targetDimension`，使用目标坐标或 `offset`（例如 `[0,-94,0]`），选择 `overwrite`/`keep` 和 `includeAir`；只生成预览与写入计划。
+4. `terrain_apply`：传入当前 `previewId` 和 `confirmed:true` 执行写入；目标会话、玩家、维度或预览身份变化会拒绝。
+5. `terrain_rollback`：写入结果不确定或完成后，按备份和写前快照撤销；不自动重放。
+6. `terrain_status`：读取阶段、进度、计数、备份和外部任务目录。
+
+每个写操作都要提供新的 `requestId`；同一请求超时重试必须复用原 ID。`externalDataRoot` 必须是绝对目录，不能位于工具箱数据目录、程序目录或存档目录内；任务不会把临时文件写入默认 MCP 数据目录。
 
 断言读取先运行独立 Windows 探针，避免模态断言期间向阻塞的游戏线程发 Python 请求。探针检查 PID、父 PID、EXE、进程创建时间和窗口归属。`client_readiness.interactionState="blocked_by_assertion"` 表示当前被警告弹窗阻塞；不会据弹窗文本直接断定致命。
 
@@ -73,4 +92,4 @@ JSONL 模式从 stdin 每行读取 `{ "name": "工具名", "arguments": {} }`，
 
 服务与失败路径：`node --test tests/automation.test.cjs tests/automation-control.test.cjs`。真实 Windows 隐藏窗口夹具验证断言读取、忽略和错误父进程拒绝。`node tests/automation-ui.cjs` 覆盖真实构建 UI/preload/IPC/stdio 与配置、导入、克隆、设置互通。
 
-显式设置 `DGN_LIVE_GAME_EXE` 后运行 `node tests/automation-live.cjs`：只新建测试配置、原始样本和存档副本，经过 MCP 导入、克隆、启动、就绪、截图和拍摄回读，再关闭自身会话。证据在 `DesktopUI/test-results/`。环境覆盖不是完整隔离；脚本要求已登记的独立主机游戏构建。此验证不代表所有引擎构建、GPU、多显示器或业务模组都已验收。
+显式设置 `DGN_LIVE_GAME_EXE` 后运行 `node tests/automation-live.cjs`：只新建测试配置、原始样本和存档副本，经过 MCP 导入、克隆、启动、就绪、截图和拍摄回读，再关闭自身会话。证据写入 `.miao/work/<任务ID>/outputs/`，任务默认保留三天。环境覆盖不是完整隔离；脚本要求已登记的独立主机游戏构建。此验证不代表所有引擎构建、GPU、多显示器或业务模组都已验收。

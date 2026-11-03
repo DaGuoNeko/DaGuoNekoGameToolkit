@@ -3,6 +3,7 @@ const fs = require("node:fs/promises"),
   path = require("node:path"),
   os = require("node:os"),
   assert = require("node:assert/strict");
+const { testResultsRoot } = require("./fixtures/artifacts.cjs");
 (async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-ui-editor-"));
   let app;
@@ -163,7 +164,7 @@ const fs = require("node:fs/promises"),
       0,
       "native kernel loaded",
     );
-    await fs.mkdir("test-results", { recursive: true });
+    await fs.mkdir(testResultsRoot, { recursive: true });
     await page.getByRole("button", { name: "撤销", exact: true }).click();
     await page.locator(".ue-tree-name").filter({ hasText: "box" }).click();
     const screenshot = await app.evaluate(async ({ BrowserWindow }) =>
@@ -177,7 +178,7 @@ const fs = require("node:fs/promises"),
         .toString("base64"),
     );
     await fs.writeFile(
-      "test-results/ui-editor.png",
+      path.join(testResultsRoot, "ui-editor.png"),
       Buffer.from(screenshot, "base64"),
     );
     await app.evaluate(({ app }) => app.quit());

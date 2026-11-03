@@ -4,6 +4,7 @@ const assert = require("node:assert/strict"),
   path = require("node:path"),
   os = require("node:os");
 const { spawnSync } = require("node:child_process");
+const { testResultsRoot } = require("./fixtures/artifacts.cjs");
 (async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-options-select-"));
   let app;
@@ -271,9 +272,9 @@ const { spawnSync } = require("node:child_process");
         .toPNG()
         .toString("base64"),
     );
-    await fs.mkdir("test-results", { recursive: true });
+    await fs.mkdir(testResultsRoot, { recursive: true });
     await fs.writeFile(
-      "test-results/game-options-input.png",
+      path.join(testResultsRoot, "game-options-input.png"),
       Buffer.from(shot, "base64"),
     );
     assert.deepEqual(errors, []);

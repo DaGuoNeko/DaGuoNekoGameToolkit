@@ -105,24 +105,25 @@ function ModCatalog({
   async function submit() {
     setWorking(true);
     setError("");
+    const action = dialog;
+    setDialog(null);
     try {
       const value =
-        dialog.kind === "remove"
+        action.kind === "remove"
           ? await call("mods.remove", {
-              id: dialog.mod.id,
+              id: action.mod.id,
               revision: library.revision,
             })
           : await call("mods.save", {
-              id: dialog.mod?.id,
+              id: action.mod?.id,
               name,
               directory,
               revision: library.revision,
             });
       setLibrary(value);
-      if (dialog.kind === "remove") await onRemoved?.(value);
-      setDialog(null);
+      if (action.kind === "remove") await onRemoved?.(value);
       setNotice(
-        dialog.kind === "remove"
+        action.kind === "remove"
           ? `已移除，并清理 ${value.changes.length} 套启动配置中的 ${value.removedReferences} 条引用；模组文件保留，下次启动生效。`
           : "模组库已保存；已有配置保持不变。",
       );
@@ -245,6 +246,7 @@ function ModCatalog({
           {notice}
         </p>
       )}
+      {working && <p className="muted" role="status">正在处理模组库操作…</p>}
       {selecting && (
         <div className="mod-selection-toolbar">
           <span className="muted">

@@ -7,7 +7,7 @@ const {verifySelection}=require("../../file-selection.cjs");
   const progress=(stage,completed=0,total=null)=>{
     if(stage!==lastStage||Date.now()-last>=100||completed===total) {last=Date.now();lastStage=stage;parentPort.postMessage({progress:{stage,completed,total}});}
   };
-  const result=await renderWorld({...workerData.args,onProgress:progress});
+  const result=await renderWorld({...workerData.args,onProgress:progress,onBatch:batch=>parentPort.postMessage({batch})});
   await verifySelection(workerData.identity);
   parentPort.postMessage({result});
 })().catch(e=>parentPort.postMessage({error:e.message}));

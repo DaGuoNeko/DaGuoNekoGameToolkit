@@ -279,6 +279,7 @@ export function LogsPage({ state, receive, stop, busy, report }) {
   async function deleteHistory() {
     if (deleting) return;
     setDeleting(true);
+    setCleanup(null);
     try {
       const result = await api("logs.delete", {
         ids: cleanup.ids,
@@ -621,6 +622,7 @@ export function LogsPage({ state, receive, stop, busy, report }) {
         </ErrorBox>
       ) : null}
       {notice && <p role="status">{notice}</p>}
+      {deleting && <p role="status">正在删除历史日志…</p>}
       <div className={`logs-workspace ${settingsOpen ? "settings-open" : ""}`}>
         <div
           className="log-console"

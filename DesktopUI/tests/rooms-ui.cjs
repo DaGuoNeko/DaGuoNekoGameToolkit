@@ -6,6 +6,7 @@ const fs = require("node:fs/promises"),
 const { WorkspaceStore } = require("../electron/services.cjs");
 const { Profiles } = require("../electron/domains/profiles/profiles.cjs");
 const { WorldLibrary } = require("../electron/domains/worlds/worlds.cjs");
+const { testResultsRoot } = require("./fixtures/artifacts.cjs");
 (async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-rooms-ui-"));
   let app;
@@ -119,7 +120,7 @@ const { WorldLibrary } = require("../electron/domains/worlds/worlds.cjs");
     await page
       .getByRole("button", { name: "创建联机房间", exact: true })
       .waitFor();
-    await fs.mkdir("test-results", { recursive: true });
+    await fs.mkdir(testResultsRoot, { recursive: true });
     await page.getByLabel("完整邀请文本").fill("DGNROOM1:UI-FIXTURE");
     await page.getByLabel("联机玩家名").fill("ReconnectGuest");
     await page
@@ -152,10 +153,10 @@ const { WorldLibrary } = require("../electron/domains/worlds/worlds.cjs");
         .toPNG()
         .toString("base64"),
     );
-    await fs.writeFile("test-results/rooms-ui.png", Buffer.from(png, "base64"));
+    await fs.writeFile(path.join(testResultsRoot, "rooms-ui.png"), Buffer.from(png, "base64"));
     assert.deepEqual(errors, []);
     await fs.writeFile(
-      "test-results/rooms-ui.json",
+      path.join(testResultsRoot, "rooms-ui.json"),
       JSON.stringify(
         {
           ok: true,

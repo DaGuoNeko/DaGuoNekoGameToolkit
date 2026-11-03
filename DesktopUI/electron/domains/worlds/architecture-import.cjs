@@ -7,13 +7,15 @@ const { copySnapshot, readData, writeData } = require("./terrain-storage.cjs");
 const model = require("../../../shared/terrain-model.cjs");
 const runtime = require("./terrain-runtime.cjs");
 const { AUTO_IMPORT_PROFILE } = require("../../../shared/world-import-model.cjs");
+const { WorldLibrary } = require("./worlds.cjs");
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 const uuid = value => typeof value === "string" && /^[a-f0-9-]{36}$/.test(value);
 
 class ArchitectureImport {
-  constructor({ dataRoot, worlds, profiles, sessions, actions, converter = prepareChunker }) {
+  constructor({ dataRoot, worlds, profiles, sessions, actions, converter = prepareChunker, protectedRoots = [] }) {
     Object.assign(this, { worlds, profiles, sessions, actions, converter });
     this.root = path.join(dataRoot, "architecture");
+    this.protectedRoots = [dataRoot, ...protectedRoots].map(value => path.resolve(value).toLowerCase());
     this.file = path.join(this.root, "task.json");
     this.task = null;
     this.job = null;
@@ -21,6 +23,7 @@ class ArchitectureImport {
     this.disposed = false;
     this.loading = null;
     this.queue = Promise.resolve();
+    this.externalWorlds = null;
   }
   call(method, args) {
     const operation = this.queue.catch(() => {}).then(() => this[method](args));
@@ -47,13 +50,41 @@ class ArchitectureImport {
   }
   directory() {
     if (!uuid(this.task?.id)) throw Error("没有有效的地形任务");
-    return path.join(this.root, this.task.id);
+    return path.join(this.task.externalDataRoot || this.root, this.task.id);
   }
   async save() {
-    await fs.mkdir(this.root, { recursive: true });
-    await atomicWrite(this.file, JSON.stringify(this.task, null, 2));
+    const root = this.task?.externalDataRoot || this.root;
+    await fs.mkdir(root, { recursive: true });
+    if (this.task?.externalDataRoot) await atomicWrite(path.join(root, "task.json"), JSON.stringify(this.task, null, 2));
+    else await atomicWrite(this.file, JSON.stringify(this.task, null, 2));
     await atomicWrite(path.join(this.directory(), "task.json"), JSON.stringify(this.task, null, 2));
     return this.state();
+  }
+  async externalRoot(value) {
+    if (typeof value !== "string" || !path.isAbsolute(value) || /[\0\r\n]/.test(value)) throw Error("externalDataRoot 必须是绝对路径");
+    const root = path.resolve(value), lower = root.toLowerCase();
+    if (this.protectedRoots.some(item => lower === item || lower.startsWith(item + path.sep))) throw Error("externalDataRoot 不能位于工具箱数据、程序或存档目录内");
+    await fs.mkdir(root, { recursive: true });
+    if ((await fs.realpath(root)).toLowerCase() !== lower) throw Error("externalDataRoot 不能是目录链接");
+    return root;
+  }
+  async openExternal(taskId, rootValue) {
+    const root = await this.externalRoot(rootValue);
+    const raw = await fs.readFile(path.join(root, "task.json"), "utf8");
+    const task = JSON.parse(raw);
+    if (!uuid(taskId) || task.id !== taskId || task.externalDataRoot?.toLowerCase() !== root.toLowerCase()) throw Error("外部地形任务身份无效");
+    this.task = task;
+    return task;
+  }
+  externalLibrary() {
+    if (!this.task?.externalDataRoot) return this.worlds;
+    if (!this.externalWorlds) {
+      this.externalWorlds = new WorldLibrary(this.worlds.store, path.join(this.task.externalDataRoot, "world-library"), {
+        gameRunning: async () => false,
+        appDataOverride: path.join(this.task.externalDataRoot, "game-data"),
+      });
+    }
+    return this.externalWorlds;
   }
   async state() {
     if (!this.task) await this.load();
@@ -61,6 +92,7 @@ class ArchitectureImport {
   }
   async require(args = {}, stages) {
     await this.load();
+    if (!this.task && args.externalDataRoot) await this.openExternal(args.taskId, args.externalDataRoot);
     if (this.job && !this.task?.busy) await this.job;
     if (this.disposed || this.job) throw Error("地形任务正在运行或工具箱正在退出");
     if (!this.task || args.taskId !== this.task.id) throw Error("地形任务已变化，请重新打开");
@@ -109,7 +141,8 @@ class ArchitectureImport {
     if (!target.profileId) throw Error("目标存档需要绑定启动配置");
     if (this.sessions.workers.some(w => w.session?.running && [target.id, this.task?.sourceWorldId].includes(w.session.worldId)))
       throw Error("请先保存并停止目标存档和上次来源会话，再准备新任务");
-    this.task = { version: 2, id: crypto.randomUUID(), name, kind: input.kind, source: input.source, chunkerJar: input.chunkerJar || "", targetWorldId: target.id, targetName: target.name, stage: "preparing", createdAt: new Date().toISOString(), attempted: 0 };
+    const externalDataRoot = input.externalDataRoot ? await this.externalRoot(input.externalDataRoot) : null;
+    this.task = { version: 2, id: crypto.randomUUID(), name, kind: input.kind, source: input.source, chunkerJar: input.chunkerJar || "", targetWorldId: target.id, targetName: target.name, stage: "preparing", createdAt: new Date().toISOString(), attempted: 0, ...(externalDataRoot ? { externalDataRoot } : {}) };
     await fs.mkdir(this.directory(), { recursive: true });
     return this.begin("preparing", async () => {
       let source = input.source;
@@ -123,7 +156,8 @@ class ArchitectureImport {
         source = converted.outputDirectory;
       }
       this.check();
-      const world = await this.worlds.importWorld(AUTO_IMPORT_PROFILE, name + "（地形来源副本）", source, "copy");
+      const library = this.externalLibrary();
+      const world = await library.importWorld(target.profileId, name + "（地形来源副本）", source, "copy");
       this.task.sourceWorldId = world.id;
       this.task.sourceProfileId = world.profileId;
       this.task.message = "来源副本已准备好，原地图保持不变";
@@ -134,11 +168,18 @@ class ArchitectureImport {
     if (!this.task.sourceWorldId || this.task.capture) throw Error("来源尚未准备，或选区已经读取完成");
     if (this.task.sourceSessionId && this.sessions.workers.some(w => w.session?.id === this.task.sourceSessionId && w.session.running)) return this.state();
     return this.begin("source-starting", async () => {
-      const state = await this.sessions.start(this.task.sourceProfileId, this.task.sourceWorldId);
-      this.task.sourceSessionId = state.selectedSession;
+      const previousWorlds = this.sessions.worlds;
+      if (this.task.externalDataRoot) this.sessions.worlds = this.externalLibrary();
+      try {
+        const state = await this.sessions.start(this.task.sourceProfileId, this.task.sourceWorldId, null, { externalDataRoot: this.task.externalDataRoot });
+        this.task.sourceSessionId = state.selectedSession;
+      } catch (error) {
+        this.sessions.worlds = previousWorlds;
+        throw error;
+      }
     }, "source-running");
   }
-  async context(which) {
+  async context(which, expectedDimension) {
     const worker = this.actions.worker(this.task[which + "SessionId"]);
     if (worker.session.worldId !== this.task[which + "WorldId"]) throw Error("任务与当前存档会话不匹配");
     if (which === "target" && this.task.backup) {
@@ -154,6 +195,7 @@ class ArchitectureImport {
     const probe = await this.actions.code(worker, target, runtime.probeCode(player), false);
     if (!Number.isInteger(probe?.dimension) || !Array.isArray(probe?.position) || !probe.position.every(Number.isFinite) || !probe.min || !probe.max)
       throw Error("无法确定玩家位置、维度及高度边界");
+    if (expectedDimension !== undefined && probe.dimension !== expectedDimension) throw Error(`当前会话维度为 ${probe.dimension}，不是请求的 ${expectedDimension}`);
     return { worker, target, player, probe };
   }
   async position(args) {
@@ -187,7 +229,7 @@ class ArchitectureImport {
   async sourceSave(args) {
     await this.require(args, ["source-running", "source-ready", "interrupted"]);
     if (this.task.attempted) throw Error("已有目标写入记录，不能重新覆盖来源");
-    const selected = model.region(args), context = await this.context("source");
+    const selected = model.region(args), context = await this.context("source", args.sourceDimension);
     this.bounds(selected, context.probe);
     this.task.region = selected;
     this.task.sourceDimension = context.probe.dimension;
@@ -213,6 +255,7 @@ class ArchitectureImport {
       const worker = this.actions.worker(this.task.sourceSessionId);
       if (worker.session.worldId !== this.task.sourceWorldId) throw Error("来源会话已变化");
       if (worker.session.running) await this.sessions.stop(worker.session.id);
+      this.sessions.worlds = this.worlds;
     }, "source-saved");
   }
   async startTarget(args) {
@@ -241,7 +284,7 @@ class ArchitectureImport {
         return world;
       });
       this.check();
-      const state = await this.sessions.start(target.profileId, target.id);
+      const state = await this.sessions.start(target.profileId, target.id, null, { externalDataRoot: this.task.externalDataRoot });
       this.task.targetSessionId = state.selectedSession;
     }, resumeStage);
   }
@@ -249,7 +292,11 @@ class ArchitectureImport {
     await this.require(args, ["target-running", "preview-ready", "done", "undone", "interrupted"]);
     if (this.task.attempted) throw Error("请先完成撤销，不能覆盖未完成写入的记录");
     if (!this.task.backup || !this.task.capture) throw Error("来源数据或目标备份不完整");
-    const options = model.placement(args, this.task.region), context = await this.context("target");
+    if (args.offset) {
+      if (!Array.isArray(args.offset) || args.offset.length !== 3 || !args.offset.every(Number.isSafeInteger)) throw Error("offset 必须是三个整数");
+      args = { ...args, targetX: this.task.region.min[0] + args.offset[0], targetY: this.task.region.min[1] + args.offset[1], targetZ: this.task.region.min[2] + args.offset[2] };
+    }
+    const options = model.placement(args, this.task.region), context = await this.context("target", args.targetDimension);
     this.bounds({ min: options.origin, max: options.max }, context.probe);
     const offset = options.origin.map((v, i) => v - this.task.region.min[i]);
     const plan = { id: crypto.randomUUID(), options, dimension: context.probe.dimension, target: context.target, player: context.player, counts: { changed: 0, kept: 0, air: 0, identical: 0 } };
@@ -323,6 +370,7 @@ class ArchitectureImport {
   }
   async dispose() {
     this.disposed = true;
+    this.sessions.worlds = this.worlds;
     this.controller?.abort();
     await this.job;
   }

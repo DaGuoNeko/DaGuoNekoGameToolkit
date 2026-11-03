@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Button, ErrorBox, Field, Modal, Select } from "../../app/ui.jsx";
 import "./map-preview.css";
 
@@ -9,60 +9,88 @@ function fit(bounds, width, height) {
   return { zoom: Math.max(.00001, zoom), x: (bounds.minX + bounds.maxX + 1) / 2, z: (bounds.minZ + bounds.maxZ + 1) / 2 };
 }
 
-export function MapPreview({ worldId, initialSource, onClose }) {
-  const canvas = useRef(null), drag = useRef(null), request = useRef(0), currentRequest = useRef(""), currentView = useRef(null);
-  const [source, setSource] = useState(initialSource || ""), [selectedWorld, setSelectedWorld] = useState(worldId);
-  const [dimension, setDimension] = useState("overworld"), [map, setMap] = useState(null), [view, setView] = useState(null);
+export function MapPreview({ worldId, initialSource, projectId, worlds = [], onClose }) {
+  const canvas = useRef(null), drag = useRef(null), request = useRef(0), currentRequest = useRef(""), currentView = useRef({ zoom: 1, x: 0, z: 0 }), renderRef = useRef(null), viewInitialized = useRef(false), mapRef = useRef(null), loadedChunks = useRef(new Set()), mapUpdate = useRef(Promise.resolve()), loadTimer = useRef(null), pendingLoad = useRef(false);
+  const currentWorlds = worlds.filter(world => (world.profileId || world.projectId) === projectId && !world.deleted && !world.copying && !world.error && world.present && world.ready);
+  const [source, setSource] = useState(initialSource || ""), [selectedWorld, setSelectedWorld] = useState(worldId || "");
+  const [sourceRevision, setSourceRevision] = useState(0);
+  const [dimension, setDimension] = useState("overworld"), [map, setMap] = useState(null), [view, setView] = useState({ zoom: 1, x: 0, z: 0 });
   const [size, setSize] = useState([800, 400]), [selection, setSelection] = useState(null), [pointer, setPointer] = useState(null);
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [copied, setCopied] = useState(false), [progress,setProgress]=useState(null);
-  const [centerX,setCenterX]=useState("0"),[centerZ,setCenterZ]=useState("0");
-  const [maxChunks,setMaxChunks]=useState("2500");
   const [relief,setRelief]=useState(true),[grid,setGrid]=useState(false);
   currentView.current = view;
-  const render = async (nearView=false) => {
-    if(currentRequest.current)return;
+  const visibleBounds = () => {
+    const v = currentView.current, [width, height] = size, zoom = Math.max(.00001, v.zoom), margin = Math.max(64, Math.ceil(128 / zoom));
+    return { minX: Math.floor(v.x - width / (2 * zoom)) - margin, maxX: Math.ceil(v.x + width / (2 * zoom)) + margin, minZ: Math.floor(v.z - height / (2 * zoom)) - margin, maxZ: Math.ceil(v.z + height / (2 * zoom)) + margin };
+  };
+  const visibleChunks = bounds => {
+    const result = [], minX = Math.floor(bounds.minX / 16), maxX = Math.floor(bounds.maxX / 16), minZ = Math.floor(bounds.minZ / 16), maxZ = Math.floor(bounds.maxZ / 16);
+    if ((maxX - minX + 1) * (maxZ - minZ + 1) > 100000) return null;
+    for (let x = minX; x <= maxX; x++) for (let z = minZ; z <= maxZ; z++) if (!loadedChunks.current.has(x + "," + z)) result.push([x, z]);
+    return result;
+  };
+  const applyMap = async value => {
+    if (!value || value.requestId !== currentRequest.current) return;
+    const merged = new Map((mapRef.current?.tiles || []).map(tile => [tile.x + "," + tile.z, tile]));
+    const incoming = await Promise.all((value.tiles || []).map(async tile => { const image = new Image(); image.src = tile.image; await image.decode(); return { ...tile, image }; }));
+    for (const tile of incoming) {
+      const key = tile.x + "," + tile.z, old = merged.get(key);
+      if (!old) { merged.set(key, tile); continue; }
+      const c = document.createElement("canvas"); c.width = c.height = tile.size;
+      const g = c.getContext("2d"); g.drawImage(old.image, 0, 0); g.drawImage(tile.image, 0, 0); merged.set(key, { ...tile, image: c });
+    }
+    const tiles = [...merged.values()], bounds = tiles.length ? { minX: Math.min(...tiles.map(tile => tile.x)), maxX: Math.max(...tiles.map(tile => tile.x + tile.size - 1)), minZ: Math.min(...tiles.map(tile => tile.z)), maxZ: Math.max(...tiles.map(tile => tile.z + tile.size - 1)) } : null;
+    const next = { ...(mapRef.current || {}), ...value, bounds: value.chunkIds ? bounds : value.bounds || bounds, tiles };
+    for (const id of value.chunkIds || []) loadedChunks.current.add(id);
+    next.chunksRead = Math.max(value.chunksRead || 0, loadedChunks.current.size);
+    mapRef.current = next; setMap(next);
+    if (!viewInitialized.current && next.bounds && canvas.current && value.complete) { viewInitialized.current = true; setView(fit(next.bounds, ...size)); }
+  };
+  const queueMap = value => { mapUpdate.current = mapUpdate.current.then(() => applyMap(value)).catch(() => {}); return mapUpdate.current; };
+  const render = async () => {
+    if(currentRequest.current){pendingLoad.current=true;return;}
     if (!source && !selectedWorld) return setError("请选择地图来源");
-    if(![centerX,centerZ].every(v=>/^-?\d+$/.test(v)&&Math.abs(Number(v))<=30000000)) return setError("中心坐标应为有效整数");
-    if(!/^\d+$/.test(maxChunks)||Number(maxChunks)<128||Number(maxChunks)>10000) return setError("区块上限应为 128～10000");
-    const keepView=nearView&&currentView.current?{...currentView.current}:null;
-    const x=keepView?Math.round(keepView.x):Number(centerX),z=keepView?Math.round(keepView.z):Number(centerZ);
-    if(![x,z].every(v=>Math.abs(v)<=30000000))return setError("当前视野超出地图坐标范围");
-    if(keepView){setCenterX(String(x));setCenterZ(String(z));}
+    const bounds = visibleBounds(), x = Math.round(currentView.current.x), z = Math.round(currentView.current.z), chunks = visibleChunks(bounds);
+    if(![x,z,...Object.values(bounds)].every(v=>Math.abs(v)<=30000000))return setError("当前视野超出地图坐标范围");
+    if (chunks === null) return setError("当前视野过大，请放大后继续加载");
+    if (chunks && !chunks.length) return;
+    pendingLoad.current=false;
     const id = ++request.current, requestId=crypto.randomUUID();
     currentRequest.current=requestId;
-    setBusy(true); setProgress({stage:"准备地图"}); setError(""); setSelection(null); setPointer(null); setCopied(false);
+    setBusy(true); setProgress({stage:"准备地图"}); setError(""); setPointer(null); setCopied(false);
     try {
-      const result = await call("map-preview.render", { requestId,worldId: selectedWorld, source, dimension, centerX:x,centerZ:z,maxChunks:Number(maxChunks),relief });
+      const result = await call("map-preview.render", { requestId,worldId: selectedWorld, source, dimension, centerX:x,centerZ:z,bounds,chunks,relief });
       if(id!==request.current)return;
-      const tiles=await Promise.all(result.tiles.map(async tile=>{
-        const image=new Image(); image.src=tile.image; await image.decode();
-        return {...tile,image};
-      }));
-      if (id !== request.current) return;
-      setMap({...result,tiles,keepView});
+      if (!viewInitialized.current && result.bounds) { viewInitialized.current = true; setView(fit(result.bounds, ...size)); }
+      await queueMap({ ...result, requestId });
     } catch (e) { if (id === request.current && e.message!=="地图加载已取消") setError(e.message); }
-    finally { if (currentRequest.current === requestId) {setBusy(false);setProgress(null);currentRequest.current="";} }
+    finally { if (currentRequest.current === requestId) {setBusy(false);setProgress(null);currentRequest.current="";if(pendingLoad.current)setTimeout(render,0);} }
   };
+  renderRef.current = render;
   const cancel=async()=>{
     const id=currentRequest.current;if(!id)return;
     request.current++;setProgress({stage:"正在取消"});
     try{await call("map-preview.cancel",{requestId:id});}catch(e){setError(e.message);}
     finally{if(currentRequest.current===id){currentRequest.current="";setBusy(false);setProgress(null);}}
   };
-  useLayoutEffect(()=>{
-    if(!map) return;
-    if(map.keepView){setView(map.keepView);return;}
-    // 元数据出现后画布会变高/变矮，等 DOM 更新后再计算初始比例。
-    const rect=canvas.current.getBoundingClientRect(),initial=fit(map.bounds,rect.width,rect.height);
-    if(map.bounds && Math.max(map.bounds.maxX-map.bounds.minX,map.bounds.maxZ-map.bounds.minZ)>512) {
-      initial.zoom=Math.max(initial.zoom,1); initial.x=map.centerX; initial.z=map.centerZ;
-    }
-    setView(initial);
-  },[map]);
+  const scheduleLoad = () => {
+    if (loadTimer.current) clearTimeout(loadTimer.current);
+    loadTimer.current = setTimeout(() => { loadTimer.current = null; renderRef.current?.(); }, 120);
+  };
   useEffect(() => {
-    if (worldId || initialSource) render();
-    return () => { request.current++;if(currentRequest.current)call("map-preview.cancel",{requestId:currentRequest.current}).catch(()=>{}); };
-  }, []);
+    const off = window.toolkit.onMapPreview(queueMap);
+    let alive = true;
+    const previous = currentRequest.current;
+    request.current++;
+    currentRequest.current = "";
+    loadedChunks.current.clear(); mapRef.current = null; viewInitialized.current = false; setMap(null); setView({ zoom: 1, x: 0, z: 0 }); setBusy(false); setProgress(null);
+    const start = async () => {
+      if (previous) await call("map-preview.cancel", { requestId: previous }).catch(() => {});
+      if (alive && (worldId || initialSource || source || selectedWorld)) render();
+    };
+    start();
+    return () => { alive = false; off(); request.current++; if(loadTimer.current)clearTimeout(loadTimer.current); const id=currentRequest.current; currentRequest.current=""; if(id)call("map-preview.cancel",{requestId:id}).catch(()=>{}); };
+  }, [source, selectedWorld, dimension, sourceRevision]);
   useEffect(()=>{
     if(!busy)return;
     let alive=true,timer;const id=currentRequest.current;
@@ -84,6 +112,7 @@ export function MapPreview({ worldId, initialSource, onClose }) {
       const r = c.getBoundingClientRect(), dx = e.clientX - r.left - r.width / 2, dz = e.clientY - r.top - r.height / 2;
       const zoom = Math.max(.00001, Math.min(32, v.zoom * (e.deltaY < 0 ? 1.2 : 1 / 1.2)));
       setView({ zoom, x: v.x + dx / v.zoom - dx / zoom, z: v.z + dz / v.zoom - dz / zoom });
+      scheduleLoad();
     };
     c.addEventListener("wheel", wheel, { passive: false });
     return () => { observer.disconnect(); c.removeEventListener("wheel", wheel); };
@@ -126,21 +155,22 @@ export function MapPreview({ worldId, initialSource, onClose }) {
     return { x: Math.floor(v.x + (e.clientX - r.left - r.width / 2) / v.zoom), z: Math.floor(v.z + (e.clientY - r.top - r.height / 2) / v.zoom) };
   };
   const begin = e => {
-    if (!view || !map || e.button !== 0) return;
+    if (!view || e.button !== 0) return;
     drag.current = { screen: { x: e.clientX, y: e.clientY }, view: { ...view }, point: worldAt(e), select: e.shiftKey };
     canvas.current.setPointerCapture(e.pointerId); setCopied(false);
   };
   const move = e => {
-    if (!view || !map) return;
+    if (!view) return;
     const point = worldAt(e); setPointer(point);
     const d = drag.current; if (!d) return;
     if (d.select) setSelection({ minX: Math.min(d.point.x, point.x), maxX: Math.max(d.point.x, point.x), minZ: Math.min(d.point.z, point.z), maxZ: Math.max(d.point.z, point.z) });
     else setView({ ...d.view, x: d.view.x - (e.clientX - d.screen.x) / d.view.zoom, z: d.view.z - (e.clientY - d.screen.y) / d.view.zoom });
   };
-  const pick = async archive => {
+  const end = () => { drag.current = null; scheduleLoad(); };
+  const pick = async kind => {
     try {
-      const value = await call("map-preview.pick", { kind: archive ? "zip" : "folder" });
-      if (value) { setSource(value); setSelectedWorld(null); setMap(null); setView(null); setSelection(null); setError(""); setCopied(false); }
+      const value = await call("map-preview.pick", { kind });
+      if (value) { setSource(value); setSelectedWorld(""); setSourceRevision(v => v + 1); viewInitialized.current=false; mapRef.current=null; loadedChunks.current.clear(); setMap(null); setView({ zoom: 1, x: 0, z: 0 }); setSelection(null); setError(""); setCopied(false); }
     } catch (e) { setError(e.message); }
   };
   const copySelection = async () => {
@@ -150,28 +180,23 @@ export function MapPreview({ worldId, initialSource, onClose }) {
   return <Modal wide title="地图预览" description="只读俯视像素地图。拖动浏览；按住 Shift 拖动框选区域。北方朝上，东方朝右。" onClose={onClose} footer={<Button onClick={onClose}>关闭</Button>}>
     <div className="map-preview">
       <div className="map-preview-toolbar">
-        <Button disabled={busy} onClick={() => pick(false)}>选择文件夹</Button>
-        <Button disabled={busy} onClick={() => pick(true)}>选择 ZIP / MCWORLD</Button>
-        <Field label="维度"><Select value={dimension} disabled={busy} onChange={v => { setDimension(v); setMap(null); setView(null); setSelection(null); }} options={[{ value: "overworld", label: "主世界" }, { value: "nether", label: "下界" }, { value: "the_end", label: "末地" }]} /></Field>
-        <Button primary disabled={busy || (!source && !selectedWorld)} onClick={()=>render()}>{busy ? "正在读取…" : "重新生成预览"}</Button>
+        <Field label="选择当前存档"><Select value={selectedWorld} disabled={busy || !currentWorlds.length} onChange={value => { const world = currentWorlds.find(item => item.id === value); if (!world) return; setSelectedWorld(value); setSource(world.path); viewInitialized.current=false; mapRef.current=null; loadedChunks.current.clear(); setMap(null); setView({ zoom: 1, x: 0, z: 0 }); setSelection(null); setError(""); }} options={currentWorlds.map(world => ({ value: world.id, label: world.name }))} placeholder={currentWorlds.length ? "请选择存档" : "当前项目没有可用存档"} /></Field>
+        <Select aria-label="选择外部地图" value="" placeholder="选择外部地图" disabled={busy} onChange={pick} options={[{ value: "folder", label: "文件夹" }, { value: "archive", label: "ZIP / MCWORLD" }]} />
+        <Field label="维度"><Select value={dimension} disabled={busy} onChange={v => { setDimension(v); viewInitialized.current=false; mapRef.current=null; loadedChunks.current.clear(); setMap(null); setView({ zoom: 1, x: 0, z: 0 }); setSelection(null); }} options={[{ value: "overworld", label: "主世界" }, { value: "nether", label: "下界" }, { value: "the_end", label: "末地" }]} /></Field>
         {busy&&<Button onClick={cancel}>取消加载</Button>}
-        <Button disabled={busy||!map||!view} onClick={()=>render(true)}>加载当前视野附近</Button>
-        <Button disabled={!map?.bounds || busy} onClick={() => setView(fit(map.bounds, ...size))}>适应画布</Button>
-        <Button disabled={!map?.bounds||busy} onClick={()=>setView(v=>({...v,zoom:1}))}>1:1</Button>
+        <Button disabled={!map?.bounds || busy} onClick={() => { setView(fit(map.bounds, ...size)); scheduleLoad(); }}>适应画布</Button>
+        <Button disabled={!map?.bounds||busy} onClick={()=>{setView(v=>({...v,zoom:1}));scheduleLoad();}}>1:1</Button>
         <label><input type="checkbox" checked={grid} onChange={e=>setGrid(e.target.checked)} />区块网格</label>
       </div>
       <div className="map-preview-meta" role="status">
         <span className="map-preview-source" title={source}>{source || "请选择 Java 或基岩存档"}</span>
         {map && <span>{map.format === "java" ? "Java" : "基岩"} · {map.chunksRead} 个区块{map.truncated ? " · 已按预览上限截取" : ""}{map.skipped ? " · " + map.skipped + " 个区块无法解析" : ""} · 每方块 1 像素 · 内置地图配色</span>}
       </div>
-      <details className="map-preview-options"><summary>定位与显示</summary><div>
-        <Field label="中心 X"><input type="number" step="1" value={centerX} onChange={e=>setCenterX(e.target.value)} disabled={busy} /></Field>
-        <Field label="中心 Z"><input type="number" step="1" value={centerZ} onChange={e=>setCenterZ(e.target.value)} disabled={busy} /></Field>
-        <Field label="区块上限"><input type="number" min="128" max="10000" step="128" value={maxChunks} onChange={e=>setMaxChunks(e.target.value)} disabled={busy} /></Field>
-        <label><input type="checkbox" checked={relief} onChange={e=>setRelief(e.target.checked)} disabled={busy} />地形明暗与水深</label>
-        <small>默认 2500 区块，可选 128～10000。拖到空白区域后点“加载当前视野附近”，或修改中心坐标再生成。新区域加载成功后替换旧区域，不生成未探索的游戏地形。</small>
+      <details className="map-preview-options"><summary>显示选项</summary><div>
+        <label><input type="checkbox" checked={relief} onChange={e=>{setRelief(e.target.checked);loadedChunks.current.clear();setTimeout(()=>renderRef.current?.(),0);}} disabled={busy} />地形明暗与水深</label>
+        <small>进入预览后按当前视野异步加载已生成区块；拖动或缩放地图会继续加载附近区块，已显示内容会保留，不生成未探索的游戏地形。</small>
       </div></details>
-      <canvas ref={canvas} aria-label="地图画布" className="map-preview-canvas" onPointerDown={begin} onPointerMove={move} onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }} />
+      <canvas ref={canvas} aria-label="地图画布" className="map-preview-canvas" onPointerDown={begin} onPointerMove={move} onPointerUp={end} onPointerCancel={end} />
       <div className="map-preview-status">
         <span>{busy ? (progress?.stage||"准备地图")+(progress?.total?` ${progress.completed}/${progress.total}`:progress?.completed?` · 已检查 ${progress.completed} 条`:"") : map ? map.bounds ? "范围 X " + map.bounds.minX + "～" + map.bounds.maxX + "，Z " + map.bounds.minZ + "～" + map.bounds.maxZ : "该维度没有可预览的已生成区块" : "选择地图后生成预览"}</span>
         {view && <span>缩放 {view.zoom.toFixed(3)} px/格</span>}{pointer && <span>光标 X {pointer.x}，Z {pointer.z}</span>}

@@ -4,6 +4,7 @@ const fs = require("node:fs/promises"),
   path = require("node:path"),
   os = require("node:os"),
   assert = require("node:assert/strict");
+const { testResultsRoot } = require("./fixtures/artifacts.cjs");
 (async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgtr-"));
   let app, profilerPid;
@@ -100,8 +101,8 @@ const fs = require("node:fs/promises"),
         .waitFor();
       await page.waitForTimeout(1000);
       assert.equal((await nativeState(app, profilerPid)).visible, true);
-      await fs.mkdir("test-results", { recursive: true });
-      await page.screenshot({ path: "test-results/tracy-shell.png" });
+      await fs.mkdir(testResultsRoot, { recursive: true });
+      await page.screenshot({ path: path.join(testResultsRoot, "tracy-shell.png") });
       // OS window capture is separate; Chromium screenshots do not contain native windows.
       console.log(
         "NATIVE",

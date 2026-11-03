@@ -5,6 +5,7 @@ const fs = require("node:fs/promises"),
   assert = require("node:assert/strict");
 const { spawnSync } = require("node:child_process");
 const { WorkspaceStore } = require("../electron/services.cjs");
+const { testResultsRoot } = require("./fixtures/artifacts.cjs");
 (async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-profiles-ui-"));
   let app;
@@ -101,7 +102,7 @@ const { WorkspaceStore } = require("../electron/services.cjs");
             requestAnimationFrame(() => requestAnimationFrame(resolve)),
           ),
       );
-      await fs.mkdir("test-results", { recursive: true });
+      await fs.mkdir(testResultsRoot, { recursive: true });
       const shot = await app.evaluate(async ({ BrowserWindow }) =>
         (
           await BrowserWindow.getAllWindows()[0].webContents.capturePage(
@@ -146,12 +147,16 @@ const { WorkspaceStore } = require("../electron/services.cjs");
       .getByRole("dialog")
       .getByRole("button", { name: "确认重新读取", exact: true })
       .click();
-    await page.getByRole("dialog").waitFor({ state: "hidden" });
+    await page.waitForFunction(
+      () =>
+        document.querySelector('[aria-label="覆盖音乐音量"]')?.checked ===
+        false,
+    );
     assert.equal(
       await page.getByLabel("覆盖音乐音量", { exact: true }).isChecked(),
       false,
     );
-    await capture("test-results/game-options.png");
+    await capture(path.join(testResultsRoot, "game-options.png"));
     await nav("存档");
     assert.equal(await page.getByText("当前项目", { exact: true }).count(), 0);
     assert.equal(
@@ -216,7 +221,7 @@ const { WorkspaceStore } = require("../electron/services.cjs");
     await page
       .getByRole("article", { name: "模组 共享模组 A", exact: true })
       .waitFor();
-    await capture("test-results/global-mod-library.png");
+    await capture(path.join(testResultsRoot, "global-mod-library.png"));
     await nav("启动配置");
     await page.getByRole("button", { name: "新建配置", exact: true }).click();
     await page
@@ -286,7 +291,7 @@ const { WorkspaceStore } = require("../electron/services.cjs");
         (await window.toolkit.call("bootstrap")).settings.GamePath === value,
       globalGame,
     );
-    await capture("test-results/global-game-settings.png");
+    await capture(path.join(testResultsRoot, "global-game-settings.png"));
     await page.getByLabel("脚本热更新按键", { exact: true }).press("F6");
     await page.waitForFunction(
       () => !document.querySelector("fieldset.workspace-fieldset[disabled]"),
@@ -304,7 +309,7 @@ const { WorkspaceStore } = require("../electron/services.cjs");
         .isChecked(),
       true,
     );
-    await capture("test-results/reload-hotkeys.png");
+    await capture(path.join(testResultsRoot, "reload-hotkeys.png"));
     await nav("启动配置");
     await page
       .getByRole("article", { name: "启动配置 联机 B", exact: true })
@@ -340,7 +345,7 @@ const { WorkspaceStore } = require("../electron/services.cjs");
       false,
     );
     await page.getByLabel("搜索模组", { exact: true }).fill("");
-    await capture("test-results/profile-mod-selection.png");
+    await capture(path.join(testResultsRoot, "profile-mod-selection.png"));
     await page.getByRole("button", { name: "保存配置", exact: true }).click();
     await page.getByText("已保存", { exact: false }).first().waitFor();
     await page
@@ -541,7 +546,7 @@ const { WorkspaceStore } = require("../electron/services.cjs");
       assert.match(after, /^[A-Za-z]+$/);
       assert.notEqual(after, before);
       await dialog.getByLabel("玩家名字", { exact: true }).fill(label);
-      await capture("test-results/blank-client.png", true);
+      await capture(path.join(testResultsRoot, "blank-client.png"), true);
       await dialog
         .getByRole("button", { name: "启动客户端", exact: true })
         .click();
@@ -715,7 +720,7 @@ const { WorkspaceStore } = require("../electron/services.cjs");
       .locator(".log-text")
       .filter({ hasText: "MENU_READY ClientC" })
       .waitFor();
-    await capture("test-results/log-session-cards.png");
+    await capture(path.join(testResultsRoot, "log-session-cards.png"));
     const configB = await page.evaluate(async () => {
       const ps = await window.toolkit.call("profiles.list");
       return window.toolkit.call("project.read", {
@@ -842,7 +847,7 @@ const { WorkspaceStore } = require("../electron/services.cjs");
           requestAnimationFrame(() => requestAnimationFrame(resolve)),
         ),
     );
-    await fs.mkdir("test-results", { recursive: true });
+    await fs.mkdir(testResultsRoot, { recursive: true });
     const shot = await app.evaluate(async ({ BrowserWindow }) =>
       (
         await BrowserWindow.getAllWindows()[0].webContents.capturePage(
@@ -854,7 +859,7 @@ const { WorkspaceStore } = require("../electron/services.cjs");
         .toString("base64"),
     );
     await fs.writeFile(
-      "test-results/profiles-world-home.png",
+      path.join(testResultsRoot, "profiles-world-home.png"),
       Buffer.from(shot, "base64"),
     );
     // Cancel is non-destructive; confirmed removal deletes only the copy.
@@ -967,7 +972,7 @@ const { WorkspaceStore } = require("../electron/services.cjs");
         .toString("base64"),
     );
     await fs.writeFile(
-      "test-results/launch-profiles.png",
+      path.join(testResultsRoot, "launch-profiles.png"),
       Buffer.from(configShot, "base64"),
     );
     assert.deepEqual(errors, []);

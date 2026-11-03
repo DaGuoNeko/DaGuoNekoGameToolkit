@@ -109,7 +109,7 @@ export function ReloadActions({ context, ready }) {
       clearTimeout(timer);
     };
   }, [contextKey, ready]);
-  async function run(action, target = context) {
+  async function run(action, target = context, token = confirm?.token) {
     const key = JSON.stringify(target);
     setPending(true);
     setMessage("");
@@ -119,7 +119,7 @@ export function ReloadActions({ context, ready }) {
         action === "restart"
           ? await debugApi("debug.restartLatest", {
               ...target,
-              token: confirm.token,
+              token,
               confirmed: saved,
             })
           : await debugApi("debug.reload", {
@@ -260,7 +260,11 @@ export function ReloadActions({ context, ready }) {
                 disabled={
                   pending || (confirm.action === "restart" ? !saved : !ready)
                 }
-                onClick={() => run(confirm.action, confirm.target)}
+                onClick={() => {
+                  const action = confirm;
+                  setConfirm(null);
+                  run(action.action, action.target, action.token);
+                }}
               >
                 {confirm.action === "restart" ? "确认重启" : "确认重载"}
               </Button>

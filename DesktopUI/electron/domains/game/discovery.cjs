@@ -4,6 +4,20 @@ const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
 const exec = promisify(execFile);
 
+function discoveryRoots(root) {
+  const normalized = path.resolve(root),
+    name = path.basename(normalized).toLowerCase();
+  if (name === "mcstudiodownload")
+    return [path.join(normalized, "game", "MinecraftPE_Netease")];
+  if (name === "mcstudio")
+    return [
+      path.join(normalized, "MCStudioDownload", "game", "MinecraftPE_Netease"),
+    ];
+  if (name === "game")
+    return [path.join(normalized, "MinecraftPE_Netease")];
+  return [normalized];
+}
+
 // Same installation layout as MCDK v1.6.1 game_discovery.cpp, across all drives.
 async function discoverGames({ roots, known = [] } = {}) {
   if (!roots) {
@@ -49,7 +63,7 @@ async function discoverGames({ roots, known = [] } = {}) {
   for (const file of known) await add(file);
   const searchRoots = [
     ...new Set([
-      ...roots,
+      ...roots.flatMap(discoveryRoots),
       ...known.map((file) => path.dirname(path.dirname(file))),
     ]),
   ];

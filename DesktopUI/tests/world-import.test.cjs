@@ -49,6 +49,52 @@ test("world status remains readable while an import is copying", async (t) => {
   assert.equal(snapshot.worlds.length,1);assert(!snapshot.worlds[0].copying);
 });
 
+test("independent background imports can copy at the same time", async (t) => {
+  const { root, worlds, id } = await setup(t);
+  const first = path.join(root, "first"), second = path.join(root, "second");
+  for (const source of [first, second]) {
+    await fs.mkdir(path.join(source, "db"), { recursive: true });
+    await fs.writeFile(path.join(source, "level.dat"), levelData(source));
+    await fs.writeFile(path.join(source, "db", "value"), source);
+  }
+  let entered = 0, release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const copy = fs.cp.bind(fs);
+  t.mock.method(fs, "cp", async (...args) => {
+    entered++;
+    if (entered === 1) await gate;
+    return copy(...args);
+  });
+  const one = worlds.importWorld(id, "one", first, "copy", undefined, { parallel: true });
+  while (entered < 1) await new Promise(resolve => setTimeout(resolve, 5));
+  const two = worlds.importWorld(id, "two", second, "copy", undefined, { parallel: true });
+  const deadline = Date.now() + 1000;
+  while (entered < 2 && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 5));
+  assert.equal(entered, 2);
+  assert.equal((await worlds.list()).worlds.filter(world => world.copying).length, 2);
+  release();
+  await Promise.all([one, two]);
+  assert.equal((await worlds.list()).worlds.filter(world => world.copying).length, 0);
+});
+
+test("background linked imports keep direct sources and run outside the index queue", async (t) => {
+  const { root, worlds, id } = await setup(t);
+  const first = path.join(root, "linked-first"), second = path.join(root, "linked-second");
+  for (const source of [first, second]) {
+    await fs.mkdir(source, { recursive: true });
+    await fs.writeFile(path.join(source, "level.dat"), levelData(source));
+  }
+  const results = await Promise.all([
+    worlds.importWorld(id, "first", first, "linked", undefined, { parallel: true }),
+    worlds.importWorld(id, "second", second, "linked", undefined, { parallel: true }),
+  ]);
+  assert.equal(results.length, 2);
+  const listed = (await worlds.list()).worlds;
+  assert.deepEqual(new Set(listed.map(world => world.path)), new Set([first, second]));
+  await worlds.checkLaunch(id, { world_folder_name: folderFor(results[0].id) });
+  assert.equal((await fs.lstat(worlds.location(results[0].id))).isSymbolicLink(), true);
+});
+
 test("linked directories use the same files on both sides and recycle/purge never delete the source", async (t) => {
   const { root, store, worlds, id } = await setup(t);
   const source = path.join(root, "编辑中的地图");

@@ -4,6 +4,7 @@ const fs = require("node:fs/promises"),
   path = require("node:path"),
   os = require("node:os"),
   assert = require("node:assert/strict");
+const { testResultsRoot } = require("./fixtures/artifacts.cjs");
 (async () => {
   if (!process.env.DGN_GAME_TEST_EXE)
     throw Error("DGN_GAME_TEST_EXE is required");
@@ -98,7 +99,7 @@ const fs = require("node:fs/promises"),
       .click();
     await page
       .getByText(
-        "请先在“设置 → 全局游戏程序”选择开发版 Minecraft.Windows.exe，再粘贴邀请加入",
+        "请先在“设置 → 默认游戏程序”选择开发版 Minecraft.Windows.exe，再粘贴邀请加入",
         { exact: true },
       )
       .waitFor();
@@ -166,9 +167,9 @@ const fs = require("node:fs/promises"),
     await page.getByLabel("完整邀请文本").waitFor();
     assert.equal(await page.getByLabel("完整邀请文本").inputValue(), "");
     assert.equal(await page.getByLabel("联机玩家名").inputValue(), "");
-    await fs.mkdir("test-results", { recursive: true });
+    await fs.mkdir(testResultsRoot, { recursive: true });
     await fs.writeFile(
-      "test-results/rooms-package-ui.json",
+      path.join(testResultsRoot, "rooms-package-ui.json"),
       JSON.stringify(
         {
           ok: true,

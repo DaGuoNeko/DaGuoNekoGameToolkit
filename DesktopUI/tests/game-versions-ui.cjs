@@ -5,6 +5,7 @@ const fs = require("node:fs/promises"),
   assert = require("node:assert/strict");
 const { WorkspaceStore } = require("../electron/services.cjs");
 const { profilesForDiscovery } = require("../electron/domains/client/engine-profiles.cjs");
+const { testResultsRoot } = require("./fixtures/artifacts.cjs");
 (async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-versions-ui-"));
   let app;
@@ -60,16 +61,16 @@ const { profilesForDiscovery } = require("../electron/domains/client/engine-prof
       ]);
     }
     await page
-      .getByRole("combobox", { name: "游戏版本用途", exact: true })
+      .getByRole("combobox", { name: "版本筛选", exact: true })
       .click();
     await page
       .getByRole("option", {
-        name: "手动启动 · 显示所有已发现版本",
+        name: "普通启动：显示全部版本",
         exact: true,
       })
       .click();
     await page
-      .getByRole("combobox", { name: "已发现的游戏版本", exact: true })
+      .getByRole("combobox", { name: "发现结果", exact: true })
       .click();
     await page
       .getByRole("option", { name: /^3\.10\.0\.420447 · 未验证/ })
@@ -81,15 +82,15 @@ const { profilesForDiscovery } = require("../electron/domains/client/engine-prof
         ),
       games[1],
     );
-    assert.match(await page.getByText(/^当前程序：/).innerText(), /未验证构建/);
+    assert.match(await page.getByText(/^当前选择：/).innerText(), /未验证构建/);
     const unsupported = await page.evaluate(
       (p) => window.toolkit.call("games.inspect", { path: p }),
       games[1],
     );
     assert.equal(unsupported.profile, null);
     assert.equal(unsupported.version, null);
-    await fs.mkdir("test-results", { recursive: true });
-    await page.screenshot({ path: "test-results/game-versions.png" });
+    await fs.mkdir(testResultsRoot, { recursive: true });
+    await page.screenshot({ path: path.join(testResultsRoot, "game-versions.png") });
     await page
       .locator(".sidebar")
       .getByRole("button", { name: "存档", exact: true })
@@ -100,7 +101,7 @@ const { profilesForDiscovery } = require("../electron/domains/client/engine-prof
       .click();
     assert.equal(
       await page
-        .getByRole("textbox", { name: "全局游戏程序", exact: true })
+        .getByRole("textbox", { name: "游戏程序", exact: true })
         .inputValue(),
       games[1],
     );

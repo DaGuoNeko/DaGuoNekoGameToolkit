@@ -5,6 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const assert = require("node:assert/strict");
 
+const { testResultsRoot } = require("./fixtures/artifacts.cjs");
 (async () => {
   const executablePath = process.env.DGN_GAME_TEST_EXE;
   assert(
@@ -62,9 +63,9 @@ const assert = require("node:assert/strict");
     const state = await page.evaluate(() =>
       window.toolkit.call("update.check"),
     );
-    await fs.mkdir("test-results", { recursive: true });
+    await fs.mkdir(testResultsRoot, { recursive: true });
     await fs.writeFile(
-      "test-results/update-live-result.json",
+      path.join(testResultsRoot, "update-live-result.json"),
       JSON.stringify(
         {
           currentVersion: state.currentVersion,
@@ -83,7 +84,7 @@ const assert = require("node:assert/strict");
       await page
         .getByRole("heading", { name: "发现新版本", exact: true })
         .waitFor();
-      await capture("test-results/update-live-popup.png");
+      await capture(path.join(testResultsRoot, "update-live-popup.png"));
       await page
         .getByRole("button", { name: "去设置下载", exact: true })
         .click();
@@ -103,7 +104,7 @@ const assert = require("node:assert/strict");
           .closest("section")
           .scrollIntoView({ block: "start", behavior: "instant" }),
       );
-    await capture("test-results/update-live-history.png");
+    await capture(path.join(testResultsRoot, "update-live-history.png"));
     assert(
       ["available", "up-to-date"].includes(state.phase),
       state.error || state.phase,

@@ -6,6 +6,7 @@ const fs = require("node:fs/promises"),
 const { WorkspaceStore } = require("../electron/services.cjs");
 const { spawnSync } = require("node:child_process");
 const { randomUUID } = require("node:crypto");
+const { testResultsRoot } = require("./fixtures/artifacts.cjs");
 (async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-game-ui-"));
   const project = path.join(root, "游戏项目");
@@ -187,8 +188,8 @@ const { randomUUID } = require("node:crypto");
       await fs.readFile(path.join(root, "export.log"), "utf8"),
       /NATIVE_CONTENT/,
     );
-    await fs.mkdir("test-results", { recursive: true });
-    await page.screenshot({ path: "test-results/game-debug-logs.png" });
+    await fs.mkdir(testResultsRoot, { recursive: true });
+    await page.screenshot({ path: path.join(testResultsRoot, "game-debug-logs.png") });
     await page
       .getByRole("button", { name: "收起日志设置", exact: true })
       .click();
@@ -258,7 +259,7 @@ const { randomUUID } = require("node:crypto");
         .evaluate((el) => getComputedStyle(el).backgroundColor),
       "rgb(18, 19, 20)",
     );
-    await fs.mkdir("test-results", { recursive: true });
+    await fs.mkdir(testResultsRoot, { recursive: true });
     await page.waitForFunction(
       () => !document.documentElement.dataset.pageAnimating,
     );
@@ -274,7 +275,7 @@ const { randomUUID } = require("node:crypto");
         .toString("base64"),
     );
     await fs.writeFile(
-      "test-results/log-colors.png",
+      path.join(testResultsRoot, "log-colors.png"),
       Buffer.from(colorScreenshot, "base64"),
     );
     assert.equal(
@@ -329,7 +330,7 @@ const { randomUUID } = require("node:crypto");
         .toString("base64"),
     );
     await fs.writeFile(
-      "test-results/log-settings.png",
+      path.join(testResultsRoot, "log-settings.png"),
       Buffer.from(settingsScreenshot, "base64"),
     );
     await page
@@ -611,7 +612,7 @@ const { randomUUID } = require("node:crypto");
         .toString("base64"),
     );
     await fs.writeFile(
-      "test-results/log-delete-confirm.png",
+      path.join(testResultsRoot, "log-delete-confirm.png"),
       Buffer.from(cleanupScreenshot, "base64"),
     );
     await page
@@ -680,7 +681,7 @@ const { randomUUID } = require("node:crypto");
       2,
     );
     await nav("存档");
-    await fs.mkdir("test-results", { recursive: true });
+    await fs.mkdir(testResultsRoot, { recursive: true });
     const screenshot = await app.evaluate(async ({ BrowserWindow }) =>
       (
         await BrowserWindow.getAllWindows()[0].webContents.capturePage(
@@ -692,7 +693,7 @@ const { randomUUID } = require("node:crypto");
         .toString("base64"),
     );
     await fs.writeFile(
-      "test-results/launcher.png",
+      path.join(testResultsRoot, "launcher.png"),
       Buffer.from(screenshot, "base64"),
     );
     assert.deepEqual(errors, []);

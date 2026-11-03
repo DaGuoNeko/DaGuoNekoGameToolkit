@@ -7,6 +7,7 @@ const { spawnSync } = require("node:child_process");
 const { WorkspaceStore } = require("../electron/services.cjs");
 const { Profiles } = require("../electron/domains/profiles/profiles.cjs");
 const { zip, levelData } = require("./fixtures/zip.cjs");
+const { testResultsRoot } = require("./fixtures/artifacts.cjs");
 (async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-import-ui-"));
   let app;
@@ -179,7 +180,7 @@ const { zip, levelData } = require("./fixtures/zip.cjs");
       (id) => window.toolkit.call("project.read", { id }),
       initial.project.id,
     );
-    await fs.mkdir("test-results", { recursive: true });
+    await fs.mkdir(testResultsRoot, { recursive: true });
     await page.evaluate(
       () =>
         new Promise((resolve) =>
@@ -197,7 +198,7 @@ const { zip, levelData } = require("./fixtures/zip.cjs");
         .toString("base64"),
     );
     await fs.writeFile(
-      "test-results/world-import-auto.png",
+      path.join(testResultsRoot, "world-import-auto.png"),
       Buffer.from(importShot, "base64"),
     );
     await page
@@ -249,7 +250,10 @@ const { zip, levelData } = require("./fixtures/zip.cjs");
     await page.getByText(/原目录、游戏进度和模组文件保留/).waitFor();
     await page.getByRole("button", { name: "移入回收站", exact: true }).click();
     await page.getByRole("dialog").waitFor({ state: "hidden" });
-    assert(!(await page.evaluate(() => window.toolkit.call("profiles.list"))).some(p => p.id === linked.profileId));
+    await page.waitForFunction(async (id) => {
+      const list = await window.toolkit.call("profiles.list");
+      return !list.some((p) => p.id === id);
+    }, linked.profileId);
     await nav("启动配置");
     await page.getByText("外部世界（自动匹配）", { exact: true }).waitFor({state:"hidden"});
     await nav("存档");
@@ -424,7 +428,7 @@ const { zip, levelData } = require("./fixtures/zip.cjs");
       ["zip", "mcworld"],
     );
     await fs.rename(archive, archive + ".kept");
-    await fs.mkdir("test-results", { recursive: true });
+    await fs.mkdir(testResultsRoot, { recursive: true });
     await page.evaluate(
       () =>
         new Promise((resolve) =>
@@ -442,7 +446,7 @@ const { zip, levelData } = require("./fixtures/zip.cjs");
         .toString("base64"),
     );
     await fs.writeFile(
-      "test-results/world-import.png",
+      path.join(testResultsRoot, "world-import.png"),
       Buffer.from(shot, "base64"),
     );
     assert.deepEqual(errors, []);

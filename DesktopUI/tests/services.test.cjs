@@ -283,6 +283,22 @@ test("discovery scans version directories, sorts numerically and deduplicates kn
   assert.deepEqual(result.warnings, []);
 });
 
+test("discovery expands an MCStudioDownload directory to its fixed game layout", async (t) => {
+  const { root } = await setup(t);
+  const selected = path.join(root, "MCStudioDownload"),
+    gameRoot = path.join(
+      selected,
+      "game",
+      "MinecraftPE_Netease",
+      "3.10.0.436581",
+    );
+  await fs.mkdir(gameRoot, { recursive: true });
+  await fs.writeFile(path.join(gameRoot, "Minecraft.Windows.exe"), "fixture");
+  const result = await discoverGames({ roots: [selected] });
+  assert.deepEqual(result.games.map((game) => game.version), ["3.10.0.436581"]);
+  assert.deepEqual(result.warnings, []);
+});
+
 test("renderer reconciles overlapping snapshots and batches without stale session or cleared log resurrection", () => {
   const entry = (id) => ({ id, text: "line " + id });
   let current = mergeRuntime(null, {

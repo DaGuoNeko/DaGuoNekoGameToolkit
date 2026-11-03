@@ -6,6 +6,7 @@ const fs = require("node:fs/promises"),
   crypto = require("node:crypto");
 const { WorkspaceStore } = require("../electron/services.cjs");
 const { SessionHistory } = require("../electron/domains/game/history.cjs");
+const { testResultsRoot } = require("./fixtures/artifacts.cjs");
 (async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-log-search-ui-"));
   let app;
@@ -137,8 +138,8 @@ const { SessionHistory } = require("../electron/domains/game/history.cjs");
       ["×2", "×2", "×6"],
     );
     assert.match(await page.locator(".logs-count").textContent(), /共 10 次/);
-    await fs.mkdir("test-results", { recursive: true });
-    await capture("test-results/important-logs-default.png");
+    await fs.mkdir(testResultsRoot, { recursive: true });
+    await capture(path.join(testResultsRoot, "important-logs-default.png"));
     await page.getByRole("combobox", { name: "日志会话", exact: true }).click();
     await page.getByRole("option", { name: /内容错误复现/ }).click();
     await page
@@ -192,8 +193,8 @@ const { SessionHistory } = require("../electron/domains/game/history.cjs");
         document.querySelector(".log-text mark")?.textContent ===
           "input_air_controlled",
     );
-    await fs.mkdir("test-results", { recursive: true });
-    await capture("test-results/log-search-screenshot-error.png");
+    await fs.mkdir(testResultsRoot, { recursive: true });
+    await capture(path.join(testResultsRoot, "log-search-screenshot-error.png"));
     await input.fill("a.*[b]");
     await page.waitForFunction(
       () =>

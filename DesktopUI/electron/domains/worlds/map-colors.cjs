@@ -106,7 +106,7 @@ function tileImages(cells) {
     const x = Math.floor(c.x / size) * size, z = Math.floor(c.z / size) * size, key = x + "," + z;
     let tile = tiles.get(key);
     if (!tile) {
-      if(tiles.size>=4096)throw Error("地图分布过于分散，图片缓存超过 256 MiB 预算，请降低区块上限");
+      if(tiles.size>=4096)throw Error("地图分布过于分散，图片缓存超过 256 MiB 预算，请缩小视野或降低缩放");
       tile = { x, z, bytes:Buffer.alloc((size * 4 + 1) * size) }; tiles.set(key, tile);
     }
     const at = (c.z - z) * (size * 4 + 1) + 1 + (c.x - x) * 4;

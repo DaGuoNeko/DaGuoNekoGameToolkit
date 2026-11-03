@@ -151,6 +151,11 @@ function fixture() {
   return { router, workers, bridges, calls };
 }
 const json = (value) => JSON.parse(value.content[0].text);
+test("MCP accepts int32 custom dimension IDs such as 818555435", () => {
+  const { validate } = require("../electron/domains/automation/automation-tools.cjs");
+  validate("probe_dimension_runtime", { sessionId: "client1", generation: 1, instanceId: "instance", requestId: "dimension", confirmed: true, dimension: 818555435 });
+  assert.throws(() => validate("probe_dimension_runtime", { sessionId: "client1", generation: 1, instanceId: "instance", requestId: "dimension-overflow", confirmed: true, dimension: 2147483648 }));
+});
 test("asset preflight report mode requires explicit confirmation and retains its findings", async () => {
   const {router,calls}=fixture();
   router.worlds.validateAssets=async()=>({ok:false,digest:"fixture-digest",errors:[{type:"fixture_warning"}]});
@@ -170,6 +175,9 @@ test("MCP reports isolated engine versions and the actual running compatibility 
     "3.10.0.436581",
     "3.10.0.448891",
   ]);
+  assert.equal(status.capabilities.terrainAutomation.buildHeightProbe, "isolated_only");
+  const largeDimension = await router.call("toolbox_status", {});
+  assert.equal(JSON.parse(largeDimension.content[0].text).online, true);
   workers[0].session.storageMode = "shared";
   workers[0].session.isolationReason = "当前游戏程序尚未适配独立主机";
   const clients = json(await router.call("list_clients", {})).clients;
@@ -518,7 +526,7 @@ test("authenticated loopback bridge + real SDK stdio client supports offline too
   ).localMultiplayer;
   assert.equal(guidance.scope, "local_host_and_clients");
   assert.ok(guidance.steps.includes("launch_joined_client"));
-  assert.equal((await client.listTools()).tools.length, 33);
+  assert.equal((await client.listTools()).tools.length, 42);
   assert.equal(
     json(await client.callTool({ name: "toolbox_status", arguments: {} }))
       .online,
@@ -539,7 +547,7 @@ test("authenticated loopback bridge + real SDK stdio client supports offline too
       .online,
     false,
   );
-  assert.equal((await client.listTools()).tools.length, 33);
+  assert.equal((await client.listTools()).tools.length, 42);
 });
 test("MCDK proxy performs real HTTP initialize/list/call and preserves image content", async (t) => {
   const http = require("node:http");

@@ -11,6 +11,7 @@ const {
   localMultiplayer,
 } = require("./automation-tools.cjs");
 const { withMcdk } = require("./mcp-endpoint.cjs");
+const { dimensionProbeCode, buildHeightProbeCode } = require("../worlds/terrain-runtime.cjs");
 const { sharedSources } = require("../../../shared/source-sharing.cjs");
 const { isolatedGameVersions } = require("../../host-isolation-support.cjs");
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -38,6 +39,7 @@ class AutomationRouter {
     onDataChanged,
     inspectWindow: windowProbe = inspectWindow,
     captureWindow,
+    architecture,
     proxy = withMcdk,
   }) {
     Object.assign(this, {
@@ -53,6 +55,7 @@ class AutomationRouter {
       onDataChanged,
       inspectWindow: windowProbe,
       captureWindow,
+      architecture,
       proxy,
     });
     this.instanceId = crypto.randomUUID();
@@ -256,6 +259,16 @@ class AutomationRouter {
     state.observedAt = new Date().toISOString();
     return state;
   }
+  async runtimeDimensionProbe(args, buildHeight = false) {
+    const worker = this.worker(args.sessionId);
+    const ready = await this.readiness(args);
+    if (!ready.playerId) throw Error("PLAYER_UNAVAILABLE：请先进入目标存档");
+    const b = this.bridge(worker, args.generation, true);
+    const code = buildHeight
+      ? buildHeightProbeCode(ready.playerId, args.dimension, args.candidateY)
+      : dimensionProbeCode(ready.playerId, args.dimension ?? null, args.candidateY || []);
+    return result(await this.debug.code(b.id, b.connectionGeneration, code, false, () => this.guard(worker, b.connectionGeneration, b.stateSequence, b.minecraftPid)));
+  }
   async capture(args) {
     const worker = this.worker(args.sessionId);
     const b = { ...this.bridge(worker, args.generation) }, before = await this.window(worker, b);
@@ -333,6 +346,12 @@ class AutomationRouter {
             gameVersions: profilesForDiscovery(),
             autoJoinTransport: this.joiner ? "oreui" : null,
             autoJoinAssertionPolicy: this.joiner ? "pause_preserve" : null,
+            terrainAutomation: {
+              dimensionRuntimeProbe: true,
+              buildHeightProbe: "isolated_only",
+              architectureImport: !!this.architecture,
+              externalDataRoot: !!this.architecture,
+            },
           },
         });
       case "list_clients":
@@ -406,6 +425,8 @@ class AutomationRouter {
         return result(await this.worlds.inspectSource(args.source));
       case "validate_world_assets":
         return result(await this.worlds.validateAssets(args.worldId));
+      case "inspect_world_packs":
+        return result(await this.worlds.inspectPackHealth(args.worldId));
       case "list_worlds": {
         const value = await this.worlds.list();
         return result({
@@ -594,6 +615,32 @@ class AutomationRouter {
         return this.capture(args);
       case "capture_scene":
         return this.once(name, args, () => captureScene(this, args));
+      case "probe_dimension_runtime":
+        return this.once(name, args, () => this.runtimeDimensionProbe(args, false));
+      case "probe_build_height": {
+        const worker = this.worker(args.sessionId);
+        if (worker.session.storageMode !== "isolated") throw Error("HEIGHT_PROBE_REQUIRES_ISOLATED_SESSION");
+        return this.once(name, args, () => this.runtimeDimensionProbe(args, true));
+      }
+      case "terrain_prepare":
+        return this.once(name, args, async () => result(await this.architecture.call("prepare", args)));
+      case "terrain_capture_source":
+        return this.once(name, args, async () => result(await this.architecture.call("sourceSave", args)));
+      case "terrain_preview":
+        return this.once(name, args, async () => result(await this.architecture.call("preview", args)));
+      case "terrain_apply":
+        return this.once(name, args, async () => result(await this.architecture.call("targetPaste", args)));
+      case "terrain_rollback":
+        return this.once(name, args, async () => result(await this.architecture.call("revoke", args)));
+      case "terrain_status": {
+        let state = await this.architecture.state();
+        if (!state && args.externalDataRoot) {
+          await this.architecture.openExternal(args.taskId, args.externalDataRoot);
+          state = await this.architecture.state();
+        }
+        if (!state || state.id !== args.taskId) throw Error("地形任务不存在或已变化");
+        return result(state);
+      }
       default:
         throw Error("此操作由 stdio 桥接器处理");
     }

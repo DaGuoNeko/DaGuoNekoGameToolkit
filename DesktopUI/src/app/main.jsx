@@ -36,6 +36,7 @@ import { UpdatePanel } from "../features/settings/update-panel.jsx";
 import { TracyPage } from "../features/performance/tracy-profiler.jsx";
 import { RoomsPage } from "../features/rooms/rooms.jsx";
 import { SettingsWorkspace, SettingsGroup } from "../features/settings/settings-workspace.jsx";
+import { ActivityPage } from "../features/activity/activity-page.jsx";
 
 import "./styles.css";
 import "./launcher.css";
@@ -48,6 +49,7 @@ const nav = [
   { id: "game-options", label: "游戏设置", icon: "gamepad" },
   { id: "mods", label: "模组库", icon: "cube" },
   { id: "logs", label: "运行日志", icon: "terminal" },
+  { id: "activity", label: "项目日志", icon: "activity" },
   { id: "debug", label: "游戏调试", icon: "bug" },
   { id: "ui-debug", label: "UI 调试器", icon: "inspect" },
   { id: "tracy", label: "Tracy 性能", icon: "activity" },
@@ -61,7 +63,7 @@ const navGroups = [
     label: "工作台",
     items: ["launch", "rooms", "config", "mods"],
   },
-  { id: "observe", label: "观察", items: ["logs"] },
+  { id: "observe", label: "观察", items: ["logs", "activity"] },
   {
     id: "develop",
     label: "开发",
@@ -206,6 +208,9 @@ function App() {
         if (latest.snapshot === current.snapshot && latest.raw === current.raw && latest.form === current.form) applySnapshot(value);
       }).catch(report);
     });
+    const offActivity = window.toolkit.onActivity(() => {
+      api("profiles.list").then(setProjects).catch(report);
+    });
     const offState = window.toolkit.onSession(receive);
     const offLog = window.toolkit.onLogs(receive);
     const offUpdate = window.toolkit.onUpdate((value) => {
@@ -245,6 +250,7 @@ function App() {
       clearInterval(updateTimer);
       offTheme();
       offAutomation();
+      offActivity();
       offState();
       offLog();
       offUpdate();
@@ -263,6 +269,18 @@ function App() {
     const timer = setTimeout(() => setNotice(""), 4500);
     return () => clearTimeout(timer);
   }, [notice]);
+  useEffect(() => {
+    if (page !== "config") return;
+    let active = true;
+    api("profiles.list")
+      .then((list) => {
+        if (active) setProjects(list);
+      })
+      .catch(report);
+    return () => {
+      active = false;
+    };
+  }, [page]);
   async function saveSettings(patch) {
     const value = await api("settings.update", patch);
     setSettings(value);
@@ -457,6 +475,10 @@ function App() {
     );
   const title = nav.find((item) => item.id === page).label;
   const runningSessions = runtimeState.sessions?.filter((item) => item.running).length || 0;
+  const activityPending = runtimeState.starting || runtimeState.stopping;
+  const activityLabel = runtimeState.starting ? "正在启动…"
+    : runtimeState.stopping ? "正在停止…"
+      : runningSessions ? `${runningSessions} 个会话运行中` : "就绪";
   return (
     <div
       className={`app ${settings.SidebarCollapsed ? "collapsed" : ""} ${settings.BgImagePath ? "has-background" : ""}`}
@@ -517,9 +539,9 @@ function App() {
         </nav>
         <div className="sidebar-bottom">
           {!settings.SidebarCollapsed && (
-            <div className={`session-note ${active ? "is-active" : ""}`}>
-              <span className="status-dot" />
-              <span>{active ? `${runningSessions || 1} 个游戏会话运行中` : "工具箱已就绪"}</span>
+            <div className="session-note" data-state={activityPending ? "pending" : "ready"}>
+              <span className="status-dot" aria-hidden="true" />
+              <span>{activityLabel === "就绪" ? "工具箱已就绪" : activityLabel}</span>
             </div>
           )}
         </div>
@@ -530,9 +552,9 @@ function App() {
             <span className="eyebrow">大果喵游戏工具箱</span>
             <span className="breadcrumb"><strong>{title}</strong></span>
           </div>
-          <div className="app-bar-status" aria-live="polite">
-            <span className={`status-dot ${active ? "is-active" : ""}`} />
-            <span>{active ? `${runningSessions || 1} 个会话运行中` : "就绪"}</span>
+          <div className="app-bar-status" data-state={activityPending ? "pending" : "ready"} aria-live="polite">
+            <span className="status-dot" aria-hidden="true" />
+            <span>{activityLabel}</span>
           </div>
         </header>
         <main
@@ -558,6 +580,7 @@ function App() {
             )}
             {page === "launch" && (
               <WorldHome
+                projectId={snapshot?.project.id}
                 profiles={projects}
                 runtimeState={runtimeState}
                 busy={!!busy || runtimeState.starting}
@@ -652,6 +675,7 @@ function App() {
                 report={report}
               />
             )}
+            {page === "activity" && <ActivityPage projects={projects} />}
             {page === "mods" && <ModLibraryPage onRemoved={removedMod} />}
             {page === "debug" && (
               <DebugPage
@@ -673,12 +697,13 @@ function App() {
                 <SettingsWorkspace>
                 <SettingsGroup id="game">
                 <Section
-                  title="全局游戏程序"
-                  description="新建启动配置默认使用这里的程序；已有配置单独指定的版本保持不变。修改用于下一次启动。"
+                  title="默认游戏程序"
+                  description="供空白客户端和未指定独立程序的启动配置使用；已有配置固定的版本不受影响。保存后从下一次启动生效。"
                 >
                   <PathField
-                    label="全局游戏程序"
+                    label="游戏程序"
                     kind="executable"
+                    hint="可选择 Minecraft.Windows.exe；也可在下方选择 MCStudioDownload 自动查找版本。"
                     value={settings.GamePath}
                     onChange={(value) =>
                       saveSettings({ GamePath: value }).catch(report)
@@ -697,11 +722,11 @@ function App() {
                         saveSettings({ GamePath: "" }).catch(report)
                       }
                     >
-                      清空全局游戏程序
+                      清除默认程序
                     </Button>
                   )}
                   <p className="muted">
-                    空白客户端默认使用全局程序；已有存档运行时优先匹配该存档版本。需要固定其他版本，可在对应启动配置中取消“使用全局游戏程序”。
+                    空白客户端和未指定独立程序的配置使用这里的程序；需要固定其他版本时，在启动配置中关闭“使用全局游戏程序”。
                   </p>
                 </Section>
                 <Section
@@ -970,13 +995,13 @@ function App() {
                 disabled={!!busy}
                 onClick={async () => {
                   if (confirming.current) return;
+                  const action = confirm.action;
+                  setConfirm(null);
                   confirming.current = true;
                   setBusy("正在处理…");
                   try {
-                    await confirm.action();
-                    setConfirm(null);
+                    await action();
                   } catch (error) {
-                    setConfirm(null);
                     report(error);
                   } finally {
                     confirming.current = false;

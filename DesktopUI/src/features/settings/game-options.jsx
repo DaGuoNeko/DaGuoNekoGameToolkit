@@ -108,11 +108,12 @@ export function GameOptionsPage({ draft, setDraft }) {
       );
       setNotice("已保存，将在下一次启动游戏前应用。");
     });
-  const reload = () =>
-    action(async () => {
+  const reload = () => {
+    setConfirm(false);
+    return action(async () => {
       adopt(await call("game-options.read"));
-      setConfirm(false);
     });
+  };
   return (
     <div className="game-options-page">
       <Intro
@@ -121,6 +122,7 @@ export function GameOptionsPage({ draft, setDraft }) {
       />
       <ErrorBox>{error || snapshot?.fileError}</ErrorBox>
       {notice && <p role="status">{notice}</p>}
+      {working && <p role="status">正在重新读取游戏设置…</p>}
       <div className="toolbar game-options-toolbar">
         <Button primary disabled={!dirty || working} onClick={save}>
           保存游戏设置

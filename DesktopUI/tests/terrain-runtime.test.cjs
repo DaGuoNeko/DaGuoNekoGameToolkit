@@ -1,6 +1,19 @@
 const { runPython3 } = require("./fixtures/python3.cjs");
 const test = require("node:test"), assert = require("node:assert/strict");
 const runtime = require("../electron/domains/worlds/terrain-runtime.cjs");
+test("runtime probes bind chunk bounds to the entity dimension and restore height probes", () => {
+  const dimension = runtime.dimensionProbeCode("123", 7, [-64, 0, 319]);
+  assert.match(dimension, /CreateChunkSource\(player\)/);
+  assert.match(dimension, /GetChunkMinPos\(chunk\)/);
+  assert.match(dimension, /GetChunkMaxPos\(chunk\)/);
+  assert.match(dimension, /candidateReads/);
+  assert.match(dimension, /DIMENSION_RESTORE_FAILED/);
+  const height = runtime.buildHeightProbeCode("123", 3, [256, 512]);
+  assert.match(height, /before/);
+  assert.match(height, /readback/);
+  assert.match(height, /restored/);
+  assert.match(height, /minecraft:stone/);
+});
 test("terrain Python guards unloaded/changed dimensions, compares before writes, detects partial failure and safely undoes", () => {
   const air = { name: "minecraft:air", states: {}, entity: null }, stone = { name: "minecraft:stone", states: {}, entity: null };
   const data = { id: "fixture", player: "123", dimension: 3, min: [0,64,0], max: [1,64,0], op: "write", writes: [0,1].map(x=>({pos:[x,64,0],before:air,after:stone})) };

@@ -22,6 +22,23 @@ test("map preview reads Java Anvil chunks and returns colored top-down cells", a
   assert.equal(result.scale,1);
 });
 
+test("map preview can stream only the requested viewport chunks", async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-map-stream-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  await javaMap(root);
+  const batches = [];
+  const result = await renderWorld({
+    source: root,
+    dataRoot: root,
+    bounds: { minX: -16, maxX: -1, minZ: -16, maxZ: -1 },
+    chunks: [[-1, -1]],
+    onBatch: batch => batches.push(batch),
+  });
+  assert.equal(result.chunksRead, 1);
+  assert.equal(batches.at(-1).chunksRead, 1);
+  assert(batches.at(-1).tiles.length > 0);
+});
+
 for (const [format, create] of [["java", javaMap], ["bedrock", bedrockMap]]) {
   test(`${format} preview preserves X/Z, highest surface, packed palettes and source bytes`, async t => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-map-check-"));

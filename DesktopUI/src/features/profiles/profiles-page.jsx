@@ -91,28 +91,30 @@ export function ProfilesPage({
   async function submit() {
     setWorking(true);
     setError("");
+    const action = dialog,
+      selected = target;
+    setDialog(null);
     try {
-      if (dialog === "new" || dialog === "copy") {
+      if (action === "new" || action === "copy") {
         const value = await call("profiles.create", {
           name,
-          copyId: dialog === "copy" ? target.id : undefined,
+          copyId: action === "copy" ? selected.id : undefined,
         });
         onProfiles(await call("profiles.list"));
         onCreated(value);
-        if (dialog === "new") onNewProfile?.(value.project);
+        if (action === "new") onNewProfile?.(value.project);
         setAdvanced(false);
         setEditing(true);
-      } else if (dialog === "rename") {
-        onProfiles(await call("profiles.rename", { id: target.id, name }));
-        if (snapshot?.project.id === target.id)
-          onCreated(await call("project.read", { id: target.id }));
+      } else if (action === "rename") {
+        onProfiles(await call("profiles.rename", { id: selected.id, name }));
+        if (snapshot?.project.id === selected.id)
+          onCreated(await call("project.read", { id: selected.id }));
       } else {
-        const list = await call("profiles.remove", { id: target.id });
+        const list = await call("profiles.remove", { id: selected.id });
         onProfiles(list);
-        if (snapshot?.project.id === target.id) onCreated(null);
+        if (snapshot?.project.id === selected.id) onCreated(null);
         setEditing(false);
       }
-      setDialog(null);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -147,6 +149,8 @@ export function ProfilesPage({
           </Button>
         )}
       </Intro>
+      <ErrorBox>{!dialog && error}</ErrorBox>
+      {working && <p className="muted" role="status">正在处理启动配置…</p>}
       {createRequest && dirty && (
         <p className="world-hint">
           请先保存当前配置的未保存修改，再继续新建配置；导入的地图路径和名称已保留。

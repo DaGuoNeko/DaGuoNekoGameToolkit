@@ -7,7 +7,7 @@ class MapPreviewJobs {
     Object.assign(this,{dataRoot,workerFile,timeoutMs,memoryMb}); this.active=null; this.closed=false;
   }
   state(id) { const j=this.active; return j && j.id===id ? {id:j.id,...j.progress} : null; }
-  render(id,args,resolveSource) {
+  render(id,args,resolveSource,onBatch=()=>{}) {
     if(this.closed||this.active) throw Error("已有地图正在加载，请先取消或等待完成");
     if(typeof id!=="string"||!/^[a-zA-Z0-9-]{1,80}$/.test(id)) throw Error("地图请求标识无效");
     const job={id,cancelled:false,progress:{stage:"准备地图",completed:0,total:null}};
@@ -32,13 +32,14 @@ class MapPreviewJobs {
             worker.terminate().then(()=>error?reject(error):resolve(result),reject);
           };
           job.abort=()=>finish(Error("地图加载已取消"));
-          timer=setTimeout(()=>finish(Error("地图加载超时，请降低区块上限后重试")),this.timeoutMs);
+          timer=setTimeout(()=>finish(Error("地图加载超时，请缩小视野或降低缩放后重试")),this.timeoutMs);
           worker.on("message",message=>{
             if(message.progress) job.progress=message.progress;
+            else if(message.batch) onBatch(message.batch);
             else if(message.error) finish(Error(message.error));
             else if(message.result) finish(null,message.result);
           });
-          worker.on("error",error=>finish(Error(error.code==="ERR_WORKER_OUT_OF_MEMORY"?"地图加载超过内存预算，请降低区块上限":error.message)));
+          worker.on("error",error=>finish(Error(error.code==="ERR_WORKER_OUT_OF_MEMORY"?"地图加载超过内存预算，请缩小视野或降低缩放":error.message)));
           worker.on("exit",code=>{if(!settled)finish(Error("地图后台任务意外结束（"+code+"）"));});
           if(job.cancelled) job.abort();
         });

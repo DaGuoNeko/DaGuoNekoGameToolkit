@@ -4,6 +4,7 @@ const path = require("node:path");
 const os = require("node:os");
 const assert = require("node:assert/strict");
 
+const { testResultsRoot } = require("./fixtures/artifacts.cjs");
 (async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-update-ui-"));
   const control = path.join(root, "mode.txt");
@@ -28,8 +29,8 @@ const assert = require("node:assert/strict");
       .getByRole("heading", { name: "发现新版本", exact: true })
       .waitFor();
     assert.match(await page.locator("body").innerText(), /99\.0\.0/);
-    await fs.mkdir("test-results", { recursive: true });
-    await page.screenshot({ path: "test-results/update-popup.png" });
+    await fs.mkdir(testResultsRoot, { recursive: true });
+    await page.screenshot({ path: path.join(testResultsRoot, "update-popup.png") });
     await page.getByRole("button", { name: "去设置下载", exact: true }).click();
     const history = page.getByLabel("GitHub 更新历史", { exact: true });
     await history.waitFor();
@@ -57,14 +58,14 @@ const assert = require("node:assert/strict");
     await page
       .getByRole("heading", { name: "工具箱更新", exact: true })
       .scrollIntoViewIfNeeded();
-    await page.screenshot({ path: "test-results/update-history-dark.png" });
+    await page.screenshot({ path: path.join(testResultsRoot, "update-history-dark.png") });
     await page.evaluate(() =>
       window.toolkit.call("settings.update", { AppearanceMode: "Light" }),
     );
     await page.waitForFunction(
       () => document.documentElement.dataset.theme === "light",
     );
-    await page.screenshot({ path: "test-results/update-history-light.png" });
+    await page.screenshot({ path: path.join(testResultsRoot, "update-history-light.png") });
     await fs.writeFile(control, "empty", "utf8");
     await page.getByRole("button", { name: "检查更新", exact: true }).click();
     await page
@@ -113,7 +114,7 @@ const assert = require("node:assert/strict");
       stderr.join(""),
     );
     await fs.writeFile(
-      "test-results/update-ui-result.json",
+      path.join(testResultsRoot, "update-ui-result.json"),
       JSON.stringify(
         {
           passed: true,

@@ -7,6 +7,7 @@ const crypto = require("node:crypto");
 const model = require("../shared/terrain-model.cjs");
 const { ArchitectureImport } = require("../electron/domains/worlds/architecture-import.cjs");
 const { copySnapshot, readData, writeData } = require("../electron/domains/worlds/terrain-storage.cjs");
+const { levelData } = require("./fixtures/zip.cjs");
 const air = { name: "minecraft:air", states: {}, entity: null };
 const stone = { name: "minecraft:stone", states: {}, entity: null };
 const dirt = { name: "minecraft:dirt", states: {}, entity: null };
@@ -116,4 +117,23 @@ test("terrain uncertain write stops, preserves journal and never automatically r
   assert.equal(reopened.task.stage, "interrupted");
   assert.equal(reopened.task.attempted, 1);
   assert.equal(calls, 1);
+});
+test("terrain task can keep snapshots, runs and game logs in an external root", async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-terrain-external-"));
+  const external = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-terrain-task-"));
+  t.after(() => Promise.all([fs.rm(root, { recursive: true, force: true }), fs.rm(external, { recursive: true, force: true })]));
+  await fs.writeFile(path.join(root, "level.dat"), levelData("external terrain"));
+  const service = new ArchitectureImport({
+    dataRoot: root,
+    protectedRoots: [root],
+    worlds: { store: { project: () => ({ id: "profile", root }) }, read: async () => ({}), find: () => ({ id: "target", profileId: "profile", name: "target" }), inspect: async () => ({ path: root }) },
+    sessions: { workers: [] }, profiles: {}, actions: {},
+  });
+  await service.prepare({ kind: "bedrock", source: root, name: "external", targetWorldId: "target", externalDataRoot: external });
+  await service.job;
+  assert.equal(service.task.stage, "prepared", service.task.error);
+  assert.equal(service.task.externalDataRoot, path.resolve(external));
+  assert.equal(path.dirname(service.directory()), path.resolve(external));
+  assert.equal(await fs.stat(path.join(external, "task.json")).then(() => true), true);
+  assert.equal(await fs.stat(path.join(root, "settings.json")).catch(() => null), null);
 });

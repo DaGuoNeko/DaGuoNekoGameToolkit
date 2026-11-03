@@ -17,13 +17,26 @@ npx skills add https://github.com/Leonxlnx/taste-skill-classics --skill "minimal
 
 项目不把技能文件复制进 `DesktopUI`，也不将其加入 `package.json`。设计规则落在本项目的 `DesktopUI/src/app/visual-refresh.css`、公共 UI 组件和本文件中，避免运行时依赖和构建体积变化。
 
+## 本轮采用的主流做法
+
+本轮检索了 Microsoft Windows、VS Code、Adobe Spectrum 和 Material 3 的公开设计文档。它们的共同方向适合本工具箱：用中性背景层建立层次，用语义颜色表达状态，用稳定的工作区和状态栏承载工具信息，并把键盘、对比度、缩放和高对比度视为视觉设计的一部分。
+
+- [Microsoft Windows design principles](https://learn.microsoft.com/en-us/windows/apps/design/signature-experiences/design-principles)：强调清晰、可访问、响应式和一致的 Windows 应用体验，并将色彩、布局、导航、动效和可用性一起设计。
+- [Microsoft Windows color guidance](https://learn.microsoft.com/en-us/windows/apps/design/style/color)：强调不同主题和强调色下的对比度，并提醒不要只用红绿颜色区分状态。
+- [VS Code accessibility](https://code.visualstudio.com/docs/editor/accessibility)：覆盖键盘导航、屏幕阅读器、缩放、高对比度、颜色对比度和状态栏可访问性，适合作为开发工具工作台的验收参考。
+- [VS Code UX guidelines](https://code.visualstudio.com/api/ux-guidelines/overview)：将状态栏、侧栏、命令和上下文操作分层，避免把所有操作堆到同一工具栏。
+- [Adobe Spectrum color system](https://spectrum.adobe.com/page/color-system/)：强调颜色的语义、层次和主题一致性，不让颜色成为唯一的信息通道。
+- [Material 3 color](https://m3.material.io/styles/color/overview)：采用角色化色彩和表面层级，让主色、容器、背景和状态色有稳定职责。
+
+对本项目的取舍是：保留深色开发工具氛围，但把背景和卡片改成更清晰的表面层；就绪使用绿色、进行中使用主题色或琥珀色、错误使用暗红色；状态点旁边始终保留文字；卡片和日志工作区使用边界与间距建立层次，减少强阴影和悬浮位移。这样更接近 VS Code/Windows 工具类产品的工作台美学，而不是营销网站的装饰风格。
+
 ## 视觉系统
 
 公共 token 位于 `DesktopUI/src/app/visual-refresh.css`：
 
 - 浅色使用暖灰背景、米白表面、炭黑正文和低对比度边框。
 - 深色使用近黑背景、深灰表面和暖白正文。
-- 主要动作使用主题色相生成的低饱和色；成功、警告、错误分别使用绿色、琥珀色和暗红色。
+- 主要动作使用主题色相生成的低饱和色；成功、警告、错误分别使用绿色、琥珀色和暗红色。工具箱就绪和游戏会话运行都使用绿色状态点，不使用灰色表示可用状态。
 - 普通内容页使用 6/10/14px 圆角层级；阴影只用于浮层和少量主要卡片。
 - `prefers-reduced-motion` 关闭平移、转场和其他非必要动效。
 
@@ -96,5 +109,6 @@ npm.cmd run test:ui
 - 联机房间专项 UI 测试通过。
 - 截图检查覆盖 1240×820 浅/深主题、日志设置抽屉、UI 编辑器、UI 调试器、设置分类、存档卡片、启动配置和地图预览；地图预览专项也覆盖 900×650。
 - `prefers-reduced-motion: reduce` 已在 UI 测试中使用，并保留键盘、ARIA 和现有语义选择器。
+- 2026-11-03 补充：就绪状态点改为绿色，游戏会话运行中使用主题色点；深色主题成功色提高亮度，避免把可用状态画成灰色。
 
 发行 EXE 需要在生成新包后重新执行 distribution UI 验收；当前工作区没有提供新的发行 EXE，因此本轮不把发行包验收写成已通过。

@@ -8,6 +8,7 @@ const { WorkspaceStore } = require("../electron/services.cjs"),
   { Profiles } = require("../electron/domains/profiles/profiles.cjs"),
   { WorldLibrary } = require("../electron/domains/worlds/worlds.cjs"),
   { levelData } = require("./fixtures/zip.cjs");
+const { testResultsRoot } = require("./fixtures/artifacts.cjs");
 (async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-local-join-ui-"));
   let app;
@@ -116,8 +117,8 @@ const { WorkspaceStore } = require("../electron/services.cjs"),
     assert.match(await page.getByRole("combobox", { name: "本次联机游戏版本", exact: true }).innerText(), /3\.10\.0\.436581/);
     assert(await page.getByRole("combobox", { name: "本次联机游戏版本", exact: true }).isDisabled());
     await page.getByLabel("联机玩家名", { exact: true }).fill("GuestB");
-    await fs.mkdir("test-results", { recursive: true });
-    await page.screenshot({ path: "test-results/local-join-picker.png" });
+    await fs.mkdir(testResultsRoot, { recursive: true });
+    await page.screenshot({ path: path.join(testResultsRoot, "local-join-picker.png") });
     await page.getByRole("button", { name: "启动并加入", exact: true }).click();
     await page.getByText("测试已确认目标：World B", { exact: true }).waitFor();
     assert.equal(JSON.parse(await fs.readFile(probe, "utf8")).world, "World B");
@@ -164,7 +165,7 @@ const { WorkspaceStore } = require("../electron/services.cjs"),
     assert.match(await failed.locator("..").getAttribute("title"), /fixture join failure/);
     assert.deepEqual(errors, []);
     await fs.writeFile(
-      "test-results/local-join-ui.json",
+      path.join(testResultsRoot, "local-join-ui.json"),
       JSON.stringify(
         {
           passed: true,

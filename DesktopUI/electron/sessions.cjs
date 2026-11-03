@@ -326,7 +326,10 @@ class Sessions extends EventEmitter {
       await this.store.queue;
       await this.profiles?.queue.catch(() => {});
       const runId = crypto.randomUUID(),
-        runDir = path.join(path.dirname(this.store.file), "runs", runId);
+        runDir = path.join(
+          automation?.externalDataRoot || path.join(path.dirname(this.store.file), "runs"),
+          runId,
+        );
       let snapshot, profile;
       if (quickTest) {
         if (!worldId || blank || automation?.runtimeConfig)
@@ -570,6 +573,8 @@ class Sessions extends EventEmitter {
       };
       const appData = isolated
         ? isolated.roaming
+        : automation?.externalDataRoot
+          ? path.join(automation.externalDataRoot, "game-data")
         : worldId
           ? this.worlds.appDataOverride
           : path.join(runDir, "game-data");
@@ -676,6 +681,7 @@ class Sessions extends EventEmitter {
         blank: !!blank && !automation?.localJoin,
         quickTest: !!quickTest,
         runDirectory: runDir,
+        externalDataRoot: automation?.externalDataRoot || null,
         storageMode: isolated?.mode || (isolated ? "isolated" : "shared"),
         isolationReason:
           isolated?.isolationReason || isolationAssessment?.reason || null,

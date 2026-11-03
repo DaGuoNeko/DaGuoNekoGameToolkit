@@ -39,6 +39,8 @@ const methods = new Set([
   "ui-editor.save-as",
   "ui-editor.texture",
   "bootstrap",
+  "activity.snapshot",
+  "activity.clear",
   "debug.state",
   "debug.refresh",
   "debug.reload",
@@ -118,6 +120,10 @@ const methods = new Set([
   "worlds.import",
   "worlds.pick-import",
   "worlds.list",
+  "worlds.sync-pack-versions",
+  "worlds.inspect-pack-health",
+  "worlds.rebind-pack-uuids",
+  "worlds.edit-pack",
   "worlds.create",
   "worlds.rename",
   "worlds.recycle",
@@ -156,6 +162,7 @@ const subscribe = (event, listener) => {
 contextBridge.exposeInMainWorld("toolkit", {
   onTracy: (listener) => subscribe("tracy-state", listener),
   onEditorPreview: (listener) => subscribe("ui-editor-preview", listener),
+  onMapPreview: (listener) => subscribe("map-preview-data", listener),
   async call(method, args = {}) {
     if (!methods.has(method)) throw Error("不支持的操作");
     const response = await ipcRenderer.invoke("request", method, args);
@@ -175,6 +182,7 @@ contextBridge.exposeInMainWorld("toolkit", {
   onCloseRequested: (listener) => subscribe("close-requested", listener),
   onSession: (listener) => subscribe("session-state", listener),
   onLogs: (listener) => subscribe("session-logs", listener),
+  onActivity: (listener) => subscribe("activity-state", listener),
   onDebug: (listener) => subscribe("debug-state", listener),
   onUpdate: (listener) => subscribe("update-state", listener),
   onInspectorWindow: (listener) => subscribe("inspector-window", listener),

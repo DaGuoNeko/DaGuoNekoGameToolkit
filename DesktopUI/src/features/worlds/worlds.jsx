@@ -15,6 +15,7 @@ import { WorldDashboard } from "./world-actions.jsx";
 import { QuickTestDialog } from "./quick-test.jsx";
 import { LocalJoinDialog } from "./local-join.jsx";
 import { MapPreview } from "./map-preview.jsx";
+import { WorldPacks } from "./world-packs.jsx";
 import {
   AUTO_IMPORT_PROFILE,
   AUTO_IMPORT_LABEL,
@@ -37,6 +38,7 @@ const experiments = [
   ["deferred_technical_preview", "延迟渲染技术预览"],
 ];
 export function WorldHome({
+  projectId,
   profiles,
   runtimeState,
   busy,
@@ -65,6 +67,7 @@ export function WorldHome({
     [trash, setTrash] = useState(false),
      [query, setQuery] = useState(""),
      [mapWorld, setMapWorld] = useState(null);
+  const [packWorld, setPackWorld] = useState(null);
   const [name, setName] = useState(""),
     [profileId, setProfileId] = useState(""),
     [options, setOptions] = useState(defaults),
@@ -96,7 +99,7 @@ export function WorldHome({
   const refresh = async () => {
     const t = ++ticket.current;
     try {
-      const v = await call("worlds.list");
+      const v = await call("worlds.list", { includePackChecks: true });
       if (t === ticket.current) setWorlds(v.worlds);
     } catch (e) {
       setError(e.message);
@@ -105,8 +108,10 @@ export function WorldHome({
   useEffect(() => {
     refresh();
     const offAutomation = window.toolkit.onAutomationData(() => refresh());
+    const offActivity = window.toolkit.onActivity(() => refresh());
     return () => {
       offAutomation();
+      offActivity();
       ticket.current++;
     };
   }, [
@@ -171,11 +176,13 @@ export function WorldHome({
   async function submit() {
     setWorking(true);
     setError("");
+    const action = dialog;
+    setDialog(null);
     try {
-      const kind = dialog.kind,
-        w = dialog.w;
+      const kind = action.kind,
+        w = action.w;
+      const background = ["import", "delete", "restore", "purge", "empty"].includes(kind);
       if (kind === "menu") {
-        setDialog(null);
         onStartBlank(playerName);
         return;
       }
@@ -201,24 +208,23 @@ export function WorldHome({
           name,
           source,
           mode: importMode,
+          ...(background ? { background: true } : {}),
         });
-        setDialog(null);
       }
       if (kind === "delete")
-        await call("worlds.recycle", { worldId: w.id, confirmed: true });
-      if (kind === "restore") await call("worlds.restore", { worldId: w.id });
+        await call("worlds.recycle", { worldId: w.id, confirmed: true, background });
+      if (kind === "restore") await call("worlds.restore", { worldId: w.id, background });
       if (kind === "purge" || kind === "empty")
         await call("worlds.purge", {
-          worldIds: dialog.targets.map((item) => item.id),
+          worldIds: action.targets.map((item) => item.id),
           confirmed: true,
+          background,
         });
-      setDialog(null);
       await refresh();
     } catch (e) {
       setError(e.message);
-      if (["import", "edit", "delete", "restore"].includes(dialog.kind)) await refresh();
-      if (dialog.kind === "purge" || dialog.kind === "empty") {
-        setDialog(null);
+      if (["import", "edit", "delete", "restore"].includes(action.kind)) await refresh();
+      if (action.kind === "purge" || action.kind === "empty") {
         await refresh();
       }
     } finally {
@@ -232,6 +238,11 @@ export function WorldHome({
       w.name.toLowerCase().includes(query.toLowerCase()),
   );
   const focused = worlds.find((w) => w.id === focusId && !w.deleted);
+  const packsDialog = packWorld && <WorldPacks world={packWorld}
+    running={!!runtimeState.starting || !!runtimeState.stopping || !!runtimeState.sessions?.some(s => s.running)}
+    onChanged={refresh}
+    onImport={() => { setPackWorld(null); setFocusId(""); open("import"); }}
+    onClose={() => { setPackWorld(null); refresh(); }} />;
   const joinDialog = joinTarget && (
     <LocalJoinDialog
       initialHostId={joinTarget.hostSessionId}
@@ -266,6 +277,7 @@ export function WorldHome({
           onBack={() => setFocusId("")}
           onStart={onStart}
           onQuickTest={() => setQuickWorld(focused)}
+          onPacks={() => setPackWorld(focused)}
           onJoinClient={hostSessionId => setJoinTarget({ hostSessionId })}
           onLogs={onLogs}
           onStop={onStop}
@@ -276,6 +288,7 @@ export function WorldHome({
           }}
         />
         {quickDialog}
+        {packsDialog}
         {joinDialog}
       </>
     );
@@ -365,6 +378,7 @@ export function WorldHome({
         </div>
       </div>
       <ErrorBox>{!dialog && error}</ErrorBox>
+      {working && <p className="muted" role="status">正在处理存档操作…</p>}
       <div className="world-grid">
         {items.map((w) => {
           const config = profiles.find((p) => p.id === w.profileId),
@@ -374,7 +388,7 @@ export function WorldHome({
           return (
             <article
               className="world-card"
-              data-state={active ? "running" : w.error || w.copying ? "warning" : w.deleted ? "archived" : "ready"}
+              data-state={active ? "running" : w.error || w.packIssues?.length || w.copying ? "warning" : w.deleted ? "archived" : "ready"}
               key={w.id}
               aria-label={"存档 " + w.name}
             >
@@ -430,6 +444,20 @@ export function WorldHome({
                   </p>
                 )}
                 <ErrorBox>{w.error}</ErrorBox>
+                {w.packIssues?.length > 0 && (
+                  <div className="world-hint">
+                    <strong>地图内置模组版本需要检查</strong>
+                    <p>
+                      {w.packIssues.length} 个包与导入时清单不一致。启动前请查看详情并重新导入一致副本，或仅在确认代码来源一致时同步清单版本。
+                    </p>
+                    <Button
+                      onClick={() => setPackWorld(w)}
+                      disabled={busy || working}
+                    >
+                      查看并处理
+                    </Button>
+                  </div>
+                )}
                 <div className="world-card-actions">
                   {w.deleted ? (
                     <>
@@ -460,7 +488,9 @@ export function WorldHome({
                         title={
                           !config
                             ? "请先在存档设置中选择启动配置"
-                            : active
+                            : w.packIssues?.length > 0
+                              ? "请先处理地图内置模组版本问题"
+                              : active
                               ? "该存档正在运行"
                               : undefined
                         }
@@ -511,6 +541,13 @@ export function WorldHome({
                       </Button>
                     </>
                   )}
+                  <Button
+                    icon="tools"
+                    onClick={() => setPackWorld(w)}
+                    disabled={working || w.deleted || w.copying || !w.path}
+                  >
+                    存档模组
+                  </Button>
                   <Button
                     icon="folder" compact
                     onClick={() =>
@@ -853,7 +890,8 @@ export function WorldHome({
           </fieldset>
         </Modal>
       )}
-      {mapWorld && <MapPreview worldId={mapWorld.id} initialSource={mapWorld.path} onClose={() => setMapWorld(null)} />}
+      {mapWorld && <MapPreview worldId={mapWorld.id} initialSource={mapWorld.path} projectId={mapWorld.profileId || mapWorld.projectId || projectId} worlds={worlds} onClose={() => setMapWorld(null)} />}
+      {packsDialog}
       {quickDialog}
       {joinDialog}
     </FileDropZone>

@@ -10,6 +10,31 @@ const { readWorldInfo } = require("./world-info.cjs");
 const { colorFor, visible, WATER, shadeCells, tileImages } = require("./map-colors.cjs");
 const { NearestChunks } = require("./map-nearest.cjs");
 
+function normalizeBounds(bounds) {
+  if (bounds == null) return null;
+  if (!bounds || !["minX", "maxX", "minZ", "maxZ"].every(key => Number.isInteger(bounds[key])))
+    throw Error("地图视野范围无效");
+  if (bounds.minX > bounds.maxX || bounds.minZ > bounds.maxZ || [bounds.minX, bounds.maxX, bounds.minZ, bounds.maxZ].some(v => Math.abs(v) > 30000000))
+    throw Error("地图视野范围无效");
+  return bounds;
+}
+
+function normalizeChunks(chunks) {
+  if (chunks == null) return null;
+  if (!Array.isArray(chunks)) throw Error("地图区块列表无效");
+  const result = new Set();
+  if (chunks.length > 100000) throw Error("地图区块请求过大，请缩小视野");
+  for (const chunk of chunks) {
+    if (!Array.isArray(chunk) || chunk.length !== 2 || !chunk.every(v => Number.isInteger(v) && Math.abs(v) <= 2000000)) throw Error("地图区块列表无效");
+    result.add(chunk[0] + "," + chunk[1]);
+  }
+  return result;
+}
+
+function intersectsBounds(x, z, bounds) {
+  return !bounds || x * 16 <= bounds.maxX && x * 16 + 15 >= bounds.minX && z * 16 <= bounds.maxZ && z * 16 + 15 >= bounds.minZ;
+}
+
 function longValue(value) {
   if (typeof value === "bigint") return value;
   if (Array.isArray(value)) return (BigInt(value[0]) << 32n) + BigInt(value[1] >>> 0);
@@ -125,17 +150,20 @@ function parseAnvilChunk(buffer, index) {
   } catch { return null; }
 }
 
-async function javaCells(root, dimension, maxChunks = 2500, center = [0,0], onProgress = ()=>{}) {
+async function javaCells(root, dimension, maxChunks = Infinity, center = [0,0], onProgress = ()=>{}, bounds = null, onChunk = async()=>{}, requested = null) {
   const directory = dimension === "nether" ? path.join(root, "DIM-1") : dimension === "the_end" ? path.join(root, "DIM1") : root;
   const region = path.join(directory, "region");
-  const files = (await fs.readdir(region, { withFileTypes: true }).catch(e => { if (e.code === "ENOENT") return []; throw e; })).filter((e) => e.isFile() && /^r\.-?\d+\.-?\d+\.mca$/i.test(e.name));
+  const requestedRegions = requested && new Set([...requested].map(id => { const [cx, cz] = id.split(",").map(Number); return `r.${Math.floor(cx / 32)}.${Math.floor(cz / 32)}.mca`; }));
+  const files = (await fs.readdir(region, { withFileTypes: true }).catch(e => { if (e.code === "ENOENT") return []; throw e; })).filter((e) => e.isFile() && /^r\.-?\d+\.-?\d+\.mca$/i.test(e.name) && (!requestedRegions || requestedRegions.has(e.name)));
   if (files.length > 4096) throw Error("Java 地图区域文件过多，未继续预览");
   const distance=entry=>{const [,rx,rz]=/^r\.(-?\d+)\.(-?\d+)\.mca$/i.exec(entry.name);return Math.max(Number(rx)*512-center[0],center[0]-(Number(rx)*512+496),Number(rz)*512-center[1],center[1]-(Number(rz)*512+496),0);};
   files.sort((a,b)=>distance(a)-distance(b));
-  const cells = [], nearest=new NearestChunks(maxChunks,center);
+  const limit = Number.isFinite(maxChunks) ? maxChunks : Infinity;
+  const nearest = Number.isFinite(limit) ? new NearestChunks(limit,center) : null;
+  const cells = [], locationsAll = [];
   let chunksRead = 0, skipped = 0, scanned=0;
   for (const entry of files) {
-    if(distance(entry)>nearest.farthest) {nearest.truncated=true;break;}
+    if (nearest && distance(entry)>nearest.farthest) {nearest.truncated=true;break;}
     onProgress("索引 Java 区域",scanned++,files.length);
     const handle=await fs.open(path.join(region,entry.name),"r"), header=Buffer.alloc(8192);
     let bytesRead;
@@ -143,42 +171,49 @@ async function javaCells(root, dimension, maxChunks = 2500, center = [0,0], onPr
     if(bytesRead<8192) continue;
     const [,rx,rz]=/^r\.(-?\d+)\.(-?\d+)\.mca$/i.exec(entry.name);
     for(let i=0;i<1024;i++) if(header.readUInt32BE(i*4)) {
-      const x=(Number(rx)*32+i%32)*16,z=(Number(rz)*32+Math.floor(i/32))*16;
-      nearest.add(x+","+z,x,z,()=>({file:entry.name,index:i}));
+      const x=(Number(rx)*32+i%32),z=(Number(rz)*32+Math.floor(i/32));
+      if (!intersectsBounds(x,z,bounds) || requested && !requested.has(x + "," + z)) continue;
+      if (nearest) nearest.add(x*16+","+z*16,x*16,z*16,()=>({file:entry.name,index:i}));
+      else locationsAll.push({file:entry.name,index:i,x,z});
     }
   }
-  const locations=nearest.sorted();
+  const locations=nearest ? nearest.sorted() : locationsAll;
   const groups=new Map();
   for(const item of locations.slice(0,maxChunks)) { if(!groups.has(item.file)) groups.set(item.file,[]); groups.get(item.file).push(item.index); }
   for(const [file,indices] of groups) {
     const buffer=await readFile(path.join(region,file),256*1024**2);
     for(const i of indices) {
       const parsed = parseAnvilChunk(buffer, i);
+      const x = Number(file.match(/^r\.(-?\d+)\./)[1]) * 32 + (i % 32), z = Number(file.match(/^r\.-?\d+\.(-?\d+)\./)[1]) * 32 + Math.floor(i / 32);
       if (parsed) {
-        try { cells.push(...javaChunkCells(parsed)); chunksRead++; }
+        try {
+          const chunkCells = javaChunkCells(parsed); cells.push(...chunkCells); chunksRead++; await onChunk(chunkCells, { id: x + "," + z, x, z });
+        }
         catch { skipped++; }
       } else skipped++;
       onProgress("读取 Java 区块", chunksRead + skipped, Math.min(locations.length, maxChunks));
       if ((chunksRead + skipped) % 16 === 0) await new Promise(resolve => setImmediate(resolve));
     }
   }
-  return { cells, truncated:nearest.truncated, chunksRead, skipped };
+  return { cells, truncated:!!nearest?.truncated, chunksRead, skipped };
 }
 
-async function bedrockCells(root, dimension, maxChunks = 2500, center = [0,0], onProgress = ()=>{}) {
+async function bedrockCells(root, dimension, maxChunks = Infinity, center = [0,0], onProgress = ()=>{}, bounds = null, onChunk = async()=>{}, requested = null) {
   const db = await Database.open(path.join(root, "db"), { readOnly: true });
-  const nearest = new NearestChunks(maxChunks,center), cells=[];
+  const limit = Number.isFinite(maxChunks) ? maxChunks : Infinity;
+  const nearest = Number.isFinite(limit) ? new NearestChunks(limit,center) : null, all = new Map(), cells=[];
   let skipped = 0, entriesRead = 0;
   try {
     for (const key of db.keys()) {
       if (++entriesRead > 5000000) throw Error("基岩索引超过 500 万条记录，请使用较小的存档副本");
       if (entriesRead % 256 === 0) {onProgress("索引基岩数据",entriesRead,null);await new Promise(resolve => setImmediate(resolve));}
       const info=bedrockChunkKey(key); if(!info || info.dimension!==dimension) continue;
+      if (!intersectsBounds(info.x,info.z,bounds) || requested && !requested.has(info.x + "," + info.z)) continue;
       const id=info.x+","+info.z;
-      const retained=nearest.add(id,info.x*16,info.z*16,()=>({keys:[]}));
+      const retained=nearest ? nearest.add(id,info.x*16,info.z*16,()=>({keys:[]})) : (all.get(id) || (all.set(id,{x:info.x*16,z:info.z*16,id,keys:[]}),all.get(id)));
       if(retained)retained.keys.push({key,info});
     }
-    const selected=nearest.sorted();
+    const selected=nearest ? nearest.sorted() : [...all.values()];
     let completed=0;
     for(const chunk of selected) {
       const columns=new Map(), floors=new Map();
@@ -200,11 +235,13 @@ async function bedrockCells(root, dimension, maxChunks = 2500, center = [0,0], o
           if(ground!==null) floors.set(id,Math.max(ground,floors.get(id)??-Infinity));
         }
       }
-      for(const [id,cell] of columns) cells.push({...cell,waterDepth:WATER.test(cell.name)?Math.min(32,cell.height-(floors.get(id)??cell.height-32)):0});
+      const chunkCells=[];
+      for(const [id,cell] of columns) chunkCells.push({...cell,waterDepth:WATER.test(cell.name)?Math.min(32,cell.height-(floors.get(id)??cell.height-32)):0});
+      cells.push(...chunkCells); await onChunk(chunkCells, { id: chunk.id, x: chunk.x / 16, z: chunk.z / 16 });
       onProgress("读取基岩区块", ++completed, selected.length);
       await new Promise(resolve => setImmediate(resolve));
     }
-    return {cells,truncated:nearest.truncated,chunksRead:selected.length,skipped};
+    return {cells,truncated:!!nearest?.truncated,chunksRead:selected.length,skipped};
   } finally { await db.close(); }
 }
 
@@ -234,13 +271,14 @@ async function extractArchive(source, destination) {
   try { await archive.extract(destination, safeDirectory); }
   finally { await archive.close(); }
 }
-async function sourceStamp(root, format, dimension, onProgress) {
+async function sourceStamp(root, format, dimension, onProgress, requested = null) {
   const rows = [];
   const dirs = format === "bedrock" ? ["db"] : [dimension==="nether"?"DIM-1/region":dimension==="the_end"?"DIM1/region":"region"];
   for (const relative of dirs) {
     const dir = path.join(root, relative);
     try { await safeDirectory(dir); } catch (e) { if (e.code === "ENOENT" && format === "java") continue; throw e; }
-    const files = await fs.readdir(dir, { withFileTypes: true });
+    const requestedRegions = format === "java" && requested && new Set([...requested].map(id => { const [cx, cz] = id.split(",").map(Number); return `r.${Math.floor(cx / 32)}.${Math.floor(cz / 32)}.mca`; }));
+    const files = (await fs.readdir(dir, { withFileTypes: true })).filter(entry => !requestedRegions || requestedRegions.has(entry.name));
     if (files.length > 100000) throw Error("地图文件过多");
     for (const entry of files) {
       if(rows.length%64===0)onProgress("检查地图文件",rows.length,files.length);
@@ -256,12 +294,14 @@ async function sourceStamp(root, format, dimension, onProgress) {
   }
   return JSON.stringify(rows.sort((a,b) => (a[0]+a[1]).localeCompare(b[0]+b[1])));
 }
-async function renderWorld({ source, format = "auto", dimension = "overworld", maxChunks = 2500, centerX = 0, centerZ = 0, relief = true, dataRoot, onProgress = ()=>{} }) {
+async function renderWorld({ source, format = "auto", dimension = "overworld", maxChunks = Infinity, centerX = 0, centerZ = 0, relief = true, bounds = null, chunks = null, dataRoot, onProgress = ()=>{}, onBatch = null }) {
   if (typeof source !== "string" || !path.isAbsolute(source)) throw Error("地图来源必须是绝对路径");
   if (!["auto","java","bedrock"].includes(format) || !["overworld","nether","the_end"].includes(dimension))
     throw Error("地图格式或维度无效");
-  if (!Number.isInteger(maxChunks) || maxChunks < 1 || maxChunks > 10000 || ![centerX,centerZ].every(v=>Number.isInteger(v)&&Math.abs(v)<=30000000) || typeof relief!=="boolean")
+  if ((maxChunks !== Infinity && (!Number.isInteger(maxChunks) || maxChunks < 1 || maxChunks > 10000)) || ![centerX,centerZ].every(v=>Number.isInteger(v)&&Math.abs(v)<=30000000) || typeof relief!=="boolean")
     throw Error("地图预览范围无效");
+  bounds = normalizeBounds(bounds);
+  chunks = normalizeChunks(chunks);
   let root = path.resolve(source), temporary = false;
   try {
     if (/\.(zip|mcworld)$/i.test(root)) {
@@ -274,14 +314,27 @@ async function renderWorld({ source, format = "auto", dimension = "overworld", m
     await safeDirectory(root);
     const detected = levelFormat(await readFile(path.join(root, "level.dat"), 8 * 1024 ** 2));
     if (format !== "auto" && format !== detected) throw Error("所选格式与地图不匹配");
-    const before = await sourceStamp(root, detected,dimension,onProgress);
-    const captured = detected === "bedrock" ? await bedrockCells(root, dimension, maxChunks,[centerX,centerZ],onProgress) : await javaCells(root, dimension, maxChunks,[centerX,centerZ],onProgress);
-    if (before !== await sourceStamp(root, detected,dimension,onProgress)) throw Error("地图在预览期间发生变化，请保存退出游戏后重新预览");
+    const before = await sourceStamp(root, detected,dimension,onProgress,chunks);
+    let pending = [], pendingChunks = [], streamedChunkIds = [], streamedChunks = 0;
+    const onChunk = async (chunkCells, chunk) => {
+      pending.push(...chunkCells); pendingChunks.push(chunk); streamedChunkIds.push(chunk.id); streamedChunks++;
+      if (onBatch && pendingChunks.length >= 8) {
+        shadeCells(pending, false, true);
+        await onBatch({ format: detected, dimension, centerX, centerZ, chunksRead: streamedChunks, chunkIds: pendingChunks.map(v => v.id), ...tileImages(pending) });
+        pending = []; pendingChunks = [];
+      }
+    };
+    const captured = detected === "bedrock" ? await bedrockCells(root, dimension, maxChunks,[centerX,centerZ],onProgress,bounds,onChunk,chunks) : await javaCells(root, dimension, maxChunks,[centerX,centerZ],onProgress,bounds,onChunk,chunks);
+    if (onBatch && pendingChunks.length) {
+      shadeCells(pending, relief, true);
+      await onBatch({ format: detected, dimension, centerX, centerZ, chunksRead: streamedChunks, skipped: captured.skipped, chunkIds: pendingChunks.map(v => v.id), ...tileImages(pending) });
+    }
+    if (before !== await sourceStamp(root, detected,dimension,onProgress,chunks)) throw Error("地图在预览期间发生变化，请保存退出游戏后重新预览");
     if (!captured.cells.length && captured.skipped) throw Error("地图区块损坏或格式不支持，未生成预览");
     onProgress("计算地形明暗",0,null);
     const rendered=shadeCells(captured.cells,relief,true);
     onProgress("生成地图图片",0,null);
-    return { format: detected, dimension, centerX,centerZ,maxChunks, truncated: captured.truncated, chunksRead: captured.chunksRead, skipped: captured.skipped, ...tileImages(rendered) };
+    return { format: detected, dimension, centerX,centerZ, complete: true, chunkIds: streamedChunkIds, truncated: captured.truncated, chunksRead: captured.chunksRead, skipped: captured.skipped, ...tileImages(rendered) };
   } finally {
     if (temporary && await fs.lstat(root).catch(() => null)) {
       await safeDirectory(root);

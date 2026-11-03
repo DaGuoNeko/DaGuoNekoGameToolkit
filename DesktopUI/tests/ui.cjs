@@ -1,4 +1,5 @@
 const { spawnSync } = require("node:child_process");
+const { artifactRoot } = require("./fixtures/artifacts.cjs");
 for (const file of [
   "tests/update-network.cjs",
   "tests/update-ui.cjs",
@@ -17,6 +18,11 @@ for (const file of [
   const result = spawnSync(process.execPath, [file], {
     stdio: "inherit",
     windowsHide: true,
+    env: {
+      ...process.env,
+      DGN_ARTIFACT_ROOT: artifactRoot,
+      DGN_ARTIFACT_TASK: "ui-suite",
+    },
   });
   if (result.status !== 0) process.exit(result.status || 1);
 }

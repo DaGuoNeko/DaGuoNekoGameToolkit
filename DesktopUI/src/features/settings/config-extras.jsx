@@ -32,36 +32,60 @@ export function GameDiscovery({ value, change, report }) {
     return () => { active = false; };
   }, [value]);
   async function discover() {
+    return discoverFrom();
+  }
+  async function discoverFrom(roots) {
     setBusy(true);
     try {
-      const result = await window.toolkit.call("games.discover");
+      const result = await window.toolkit.call(
+        "games.discover",
+        roots?.length ? { roots } : {},
+      );
       if (!alive.current) return;
       setGames(result.games);
-      setMessage(
-        result.games.length
-          ? `发现 ${result.games.length} 个版本，请选择要使用的程序。`
-          : "没有找到已安装版本，请手动选择游戏 EXE。",
-      );
-      if (result.warnings.length) setMessage(result.warnings.join("\n"));
+      const source = roots?.length ? "所选目录下" : "本机安装目录下";
+      if (result.games.length === 1 && roots?.length) {
+        change(result.games[0].path);
+        setMessage(`已从所选目录找到并选择 ${result.games[0].version}。`);
+      } else {
+        setMessage(
+          result.games.length
+            ? `${source}找到 ${result.games.length} 个版本，请在下方选择。`
+            : `${source}没有找到 Minecraft.Windows.exe，请选择 MCStudioDownload 或其下的游戏目录。`,
+        );
+      }
+      if (result.warnings.length)
+        setMessage((old) => old + "\n" + result.warnings.join("\n"));
     } catch (error) {
       if (alive.current) report(error);
     } finally {
       if (alive.current) setBusy(false);
     }
   }
+  async function pickInstallDirectory() {
+    try {
+      const directory = await window.toolkit.call("files.directory");
+      if (directory) await discoverFrom([directory]);
+    } catch (error) {
+      if (alive.current) report(error);
+    }
+  }
   return (
     <div className="discovery-row">
       <Button disabled={busy} onClick={discover}>
-        {busy ? "正在发现…" : "发现游戏版本"}
+        {busy ? "正在查找…" : "查找已安装版本"}
       </Button>
-      <Field label="游戏版本用途">
+      <Button disabled={busy} onClick={pickInstallDirectory}>
+        选择安装目录
+      </Button>
+      <Field label="版本筛选">
         <Select value={scope} onChange={setScope} options={[
-          { value: "auto", label: "自动联机 · 仅显示已验证构建" },
-          { value: "all", label: "手动启动 · 显示所有已发现版本" },
+          { value: "auto", label: "自动联机：仅显示已验证版本" },
+          { value: "all", label: "普通启动：显示全部版本" },
         ]} />
       </Field>
       {!!games.length && (
-        <Field label="已发现的游戏版本">
+        <Field label="发现结果">
           <Select
             value={value}
             placeholder="请选择游戏版本"
@@ -78,7 +102,7 @@ export function GameDiscovery({ value, change, report }) {
       )}
       {value && (
         <p className="muted" role="status">
-          当前程序：{checking ? "正在校验版本…" : current?.error || (current?.version
+          当前选择：{checking ? "正在校验版本…" : current?.error || (current?.version
             ? `${current.version} · ${current.profile.label}`
             : "未验证构建；保留手动启动，不能自动联机。")}
         </p>

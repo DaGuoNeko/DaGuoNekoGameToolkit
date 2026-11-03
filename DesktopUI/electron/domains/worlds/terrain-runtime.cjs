@@ -131,9 +131,83 @@ class DgnTerrainBatch(object):
 function probeCode(player) {
   return `# DGN_TERRAIN_PROBE\nimport mod.server.extraServerApi as api\nimport math\np=${payload(player)}\nif p not in api.GetPlayerList(): raise RuntimeError('Player not ready')\nf=api.GetEngineCompFactory()\npos=f.CreatePos(p).GetFootPos()\ns=f.CreateChunkSource(p)\nc=(int(math.floor(pos[0]/16)),int(math.floor(pos[2]/16)))\n_result={'position':pos,'dimension':f.CreateDimension(p).GetEntityDimensionId(),'min':s.GetChunkMinPos(c),'max':s.GetChunkMaxPos(c)}`;
 }
+function dimensionProbeCode(player, targetDimension, candidates = []) {
+  return `# DGN_DIMENSION_RUNTIME_PROBE
+import mod.server.extraServerApi as api, math, json
+player=${payload(player)}
+target=${payload(targetDimension)}
+candidates=${payload(candidates)}
+if player not in api.GetPlayerList(): raise RuntimeError('Player not ready')
+factory=api.GetEngineCompFactory()
+dim=factory.CreateDimension(player)
+posComp=factory.CreatePos(player)
+originalDim=dim.GetEntityDimensionId()
+originalPos=posComp.GetFootPos()
+changed=False
+try:
+    if target is not None and target != originalDim:
+        if not hasattr(dim,'ChangePlayerDimension') or not dim.ChangePlayerDimension(target,(originalPos[0],originalPos[1]+1.62,originalPos[2])): raise RuntimeError('DIMENSION_REJECTED')
+        changed=True
+    currentDim=dim.GetEntityDimensionId()
+    position=posComp.GetFootPos()
+    chunks=factory.CreateChunkSource(player)
+    chunk=(int(math.floor(position[0]/16)),int(math.floor(position[2]/16)))
+    minPos=chunks.GetChunkMinPos(chunk)
+    maxPos=chunks.GetChunkMaxPos(chunk)
+    info=factory.CreateBlockInfo(api.GetLevelId())
+    reads=[]
+    for y in candidates:
+        block=info.GetBlockNew((int(math.floor(position[0])),int(y),int(math.floor(position[2]))),currentDim)
+        reads.append({'y':int(y),'block':block})
+    _result={'dimension':currentDim,'originalDimension':originalDim,'position':position,'originalPosition':originalPos,'chunk':chunk,'min':minPos,'max':maxPos,'candidateReads':reads,'restored':False}
+finally:
+    if changed:
+        if not dim.ChangePlayerDimension(originalDim,(originalPos[0],originalPos[1]+1.62,originalPos[2])): raise RuntimeError('DIMENSION_RESTORE_FAILED')
+        _result['restored']=True`;
+}
+function buildHeightProbeCode(player, dimension, ys) {
+  return `# DGN_BUILD_HEIGHT_PROBE
+import mod.server.extraServerApi as api, math
+player=${payload(player)}
+dimension=${payload(dimension)}
+ys=${payload(ys)}
+if player not in api.GetPlayerList(): raise RuntimeError('Player not ready')
+factory=api.GetEngineCompFactory()
+if factory.CreateDimension(player).GetEntityDimensionId()!=dimension: raise RuntimeError('Player dimension changed')
+pos=factory.CreatePos(player).GetFootPos()
+x,z=int(math.floor(pos[0])),int(math.floor(pos[2]))
+info=factory.CreateBlockInfo(api.GetLevelId())
+states=factory.CreateBlockState(api.GetLevelId())
+def read(y):
+    b=info.GetBlockNew((x,y,z),dimension)
+    if not b or not b.get('name'): raise RuntimeError('Block unavailable at Y '+str(y))
+    s=states.GetBlockStates((x,y,z),dimension)
+    e=info.GetBlockEntityData(dimension,(x,y,z)) if b.get('name')!='minecraft:air' else None
+    return {'name':b.get('name'),'aux':b.get('aux',0),'states':s or {},'entity':e}
+def write(y,b):
+    name=b['name'].encode('utf-8') if isinstance(b['name'],unicode) else b['name']
+    st={k.encode('utf-8') if isinstance(k,unicode) else k:v.encode('utf-8') if isinstance(v,unicode) else v for k,v in (b.get('states') or {}).items()}
+    aux=states.GetBlockAuxValueFromStates(name,st)
+    if aux is None or aux<0: aux=b.get('aux',0)
+    info.SetBlockNew((x,y,z),{'name':name,'aux':aux},0,dimension,True,False)
+    if b.get('entity') is not None: info.SetBlockEntityData(dimension,(x,y,z),b['entity'])
+before=[]
+for y in ys: before.append({'y':int(y),'block':read(int(y))})
+writeResult=[]
+try:
+    for item in before:
+        write(item['y'],{'name':'minecraft:stone','states':{},'entity':None,'aux':0})
+        writeResult.append({'y':item['y'],'ok':True,'block':read(item['y'])})
+finally:
+    restored=[]
+    for item in before:
+        write(item['y'],item['block'])
+        restored.append({'y':item['y'],'block':read(item['y'])})
+_result={'dimension':dimension,'position':[x,pos[1],z],'before':before,'write':writeResult,'readback':writeResult,'restored':restored}`;
+}
 function startCode(data) {
   return "# DGN_TERRAIN_START\n" + runtime + `\n_dgn_data=${payload(data)}\n_dgn_previous=globals().get('_dgn_terrain_batch')\nif _dgn_previous and _dgn_previous.result['phase']=='loading': raise RuntimeError('Terrain batch busy')\n_dgn_terrain_batch=DgnTerrainBatch(_dgn_data)\n_dgn_terrain_batch.start()\n_result={'accepted':True}`;
 }
 const statusCode = id => `# DGN_TERRAIN_STATUS\n_dgn_b=globals().get('_dgn_terrain_batch')\nif not _dgn_b or _dgn_b.data['id']!=${payload(id)}: raise RuntimeError('Terrain batch identity changed')\n_result=_dgn_b.result`;
 const cancelCode = id => `# DGN_TERRAIN_CANCEL\n_dgn_b=globals().get('_dgn_terrain_batch')\nif _dgn_b and _dgn_b.data['id']==${payload(id)}: _dgn_b.cancel()\n_result=True`;
-module.exports = { probeCode, startCode, statusCode, cancelCode };
+module.exports = { probeCode, dimensionProbeCode, buildHeightProbeCode, startCode, statusCode, cancelCode };

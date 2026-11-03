@@ -7,6 +7,7 @@ const { spawnSync } = require("node:child_process");
 const { WorkspaceStore } = require("../electron/services.cjs"),
   { Profiles } = require("../electron/domains/profiles/profiles.cjs"),
   { WorldLibrary } = require("../electron/domains/worlds/worlds.cjs");
+const { testResultsRoot } = require("./fixtures/artifacts.cjs");
 (async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-multi-ui-"));
   let app;
@@ -103,8 +104,8 @@ const { WorkspaceStore } = require("../electron/services.cjs"),
     await page
       .getByRole("checkbox", { name: "测试模组 source", exact: true })
       .check();
-    await fs.mkdir("test-results", { recursive: true });
-    await page.screenshot({ path: "test-results/quick-test-ui.png" });
+    await fs.mkdir(testResultsRoot, { recursive: true });
+    await page.screenshot({ path: path.join(testResultsRoot, "quick-test-ui.png") });
     await page.getByRole("button", { name: "开始测试", exact: true }).click();
     try {
       await page.getByText("调试已就绪", { exact: true }).waitFor();
@@ -245,7 +246,7 @@ const { WorkspaceStore } = require("../electron/services.cjs"),
         ).sessions.find((s) => s.id === oldA.id).running,
         true,
       );
-      await page.screenshot({ path: "test-results/reload-sources-ui.png" });
+      await page.screenshot({ path: path.join(testResultsRoot, "reload-sources-ui.png") });
       await restart.click();
       await page.getByLabel("我已保存游戏进度").check();
       await page.getByRole("button", { name: "确认重启", exact: true }).click();
@@ -276,7 +277,7 @@ const { WorkspaceStore } = require("../electron/services.cjs"),
         ),
         newA = after.sessions.findLast((s) => s.worldId === a.id);
       await fs.writeFile(
-        "test-results/reload-sources-ui-state.json",
+        path.join(testResultsRoot, "reload-sources-ui-state.json"),
         JSON.stringify(
           {
             oldA: oldA.id,
@@ -306,7 +307,7 @@ const { WorkspaceStore } = require("../electron/services.cjs"),
       assert.deepEqual(cfg.included_mod_dirs, [next]);
       assert.deepEqual(errors, []);
       await fs.writeFile(
-        "test-results/reload-sources-ui.json",
+        path.join(testResultsRoot, "reload-sources-ui.json"),
         JSON.stringify(
           {
             passed: true,
@@ -450,10 +451,10 @@ const { WorkspaceStore } = require("../electron/services.cjs"),
         .count(),
       0,
     );
-    await fs.mkdir("test-results", { recursive: true });
-    await page.screenshot({ path: "test-results/world-management-ui.png" });
+    await fs.mkdir(testResultsRoot, { recursive: true });
+    await page.screenshot({ path: path.join(testResultsRoot, "world-management-ui.png") });
     await fs.writeFile(
-      "test-results/world-management-ui.json",
+      path.join(testResultsRoot, "world-management-ui.json"),
       JSON.stringify(
         {
           passed: true,

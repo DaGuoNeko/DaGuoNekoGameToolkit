@@ -12,6 +12,7 @@ const assert=require("node:assert/strict"),fs=require("node:fs/promises"),os=req
     await app.evaluate(({dialog},file)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[file]});},file);
     await ipc("files.pick",{kind:"background"});
     assert.match(await ipc("image.read",{path:file}),/^data:image\/png;base64,/);
+    await assert.rejects(ipc("map-preview.pick",{kind:"archive"}),/请选择存档/);
     await ipc("settings.update",{BgImagePath:file});
     await fs.rename(file,file+".old");await fs.copyFile(file+".old",file);
     await assert.rejects(ipc("image.read",{path:file}),/变化/);
@@ -19,6 +20,8 @@ const assert=require("node:assert/strict"),fs=require("node:fs/promises"),os=req
     assert.match(await ipc("image.read",{path:file}),/^data:image\/png;base64,/);
     const source=path.join(root,"world");await fs.mkdir(source);
     await app.evaluate(({dialog},file)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[file]});},source);
+    await assert.rejects(ipc("map-preview.pick",{kind:"invalid"}),/请选择/);
+    await assert.rejects(ipc("map-preview.pick",{kind:"archive"}),/请选择存档/);
     await ipc("map-preview.pick",{kind:"folder"});
     await fs.rename(source,source+".old");await fs.mkdir(source);
     await assert.rejects(ipc("map-preview.render",{source,requestId:"changed-source"}),/变化/);

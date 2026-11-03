@@ -18,13 +18,23 @@
 - UI 编辑器：[docs/UI_EDITOR_STATUS.md](docs/UI_EDITOR_STATUS.md)、[docs/EDITOR_ENGINE.md](docs/EDITOR_ENGINE.md)。
 - 原生组件：对应 `DesktopUI/native/<组件>/README.md`；第三方来源：[licenses/NOTICE.md](licenses/NOTICE.md) 和 [vendor/SOURCES.md](DesktopUI/electron/debug/vendor/SOURCES.md)。
 
+## Git 提交与版本
+
+- 每次提交、amend 或合并提交前，读取近期提交的完整标题、正文及目标提交差异，保持历史格式和中文风格。标题默认使用 `release: <当前版本>`；同一版本内补充或合并沿用该版本标题，不自行改成新的功能标题。具体流程见[开发指南：Git 提交与版本](docs/开发指南.md#git-提交与版本)。
+- 正文沿用“更新”“修复”（有修复时）和“验证与范围”结构，写清实际行为变化、验证结果、未验证项及限制，并与对应 Release Notes 保持一致。禁止只保留标题、丢弃正文或用一句“合并提交”代替变更说明。
+- 合并指定提交时，在所有原提交信息基础上整理、去重、修正和补充；保留仍有效的变更说明，核对新增改动是否写入正文。旧测试数量、失败结论和产物哈希不能冒充合并后结果。按要求合为一个提交时，不另拆版本提交。
+- 项目版本跟随 Git 版本记录和用户已确认的版本计划，默认不升版。每次提升版本前必须向用户说明目标版本并取得明确同意；本次已明确同意该目标版本的无需重复询问。“提交”“收口”“合并提交”不等于同意升版；不得自行按 patch/minor 递增或以某个标签存在为由跳到下一版。
+- 提交后读取最终完整正文并核对差异、父提交、工作区、`package.json`、锁文件、README 和 Release Notes；合并应保留全部约定内容和提交数量。提交、升版、标签、推送和正式发布分别按授权执行；合并不自动移动已有标签，标题含 `release:` 也不代表已正式发布。
+
 ## 文件放置与编码
 
 - 正式文档放 `docs/`，可重复测试及夹具放 `DesktopUI/tests/`，正式维护脚本放 `DesktopUI/scripts/`。
 - 临时验收存档仅作为测试样本；其名称、路径、内容和专属报告不得进入项目文档，文档只记录通用功能与验证边界。
-- 一次性脚本放 `.miao/scripts/`，临时笔记放 `.miao/notes/`，专用测试样本放 `.miao/test-data/`；这些目录受现有忽略规则覆盖，不创建无用空目录。
-- 测试输出放 `DesktopUI/test-results/`，构建放 dist，发行放 release；不把交接原文或私人研究资料搬入正式文档。
-- 忽略规则只作用于未跟踪文件，不能替代备份；提交前检查实际文件清单，不依赖扩展名猜测是否会被跟踪。
+- 一次性脚本放 `.miao/scripts/`，临时笔记放 `.miao/notes/`；测试脚本、视觉截图、验收报告、测试存档副本和失败日志统一放 `.miao/work/<任务ID>/`，必须有 `manifest.json` 和三天后的 `expiresAt`。可复用的测试进入 `DesktopUI/tests/`，正式维护脚本进入 `DesktopUI/scripts/`。
+- `.miao/work/`、`DesktopUI/dist/`、`DesktopUI/release/` 和依赖缓存只保存可归属的本地产物。每个开发窗口结束自己的任务前，必须完成必要验证并运行 `npm.cmd run package` 生成当前版本的最新本地 Release；该命令会先清理未运行的旧 Release，运行中的发行目录暂时保留，退出后由下一次出包收口。开发任务清理使用 `npm.cmd run clean:dev` 预览，再用 `npm.cmd run clean:dev:apply` 删除有清单且已过期的任务。
+- 构建、发行和测试输出不得散落到项目根目录；不把交接原文或私人研究资料搬入正式文档。
+- 忽略规则只遮蔽可重建依赖、构建输出和明确的本机缓存；`.env`、`.env.example`、`.mcdev.json`、共享 `.vscode/` 和项目本地环境文件默认可见，便于跨设备恢复，但不得写入真实密钥。不能用扩展名或 `.gitignore` 代替归属和生命周期。
+- `Thumbs.db`、`.DS_Store`、`desktop.ini`、`ehthumbs.db` 是系统垃圾，发现后直接删除；孤儿任务目录没有 `manifest.json` 时只报告，不自动删除。
 - 新增文本使用 UTF-8。修改前确认并保留原编码、BOM 和换行，优先 apply_patch，不整文件转码或顺手格式化。源文件和 JSONC 保留未知字段与注释；业务注释优先中文并遵循当前文件风格。
 - PowerShell 处理中文前设置 UTF-8；已确认 UTF-8 的文件显式用 `Get-Content -Encoding UTF8` 读取：
 
@@ -54,7 +64,8 @@ $OutputEncoding = $Utf8NoBom
 - 改动只跑必要检查：`npm.cmd run build`、`npm.cmd test`、对应 UI/原生/打包验证；服务测试默认并发度为 4，必要时串行复测并保留失败说明。
 - 区分静态检查、服务测试、模拟 UI、最终 ASAR/EXE 与真实游戏验证；跳过的原生探针不算通过，不从旧记录复制通过数量。
 - 修改功能入口同时核对界面、IPC/preload、服务、MCP（若适用）、测试和说明；只修改受本任务影响的部分。
-- 当功能改动已接近完成并通过必要验证时，主动检查是否进入版本迭代边界，并向用户询问是否升 patch/minor 版本、编写 Release 说明、提交、打标签、打包和发布；不得自行执行这些不可逆或对外操作。只有 GitHub Release 的版本标签、匹配版本的 ZIP 和 `.sha256` 资产完整发布后，客户端更新模块才会识别新版本，单独提交或打包不算已发布。
+- 当功能改动已接近完成并通过必要验证时，每个开发窗口都要先生成当前版本的本地最新 Release；再主动检查是否进入版本迭代边界，并向用户询问是否升 patch/minor 版本、编写 Release 说明、提交、打标签和正式发布。不得自行执行这些不可逆或对外操作。只有 GitHub Release 的版本标签、匹配版本的 ZIP 和 `.sha256` 资产完整发布后，客户端更新模块才会识别新版本；本地 Release 是窗口收口证据，不等于正式发布。
+- 版本边界按上文“Git 提交与版本”核对提交记录、标签和用户已确认的版本计划。并行开发窗口不得自行把 `package.json`、README 或 `docs/releases/` 推进到下一个未确认版本；未打标签、未发布的版本只能保留为明确的本地工作版本，不能称为正式版本。
 - 出包使用 `npm.cmd run package`，保留构建白名单、runtime、许可证及 ZIP 校验；原生源码变化先按对应脚本重编。
 - 保留 esbuild 的 `mainFields: ["module", "main"]`；给普通 Node/helper 执行的入口不得依赖 Electron 的 ASAR 文件读取能力。
 - 完成后说明改动、验证结果、未验证项和风险。产品说明写入正式文档，变更摘要写入开发记录，临时过程放忽略目录；不重新堆积到本文件。

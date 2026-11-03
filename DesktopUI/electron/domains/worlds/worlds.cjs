@@ -5,7 +5,16 @@ const { atomicWrite, validateConfig } = require("../../services.cjs");
 const { LIBRARY_NAME, ID, managedId, folderFor } = require("./world-path.cjs");
 const { loadWorldInfo } = require("./world-info.cjs");
 const { openWorldZip } = require("./world-zip.cjs");
-const { inspectWorldPacks, prepareWorldPacks } = require("./world-packs.cjs");
+const {
+  packRevision,
+  inspectWorldPacks,
+  inspectWorldPackHealth,
+  inspectWorldPackVersions,
+  editWorldPack,
+  prepareWorldPacks,
+  rewriteWorldPackUuids,
+  syncWorldPackVersions,
+} = require("./world-packs.cjs");
 const { AUTO_IMPORT_PROFILE } = require("../../../shared/world-import-model.cjs");
 const { validateWorldAssets } = require("./asset-validation.cjs");
 const { validateModIds } = require("../reload/quick-test.cjs");
@@ -61,6 +70,7 @@ class WorldLibrary {
     this.root = path.join(this.worldsRoot, LIBRARY_NAME);
     this.file = path.join(this.root, "worlds.json");
     this.queue = Promise.resolve();
+    this.worldLocks = new Map();
     this.appDataOverride = options.appDataOverride || null;
     this.busy = options.busy || (() => false);
     this.mutationGuard = options.mutationGuard;
@@ -78,6 +88,23 @@ class WorldLibrary {
     const result = this.queue.catch(() => {}).then(task);
     this.queue = result;
     return result;
+  }
+  commit(task) {
+    return this.run(async () => {
+      const data = await this.read(true);
+      const result = await task(data);
+      await this.write(data);
+      return result;
+    });
+  }
+  withWorldLock(id, task) {
+    const previous = this.worldLocks.get(id) || Promise.resolve();
+    const operation = previous.catch(() => {}).then(task);
+    this.worldLocks.set(id, operation);
+    operation.finally(() => {
+      if (this.worldLocks.get(id) === operation) this.worldLocks.delete(id);
+    }).catch(() => {});
+    return operation;
   }
   async syncProfiles(data) {
     if (!this.profiles) return;
@@ -282,18 +309,29 @@ class WorldLibrary {
       }
     }
   }
-  async list(projectId) {
+  async list(projectId, includePackChecks = false) {
       // 原子索引已记录 copying；只读查询不等待大型复制完成。
       const project = projectId ? this.scopedProject(projectId) : null,
         data = await this.read();
       const worlds = [];
       for (const w of data.worlds.filter((w) => this.owns(w, project))) {
         try {
+          const info = await this.inspect(w),
+            packPlan =
+              includePackChecks && info.ready && w.embeddedPacks === undefined
+                ? await inspectWorldPacks(info.path)
+                : w.embeddedPacks,
+            packCheck =
+              includePackChecks && info.ready && packPlan
+                ? await inspectWorldPackVersions(info.path, packPlan)
+                : null;
           worlds.push({
             ...w,
             profileId: w.profileId || w.projectId,
             options: this.options(w),
-            ...(await this.inspect(w)),
+            ...info,
+            ...(packPlan ? { embeddedPacks: packPlan } : {}),
+            packIssues: packCheck?.issues || [],
           });
         } catch (e) {
           worlds.push({
@@ -397,7 +435,8 @@ class WorldLibrary {
     if (info.present) await this.noLinks(info.path);
     return w;
   }
-  recycle(projectId, id, confirmed) {
+  recycle(projectId, id, confirmed, options = {}) {
+    if (options.parallel) return this.recycleParallel(projectId, id, confirmed);
     return this.run(async () => {
       if (confirmed !== true) throw Error("请先确认删除存档");
       await this.mutable([id]);
@@ -437,7 +476,8 @@ class WorldLibrary {
       return true;
     });
   }
-  restore(projectId, id) {
+  restore(projectId, id, options = {}) {
+    if (options.parallel) return this.restoreParallel(projectId, id);
     return this.run(async () => {
       await this.mutable([id]);
       const data = await this.read(),
@@ -476,6 +516,84 @@ class WorldLibrary {
       await this.syncProfiles(data);
       return true;
     });
+  }
+  async recycleParallel(projectId, id, confirmed) {
+    return this.withWorldLock(id, async () => {
+      if (confirmed !== true) throw Error("请先确认删除存档");
+      await this.mutable([id]);
+      const snapshot = await this.run(async () => {
+      const data = await this.read(), w = this.find(data, projectId ? this.scopedProject(projectId) : null, id), info = await this.inspect(w);
+      return { linked: !!w.linkedPath, path: info.path, present: info.present, deleted: !!info.deleted };
+      });
+      if (snapshot.deleted) return true;
+      if (snapshot.linked) {
+        await this.commit(async data => { const w = this.find(data, projectId ? this.scopedProject(projectId) : null, id); await this.detachLinked(w); w.deletedAt = new Date().toISOString(); });
+      } else {
+        const target = this.location(id, true);
+        if (snapshot.present) { await this.noLinks(snapshot.path); await fs.mkdir(path.dirname(target), { recursive: true }); await fs.rename(snapshot.path, target); }
+        try { await this.commit(data => { this.find(data, projectId ? this.scopedProject(projectId) : null, id).deletedAt = new Date().toISOString(); }); }
+        catch (error) { if (snapshot.present) await fs.rename(target, snapshot.path).catch(() => {}); throw error; }
+      }
+      await this.syncProfiles(await this.read());
+      return true;
+    });
+  }
+  async restoreParallel(projectId, id) {
+    return this.withWorldLock(id, async () => {
+      await this.mutable([id]);
+      const snapshot = await this.run(async () => {
+      const data = await this.read(), w = this.find(data, projectId ? this.scopedProject(projectId) : null, id), info = await this.inspect(w);
+      if (!info.deleted) return { linked: true, present: false, path: info.path };
+      if (w.purging) throw Error("该存档已开始永久删除，不能恢复，请重试永久删除");
+      return { linked: !!w.linkedPath, present: info.present, inTrash: info.inTrash, path: info.path, ready: info.ready };
+      });
+      if (snapshot.linked || (!snapshot.inTrash && snapshot.present)) {
+        await this.commit(data => { delete this.find(data, projectId ? this.scopedProject(projectId) : null, id).deletedAt; });
+      } else {
+        if (snapshot.present) throw Error("原位置已有数据，不能覆盖恢复");
+        const trash = this.location(id, true);
+        if (snapshot.inTrash) { await this.noLinks(trash); await fs.rename(trash, snapshot.path); }
+        try { await this.commit(data => { delete this.find(data, projectId ? this.scopedProject(projectId) : null, id).deletedAt; }); }
+        catch (error) { if (snapshot.inTrash) await fs.rename(snapshot.path, trash).catch(() => {}); throw error; }
+      }
+      await this.syncProfiles(await this.read());
+      return true;
+    });
+  }
+  async purgeParallel(ids, confirmed) {
+    if (confirmed !== true) throw Error("请先确认永久删除存档，此操作不可恢复");
+    if (!Array.isArray(ids) || !ids.length || ids.length > 10000 || new Set(ids).size !== ids.length)
+      throw Error("无效的待删除存档列表");
+    const results = await Promise.all(ids.map(id => this.withWorldLock(id, () => this.purgeOneParallel(id))));
+    return { deleted: results.filter(Boolean).length };
+  }
+  async purgeOneParallel(id) {
+    await this.mutable([id]);
+    const snapshot = await this.run(async () => {
+      const data = await this.read(), w = this.find(data, null, id), info = await this.inspect(w);
+      if (!info.deleted) throw Error("只能永久删除回收站中的存档，请刷新后重试");
+      if (w.linkedPath) return { linked: true, name: w.name };
+      if (info.present) throw Error("原位置仍有存档数据，已停止永久删除");
+      const target = this.location(id, true);
+      if (path.dirname(target) !== path.join(this.root, ".trash") || path.dirname(path.dirname(target)) !== this.root)
+        throw Error("永久删除路径超出回收站范围");
+      if (info.inTrash) await this.noLinks(target);
+      return { target, present: info.inTrash, name: w.name };
+    });
+    await this.commit(async data => {
+      const w = this.find(data, null, id);
+      w.purging = true;
+      w.deletedAt ||= new Date().toISOString();
+    });
+    try {
+      if (snapshot.linked) await this.commit(async data => { const w = this.find(data, null, id); await this.detachLinked(w); });
+      else if (snapshot.present) await fs.rm(snapshot.target, { recursive: true, force: false });
+      await this.commit(data => { data.worlds = data.worlds.filter(item => item.id !== id); });
+      await this.syncProfiles(await this.read());
+      return true;
+    } catch (error) {
+      throw Error(`永久删除“${snapshot.name}”时停止：${error.message}。请刷新回收站检查并重试。`);
+    }
   }
   purge(ids, confirmed) {
     return this.run(async () => {
@@ -714,6 +832,74 @@ class WorldLibrary {
       );
     });
   }
+  syncPackVersions(id, confirmed, expectedRevision) {
+    return this.run(async () => {
+      if (confirmed !== true) throw Error("请先确认同步地图模组清单版本");
+      await this.idle(true);
+      const data = await this.read(),
+        w = this.find(data, null, id),
+        info = await this.inspect(w);
+      if (!info.ready || info.deleted || w.copying)
+        throw Error("内置模组对应的存档不可用");
+      await this.noLinks(info.path);
+      const plan = w.embeddedPacks || (await inspectWorldPacks(info.path));
+      if (!plan) return { changed: false, updated: 0, issues: [] };
+      if (!expectedRevision || await packRevision(info.path, plan) !== expectedRevision) throw Error("模组文件已变化，请重新检查后再确认");
+      return syncWorldPackVersions(info.path, plan, async (next) => {
+        w.embeddedPacks = next;
+        await this.write(data);
+      }, () => this.idle(true));
+    });
+  }
+  inspectPackHealth(id) {
+    return this.run(async () => {
+      const data = await this.read(),
+        w = this.find(data, null, id),
+        info = await this.inspect(w);
+      if (!info.ready || info.deleted || w.copying)
+        throw Error("内置模组对应的存档不可用");
+      return { ...await inspectWorldPackHealth(info.path, w.embeddedPacks),
+        worldId: id, path: info.path, linked: !!w.linkedPath };
+    });
+  }
+  rebindPackUuids(id, packId, confirmed, expectedRevision) {
+    return this.run(async () => {
+      if (confirmed !== true) throw Error("请先确认重绑存档模组 UUID");
+      await this.idle(true);
+      const data = await this.read(),
+        w = this.find(data, null, id),
+        info = await this.inspect(w);
+      if (!info.ready || info.deleted || w.copying)
+        throw Error("内置模组对应的存档不可用");
+      await this.noLinks(info.path);
+      const plan = w.embeddedPacks || (await inspectWorldPacks(info.path));
+      if (!plan) throw Error("存档没有可重绑的内置模组");
+      if (!expectedRevision || await packRevision(info.path, plan) !== expectedRevision) throw Error("模组文件已变化，请重新检查后再确认");
+      return rewriteWorldPackUuids(info.path, plan, packId, async (next) => {
+        w.embeddedPacks = next;
+        await this.write(data);
+      }, () => this.idle(true));
+    });
+  }
+  editPack(id, packId, values, confirmed, expectedRevision) {
+    return this.run(async () => {
+      if (confirmed !== true) throw Error("请先确认修改存档模组");
+      await this.idle(true);
+      const data = await this.read(),
+        w = this.find(data, null, id),
+        info = await this.inspect(w);
+      if (!info.ready || info.deleted || w.copying)
+        throw Error("内置模组对应的存档不可用");
+      await this.noLinks(info.path);
+      const plan = w.embeddedPacks || (await inspectWorldPacks(info.path));
+      if (!plan) throw Error("存档没有可编辑的内置模组");
+      if (!expectedRevision || await packRevision(info.path, plan) !== expectedRevision) throw Error("模组文件已变化，请重新检查后再确认");
+      return editWorldPack(info.path, plan, packId, values || {}, async (next) => {
+        w.embeddedPacks = next;
+        await this.write(data);
+      }, () => this.idle(true));
+    });
+  }
   async inspectSource(source) {
     if (typeof source !== "string" || !path.isAbsolute(source)) throw Error("请输入来源绝对路径");
     source = path.resolve(source);
@@ -734,7 +920,9 @@ class WorldLibrary {
     const assets = await validateWorldAssets(info.path);
     return { worldId:id, worldName:w.name, path:info.path, ...assets };
   }
-  importWorld(profileId, name, source, mode = "copy", sourceWorldId) {
+  importWorld(profileId, name, source, mode = "copy", sourceWorldId, options = {}) {
+    if (options.parallel && !sourceWorldId)
+      return this.importWorldParallel(profileId, name, source, mode, options.onProgress);
     return this.run(async () => {
       await this.idle(true);
       if (sourceWorldId) {
@@ -875,6 +1063,103 @@ class WorldLibrary {
             `导入“${registered}”未完成，已保留未完成卡片，可移入回收站后重试：${e.message}${createdProfile ? "；已创建启动配置“" + createdProfile.project.name + "”，可在启动配置页查看" : ""}`,
           );
         throw e;
+      } finally {
+        if (archive) await archive.close();
+      }
+    });
+  }
+  async importWorldParallel(profileId, name, source, mode = "copy", onProgress = () => {}) {
+    onProgress({ message: "正在检查导入来源", completed: null, total: null });
+    await this.idle(true);
+    const automatic = profileId === AUTO_IMPORT_PROFILE,
+      profile = automatic ? null : this.store.project(profileId);
+    if (automatic && !this.createImportProfile)
+      throw Error("自动匹配配置不可用，请重新打开工具箱");
+    if (typeof source !== "string" || !path.isAbsolute(source))
+      throw Error("请选择存档文件夹或 ZIP");
+    source = path.resolve(source);
+    const fromLibrary = path.relative(this.root.toLowerCase(), source.toLowerCase()),
+      toLibrary = path.relative(source.toLowerCase(), this.root.toLowerCase()),
+      within = relative => !path.isAbsolute(relative) && relative !== ".." && !relative.startsWith(".." + path.sep);
+    if (within(fromLibrary) || within(toLibrary))
+      throw Error("导入源不能是存档库、库内内容或存档库的上级目录");
+    const sourceStat = await stat(source);
+    if (!sourceStat || sourceStat.isSymbolicLink() || (await fs.realpath(source)).toLowerCase() !== source.toLowerCase())
+      throw Error("导入源不存在或被目录链接重定向");
+    if (mode === "linked" && !sourceStat.isDirectory())
+      throw Error("直接使用原目录仅支持文件夹，ZIP 请先解压或选择复制导入");
+    if (!["copy", "linked"].includes(mode)) throw Error("无效的存档导入方式");
+    let archive, registered = false, createdProfile;
+    const id = "w_" + crypto.randomUUID().replaceAll("-", "");
+    return this.withWorldLock(id, async () => {
+      try {
+      let metadata;
+      if (sourceStat.isFile() && /\.(?:zip|mcworld)$/i.test(source)) {
+        archive = await openWorldZip(source);
+        metadata = archive.metadata;
+      } else if (sourceStat.isDirectory()) {
+        await this.safeDirectory(source);
+        await this.noLinks(source);
+        if (!(await stat(path.join(source, "level.dat")))?.isFile()) throw Error("目录中缺少 level.dat");
+        metadata = await loadWorldInfo(path.join(source, "level.dat"));
+      } else throw Error("只支持存档文件夹、ZIP 或 MCWORLD 文件");
+      const linkedPlan = mode === "linked" ? await inspectWorldPacks(source) : null;
+      const w = {
+        id, name: title(name), projectId: profileId, profileId,
+        projectRoot: profile ? profile.baseDirectory || profile.root : "",
+        createdAt: new Date().toISOString(), ...metadata,
+        ...(mode === "linked" ? { linkedPath: source } : {}), copying: true,
+      };
+      await this.commit(data => {
+        if (mode === "linked" && data.worlds.some(item => {
+          if (!item.linkedPath) return false;
+          const current = path.relative(item.linkedPath.toLowerCase(), source.toLowerCase()), existing = path.relative(source.toLowerCase(), item.linkedPath.toLowerCase());
+          return (within(current) || within(existing));
+        })) throw Error("该原目录或其上下级目录已经登记，请使用已有卡片或先移除回收站中的登记");
+        data.worlds.push(w);
+        registered = true;
+        return w;
+      });
+      onProgress({ message: "正在复制存档文件", completed: null, total: null });
+      if (mode === "linked") {
+        onProgress({ message: "正在登记原目录", completed: 1, total: 1 });
+      } else if (archive) {
+        await archive.extract(this.location(id), dir => this.safeDirectory(dir));
+        await archive.close();
+        archive = null;
+      } else {
+        await fs.cp(source, this.location(id), {
+          recursive: true, dereference: false, errorOnExist: true, force: false, preserveTimestamps: true,
+          filter: async file => {
+            const item = await fs.lstat(file);
+            if (item.isSymbolicLink() || (!item.isDirectory() && !item.isFile())) throw Error("存档含链接或非普通文件，已停止复制");
+            if (item.isDirectory()) await this.safeDirectory(file);
+            return true;
+          },
+        });
+      }
+      const importedPath = mode === "linked" ? source : this.location(id);
+      onProgress({ message: "正在校验导入结果", completed: null, total: null });
+      await this.noLinks(importedPath);
+      const embedded = linkedPlan || await inspectWorldPacks(importedPath);
+      if (automatic) createdProfile = await this.createImportProfile(w.name, w.id);
+      await this.commit(data => {
+        const current = this.find(data, null, id);
+        if (embedded) current.embeddedPacks = embedded;
+        if (createdProfile) {
+          const selected = this.store.project(createdProfile.project.id);
+          current.profileId = selected.id;
+          current.projectId = selected.id;
+          current.projectRoot = selected.baseDirectory || selected.root;
+        }
+        delete current.copying;
+        return current;
+      });
+      onProgress({ message: "正在完成登记", completed: 1, total: 1 });
+      return this.find(await this.read(), null, id);
+    } catch (error) {
+      if (registered) throw Error(`导入“${name}”未完成，已保留未完成卡片，可移入回收站后重试：${error.message}`);
+      throw error;
       } finally {
         if (archive) await archive.close();
       }

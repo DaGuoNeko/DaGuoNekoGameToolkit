@@ -1,6 +1,7 @@
 const Ajv = require("ajv");
 const { settingsSchema, projectSchema } = require("./automation-config.cjs");
 const text = (maxLength = 128) => ({ type: "string", minLength: 1, maxLength });
+const dimensionId = { type: "integer", minimum: 0, maximum: 2147483647 };
 const target = {
   sessionId: text(),
   generation: { type: "integer", minimum: 0 },
@@ -11,9 +12,30 @@ const operation = {
   requestId: text(),
   confirmed: { const: true },
 };
+const terrainTask = { instanceId: text(), requestId: text(), taskId: text(), externalDataRoot: text(4096), confirmed: { const: true } };
+const terrainRegion = {
+  ...terrainTask,
+  sourceDimension: dimensionId,
+  x1: { type: "integer", minimum: -30000000, maximum: 30000000 },
+  y1: { type: "integer", minimum: -4096, maximum: 4096 },
+  z1: { type: "integer", minimum: -30000000, maximum: 30000000 },
+  x2: { type: "integer", minimum: -30000000, maximum: 30000000 },
+  y2: { type: "integer", minimum: -4096, maximum: 4096 },
+  z2: { type: "integer", minimum: -30000000, maximum: 30000000 },
+};
+const terrainPlacement = {
+  ...terrainTask,
+  targetDimension: dimensionId,
+  targetX: { type: "integer", minimum: -30000000, maximum: 30000000 },
+  targetY: { type: "integer", minimum: -4096, maximum: 4096 },
+  targetZ: { type: "integer", minimum: -30000000, maximum: 30000000 },
+  offset: { type: "array", minItems: 3, maxItems: 3, items: { type: "integer", minimum: -30000000, maximum: 30000000 } },
+  policy: { enum: ["overwrite", "keep"] },
+  includeAir: { type: "boolean" },
+};
 const vector = {type:"array",minItems:3,maxItems:3,items:{type:"number",minimum:-30000000,maximum:30000000}};
 const scene = {type:"object",additionalProperties:false,properties:{
-  position:vector,dimension:{type:"integer",minimum:0,maximum:1000000},
+  position:vector,dimension:dimensionId,
   rotation:{...vector,items:{type:"number",minimum:-360,maximum:360}},
   fov:{type:"number",minimum:30,maximum:110},perspective:{enum:[0,1,2]},
   timeOfDay:{type:"integer",minimum:0,maximum:23999},weather:{enum:["clear","rain","thunder"]},
@@ -283,7 +305,24 @@ const tools = [
   tool("create_project", "新建或复制启动配置；模组目录再用 update_project 设置。", {...operation,name:text(80),copyId:text()}, ["instanceId","requestId","confirmed","name"]),
   tool("inspect_world_source", "只读检查导入来源、包和元数据，不登记存档或创建配置。", {source:text(4096)}, ["source"], true),
   tool("validate_world_assets", "启动前扫描指定存档的 PNG 结构、JSON/JSONC 空资源路径和可解析资源引用；不会启动游戏或修改文件。", {worldId:text()}, ["worldId"], true),
+  tool("inspect_world_packs", "只读浏览存档内置模组、清单启用状态及 UUID/版本/依赖静态诊断，不代表游戏实际加载成功。编辑和重绑在工具箱存档模组窗口确认。", {worldId:text()}, ["worldId"], true),
   tool("clone_world", "复制已登记且停止的存档为独立数据副本，自动创建干净配置；外部模组源码不会被复制。", {...operation,worldId:text(),name:text(80),profileId:text()}, ["instanceId","requestId","confirmed","worldId","name"]),
+  tool("probe_dimension_runtime", "读取游戏当前或指定维度的实际运行边界。GetChunkMinPos/GetChunkMaxPos 绑定玩家所在维度，并返回候选 Y 的方块读取；指定 dimension 时会尝试传送并在结束时恢复原维度和位置。", {
+    ...target, instanceId: text(), requestId: text(), confirmed: { const: true }, dimension: dimensionId,
+    candidateY: { type: "array", maxItems: 32, items: { type: "integer", minimum: -4096, maximum: 4096 } },
+  }, ["sessionId", "generation", "instanceId", "requestId", "confirmed"], true),
+  tool("probe_build_height", "仅在 isolated 会话中测试候选 Y 是否可读写：保存原方块，写入测试方块并回读，最后恢复原状态。默认拒绝共享存档，返回 before/write/readback/restored。", {
+    ...target, instanceId: text(), requestId: text(), confirmed: { const: true }, dimension: dimensionId,
+    candidateY: { type: "array", minItems: 1, maxItems: 16, items: { type: "integer", minimum: -4096, maximum: 4096 } },
+  }, ["sessionId", "generation", "instanceId", "requestId", "confirmed", "dimension", "candidateY"], false),
+  tool("terrain_prepare", "建立架构导入任务并准备 Java/基岩来源副本；可用 externalDataRoot 将任务快照、运行目录和日志放到用户指定的独立临时目录。不会修改原来源。", {
+    instanceId: text(), requestId: text(), confirmed: { const: true }, kind: { enum: ["java", "bedrock"] }, name: text(60), source: text(4096), targetWorldId: text(), chunkerJar: text(4096), externalDataRoot: text(4096),
+  }, ["instanceId", "requestId", "confirmed", "kind", "name", "source", "targetWorldId"]),
+  tool("terrain_capture_source", "在来源会话的实际 sourceDimension 读取指定区域，持久化快照和写入前数据，供后续预览和导入使用。", terrainRegion, ["instanceId", "requestId", "taskId", "confirmed", "sourceDimension", "x1", "y1", "z1", "x2", "y2", "z2"]),
+  tool("terrain_preview", "在目标会话的实际 targetDimension 生成导入预览，支持目标坐标或 offset、覆盖/保留和是否导入空气；未确认前不写入目标。", terrainPlacement, ["instanceId", "requestId", "taskId", "confirmed", "targetDimension", "policy", "includeAir"]),
+  tool("terrain_apply", "应用当前地形预览。写入前检查目标会话、维度和预览身份，结果不确定时保留批次记录且不自动重放。", {...terrainTask, previewId: text()}, ["instanceId", "requestId", "taskId", "confirmed", "previewId"]),
+  tool("terrain_rollback", "撤销当前地形批次，按写入前快照逆序恢复；需要目标仍在导入时维度并明确确认。", terrainTask, ["instanceId", "requestId", "taskId", "confirmed"]),
+  tool("terrain_status", "读取架构导入任务状态、阶段、进度、预览计数、备份位置和 externalDataRoot；不会启动游戏或修改存档。", { instanceId: text(), taskId: text(), externalDataRoot: text(4096) }, ["instanceId", "taskId"], true),
 ];
 const ajv = new Ajv({ allErrors: true, strict: false });
 const validators = new Map(

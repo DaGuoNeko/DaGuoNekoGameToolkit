@@ -5,6 +5,7 @@ const fs = require("node:fs/promises"),
 const { spawnSync } = require("node:child_process");
 const assert = require("node:assert/strict");
 const { WorkspaceStore } = require("../electron/services.cjs");
+const { testResultsRoot } = require("./fixtures/artifacts.cjs");
 (async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-debug-ui-"));
   let app;
@@ -391,7 +392,7 @@ const { WorkspaceStore } = require("../electron/services.cjs");
     await page
       .getByRole("textbox", { name: "控件路径", exact: true })
       .fill("/root/label0");
-    await fs.mkdir("test-results", { recursive: true });
+    await fs.mkdir(testResultsRoot, { recursive: true });
     const inspectorScreenshot = await app.evaluate(async ({ BrowserWindow }) =>
       (
         await BrowserWindow.getAllWindows()[0].webContents.capturePage(
@@ -403,7 +404,7 @@ const { WorkspaceStore } = require("../electron/services.cjs");
         .toString("base64"),
     );
     await fs.writeFile(
-      "test-results/ui-inspector.png",
+      path.join(testResultsRoot, "ui-inspector.png"),
       Buffer.from(inspectorScreenshot, "base64"),
     );
     // A separate native window owns the inspector while the main window is suspended.
@@ -665,7 +666,7 @@ const { WorkspaceStore } = require("../electron/services.cjs");
         .toString("base64"),
     );
     await fs.writeFile(
-      "test-results/ui-inspector-popout.png",
+      path.join(testResultsRoot, "ui-inspector-popout.png"),
       Buffer.from(popoutScreenshot, "base64"),
     );
     await closePopout(popup2);

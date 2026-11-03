@@ -1,6 +1,8 @@
 const fs = require("node:fs/promises"),
   path = require("node:path"),
+  crypto = require("node:crypto"),
   jsonc = require("jsonc-parser");
+const { atomicWrite } = require("../../services.cjs");
 const kinds = ["behavior", "resource"];
 const storageName = ".toolbox-packs";
 const uuid = (value) =>
@@ -144,6 +146,475 @@ function validatePlan(plan) {
   return Object.fromEntries(
     kinds.map((k) => [k, references(plan[k], k + " 内置模组登记")]),
   );
+}
+async function inspectWorldPackVersions(root, plan) {
+  const refs = validatePlan(plan),
+    available = await scan(root),
+    current = { format: 1, behavior: [], resource: [] },
+    issues = [];
+  for (const kind of kinds)
+    for (const ref of refs[kind]) {
+      const own = available.get(ref.pack_id),
+        actual = own ? [...own.version] : null;
+      current[kind].push({
+        pack_id: ref.pack_id,
+        version: actual || [...ref.version],
+      });
+      if (!own) {
+        issues.push({
+          kind,
+          status: "missing",
+          packId: ref.pack_id,
+          expected: [...ref.version],
+          actual: null,
+        });
+        continue;
+      }
+      if (own.kind !== kind) {
+        issues.push({
+          kind,
+          status: "type",
+          packId: ref.pack_id,
+          packName: path.basename(own.dir),
+          expected: [...ref.version],
+          actual,
+          actualKind: own.kind,
+        });
+      } else if (!sameVersion(own.version, ref.version)) {
+        issues.push({
+          kind,
+          status: "version",
+          packId: ref.pack_id,
+          packName: path.basename(own.dir),
+          expected: [...ref.version],
+          actual,
+        });
+      }
+    }
+  return { plan: current, issues };
+}
+async function packRevision(root, plan) {
+  const current = await layout(root), files = [];
+  for (const kind of kinds) {
+    const container = current.containers[kind].active;
+    if (!(await directory(container))) continue;
+    const entries = await fs.readdir(container, { withFileTypes: true });
+    if (entries.length > 1000) throw Error("存档内置模组目录过多");
+    for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+      if (entry.isSymbolicLink()) throw Error("内置模组目录含链接：" + entry.name);
+      if (!entry.isDirectory()) continue;
+      await directory(path.join(container, entry.name));
+      for (const name of ["manifest.json", "pack_manifest.json"])
+        files.push(path.join(container, entry.name, name));
+    }
+  }
+  files.push(...kinds.flatMap(k => ["world_", "netease_world_"].map(prefix => path.join(root, prefix + k + "_packs.json"))),
+    path.join(root, storageName, "pack-plan.json"));
+  const hash = crypto.createHash("sha256").update(JSON.stringify([path.resolve(root), plan]));
+  for (const file of files) hash.update(JSON.stringify([file, await packText(file)]));
+  return hash.digest("hex");
+}
+async function packText(file) {
+  const s = await stat(file);
+  if (!s) return null;
+  if (!s.isFile() || s.isSymbolicLink() || s.size > 2 * 1024 * 1024 ||
+      !samePath(await fs.realpath(file), file)) throw Error("模组文件不是普通文件：" + file);
+  const bytes = await fs.readFile(file);
+  try { return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes); }
+  catch { throw Error("文件不是有效 UTF-8，未修改：" + file); }
+}
+function parsedText(text, file) {
+  const errors = [], data = jsonc.parse(text.replace(/^\uFEFF/, ""), errors, { allowTrailingComma: true });
+  if (errors.length || !data || typeof data !== "object") throw Error("模组 JSON 无法解析：" + file);
+  return data;
+}
+async function planFiles(root, plan, files) {
+  const file = path.join(root, storageName, "pack-plan.json"), before = await packText(file);
+  if (before !== null) files.push({ file, before,
+    after: editJsonText(before, kinds.map(k => [[k], plan[k]])) });
+}
+async function writePackChanges(root, plan, files, commit, nextPlan, expected, check = async () => {}) {
+  if (expected && await packRevision(root, plan) !== expected) throw Error("模组文件已变化，请重新检查后再确认");
+  files = files.filter(f => f.before !== f.after);
+  if (!files.length && JSON.stringify(plan) === JSON.stringify(nextPlan))
+    return { changed: false, backupPath: null };
+  const base = path.join(root, ".toolbox-pack-backups");
+  if (!(await directory(base))) await fs.mkdir(base);
+  const backupPath = path.join(base, crypto.randomUUID());
+  await fs.mkdir(backupPath);
+  // 独立备份目录避免覆盖上一次恢复点，也不向旧包容器加入迁移不认识的文件。
+  await fs.writeFile(path.join(backupPath, "restore.json"), JSON.stringify({
+    plan, nextPlan, files: files.map((f, index) => ({ path: path.relative(root, f.file), backup: index + ".bak", existed: f.before !== null })),
+  }, null, 2), { encoding: "utf8", flag: "wx" });
+  for (const [index, f] of files.entries())
+    if (f.before !== null) await fs.writeFile(path.join(backupPath, index + ".bak"), f.before, { encoding: "utf8", flag: "wx" });
+  const written = [];
+  try {
+    await check();
+    if (expected && await packRevision(root, plan) !== expected) throw Error("模组文件已变化，请重新检查");
+    for (const f of files) {
+      await directory(path.dirname(f.file));
+      if (await packText(f.file) !== f.before) throw Error("文件在保存期间变化：" + f.file);
+      await atomicWrite(f.file, f.after);
+      written.push(f);
+    }
+    await check();
+    await commit(nextPlan);
+  } catch (error) {
+    const failures = [];
+    for (const f of written.reverse()) {
+      try {
+        if (await packText(f.file) !== f.after) throw Error("文件已被外部修改");
+        if (f.before === null) await fs.unlink(f.file);
+        else await atomicWrite(f.file, f.before);
+      } catch { failures.push(path.relative(root, f.file)); }
+    }
+    throw Error(error.message + (failures.length ? "；部分文件未回滚：" + failures.join("、") : "；已撤回本次文件修改") + "；备份：" + backupPath);
+  }
+  return { changed: true, backupPath };
+}
+async function manifestChanges(p, changes, files) {
+  for (const name of ["manifest.json", "pack_manifest.json"]) {
+    const file = path.join(p.dir, name), before = await packText(file);
+    if (before === null) continue;
+    const data = parsedText(before, file);
+    if (String(data.header?.uuid).toLowerCase() !== p.id ||
+        JSON.stringify(data.modules) !== JSON.stringify(p.manifest.modules))
+      throw Error("同目录两份 manifest 身份不一致，请先核对：" + p.dir);
+    files.push({ file, before, after: editJsonText(before, changes) });
+  }
+}
+async function syncWorldPackVersions(root, plan, commit, check) {
+  const expected = await packRevision(root, plan), inspected = await inspectWorldPackVersions(root, plan);
+  if (inspected.issues.some(i => i.status !== "version")) throw Error("存在缺包或类型问题，请先补齐正确模组");
+  const files = [];
+  for (const kind of kinds) for (const prefix of ["world_", "netease_world_"]) {
+    const file = path.join(root, prefix + kind + "_packs.json"), before = await packText(file);
+    if (before === null) continue;
+    const list = parsedText(before, file);
+    references(list, file);
+    const changes = [];
+    list.forEach((ref, i) => {
+      const next = inspected.plan[kind].find(r => r.pack_id === ref.pack_id.toLowerCase());
+      if (next && !sameVersion(ref.version, next.version)) changes.push([[i, "version"], next.version]);
+    });
+    files.push({ file, before, after: editJsonText(before, changes) });
+  }
+  await planFiles(root, inspected.plan, files);
+  return { ...await writePackChanges(root, plan, files, commit, inspected.plan, expected, check), updated: inspected.issues.length, issues: inspected.issues };
+}
+function issue(code, value) {
+  return { code, ...value };
+}
+async function inspectWorldPackHealth(root, plan) {
+  const issues = [];
+  if (!plan) {
+    plan = { format: 1 };
+    for (const kind of kinds) {
+      const list = await readJson(path.join(root, "world_" + kind + "_packs.json"))
+        || await readJson(path.join(root, "netease_world_" + kind + "_packs.json"));
+      plan[kind] = list || [];
+      if (!list) issues.push(issue("missing-list", { kind }));
+    }
+  }
+  let refs;
+  try { refs = validatePlan(plan); }
+  catch (error) { refs = { behavior: [], resource: [] }; issues.push(issue("invalid-list", { detail: error.message })); }
+  const
+    listed = new Map(),
+    packs = [],
+    headers = new Map(),
+    modules = new Map();
+  for (const kind of kinds)
+    for (const ref of refs[kind])
+      listed.set(ref.pack_id, { ...ref, kind });
+  const current = await layout(root);
+  for (const kind of kinds) {
+    const container = current.containers[kind].active;
+    if (!(await directory(container))) continue;
+    const entries = await fs.readdir(container, { withFileTypes: true });
+    if (entries.length > 1000) throw Error("存档内置模组目录过多");
+    for (const entry of entries) {
+      if (entry.isSymbolicLink()) {
+        issues.push(issue("pack-link", { kind, packName: entry.name }));
+        continue;
+      }
+      if (!entry.isDirectory()) continue;
+      const dir = path.join(container, entry.name);
+      let p;
+      try {
+        p = await pack(dir);
+      } catch (error) {
+        issues.push(issue("invalid-manifest", {
+          kind,
+          packName: entry.name,
+          detail: error.message,
+        }));
+        continue;
+      }
+      if (!p) {
+        issues.push(issue("missing-manifest", { kind, packName: entry.name }));
+        continue;
+      }
+      const listedRef = listed.get(p.id),
+        modulesList = (p.manifest.modules || []).map((m) => ({
+          uuid: typeof m?.uuid === "string" ? m.uuid.toLowerCase() : null,
+          type: m?.type || null,
+          version: Array.isArray(m?.version) ? [...m.version] : null,
+        })),
+        dependencies = Array.isArray(p.manifest.dependencies)
+          ? p.manifest.dependencies.map((d) => ({
+              uuid: typeof d === "string" ? d.toLowerCase() : String(d?.uuid || "").toLowerCase(),
+              moduleName: typeof d?.module_name === "string" ? d.module_name : null,
+              version: d?.version ?? null,
+            }))
+          : [];
+      const record = {
+        kind,
+        packName: path.basename(p.dir),
+        name: p.manifest.header.name || path.basename(p.dir),
+        path: p.dir,
+        packId: p.id,
+        manifestFile: p.filename,
+        version: [...p.version],
+        expectedVersion: listedRef?.version || null,
+        enabled: !!listedRef && listedRef.kind === kind && p.kind === kind,
+        modules: modulesList,
+        dependencies,
+      };
+      packs.push(record);
+      const headerList = headers.get(p.id) || [];
+      headerList.push(record);
+      headers.set(p.id, headerList);
+      if (p.kind !== kind)
+        issues.push(issue("pack-type", {
+          kind,
+          packName: record.packName,
+          packId: p.id,
+          expectedKind: kind,
+          actualKind: p.kind,
+        }));
+      for (const module of modulesList) {
+        if (!uuid(module.uuid)) {
+          issues.push(issue("invalid-module-uuid", {
+            kind,
+            packName: record.packName,
+          }));
+          continue;
+        }
+        const moduleList = modules.get(module.uuid) || [];
+        moduleList.push(record);
+        modules.set(module.uuid, moduleList);
+      }
+      if (!listedRef)
+        issues.push(issue("unlisted-pack", {
+          kind,
+          packName: record.packName,
+          packId: p.id,
+        }));
+      else if (listedRef.kind !== kind)
+        issues.push(issue("pack-type", {
+          kind,
+          packName: record.packName,
+          packId: p.id,
+          expectedKind: listedRef.kind,
+        }));
+      else if (!sameVersion(p.version, listedRef.version))
+        issues.push(issue("version-mismatch", {
+          kind,
+          packName: record.packName,
+          packId: p.id,
+          expected: [...listedRef.version],
+          actual: [...p.version],
+        }));
+    }
+  }
+  for (const kind of kinds)
+    for (const ref of refs[kind])
+      if (!headers.has(ref.pack_id))
+        issues.push(issue("missing-pack", {
+          kind,
+          packId: ref.pack_id,
+          expected: [...ref.version],
+        }));
+  for (const [packId, list] of headers)
+    if (list.length > 1)
+      issues.push(issue("duplicate-pack-uuid", {
+        packId,
+        packs: list.map((p) => p.packName),
+      }));
+  for (const [moduleId, list] of modules)
+    if (list.length > 1 || headers.has(moduleId))
+      issues.push(issue("duplicate-module-uuid", {
+        moduleId,
+        packs: list.map((p) => p.packName),
+      }));
+  for (const packRecord of packs)
+    for (const dependency of packRecord.dependencies) {
+      if (!uuid(dependency.uuid)) {
+        if (!dependency.moduleName) issues.push(issue("invalid-dependency", { packName: packRecord.packName }));
+        continue;
+      }
+      const target = headers.get(dependency.uuid)?.[0];
+      if (!target)
+        issues.push(issue("missing-dependency", {
+          packName: packRecord.packName,
+          dependency: dependency.uuid,
+          expected: dependency.version,
+        }));
+      else if (dependency.version && !sameVersion(dependency.version, target.version))
+        issues.push(issue("dependency-version", {
+          packName: packRecord.packName,
+          dependency: dependency.uuid,
+          expected: dependency.version,
+          actual: target.version,
+        }));
+      else if (packRecord.enabled && !target.enabled)
+        issues.push(issue("disabled-dependency", { packName: packRecord.packName, dependency: dependency.uuid }));
+    }
+  let revision = null, readOnlyReason = null;
+  try { revision = await packRevision(root, plan); } catch (error) { readOnlyReason = error.message; }
+  if (issues.some(i => ["invalid-list", "pack-link", "invalid-manifest", "missing-manifest", "duplicate-pack-uuid", "duplicate-module-uuid", "invalid-module-uuid", "invalid-dependency", "pack-type"].includes(i.code)))
+    readOnlyReason ||= "存在无法唯一识别的模组或无效清单，请先修复这些问题";
+  return {
+    ok: issues.length === 0,
+    revision,
+    readOnlyReason,
+    packs,
+    issues,
+    summary: {
+      total: packs.length,
+      behavior: packs.filter((p) => p.kind === "behavior").length,
+      resource: packs.filter((p) => p.kind === "resource").length,
+      enabled: packs.filter((p) => p.enabled).length,
+      issueCount: issues.length,
+    },
+  };
+}
+function editJsonText(text, edits) {
+  const bom = text.startsWith("\uFEFF") ? "\uFEFF" : "";
+  let next = text.slice(bom.length);
+  for (const [pathValue, value] of edits) {
+    const node = jsonc.findNodeAtLocation(jsonc.parseTree(next), pathValue);
+    // 仅替换目标值；保留原文件注释、缩进、BOM 和换行。
+    if (node && value !== undefined && !Array.isArray(value) && typeof value !== "object")
+      next = next.slice(0, node.offset) + JSON.stringify(value) + next.slice(node.offset + node.length);
+    else next = jsonc.applyEdits(next, jsonc.modify(next, pathValue, value, {
+      formattingOptions: { insertSpaces: !/\n\t/.test(next), tabSize: 4, eol: next.includes("\r\n") ? "\r\n" : "\n" },
+    }));
+  }
+  return bom + next;
+}
+async function rewriteWorldPackUuids(root, plan, targetPackId, commit, check) {
+  const health = await inspectWorldPackHealth(root, plan);
+  if (health.readOnlyReason) throw Error(health.readOnlyReason);
+  if (targetPackId !== undefined && !uuid(targetPackId)) throw Error("无效的模组 UUID");
+  const expected = await packRevision(root, plan), available = await scan(root),
+    selected = targetPackId ? [available.get(targetPackId.toLowerCase())] : [...available.values()];
+  if (!selected.length || selected.some(p => !p)) throw Error("指定的存档模组不存在");
+  const used = new Set([...available.keys()]);
+  for (const p of available.values()) for (const m of p.manifest.modules || []) {
+    if (!uuid(m?.uuid) || used.has(m.uuid.toLowerCase()))
+      throw Error("模块 UUID 无效或重复，无法唯一重绑：" + p.dir);
+    used.add(m.uuid.toLowerCase());
+  }
+  const nextUuid = () => {
+    let value;
+    do value = crypto.randomUUID(); while (used.has(value));
+    used.add(value);
+    return value;
+  };
+  const headers = new Map(), modules = new Map();
+  for (const p of selected) {
+    headers.set(p.id, nextUuid());
+    for (const m of p.manifest.modules) modules.set(m.uuid.toLowerCase(), nextUuid());
+  }
+  const files = [];
+  for (const p of available.values()) {
+    const changes = [];
+    if (headers.has(p.id)) changes.push([["header", "uuid"], headers.get(p.id)]);
+    p.manifest.modules.forEach((m, i) => {
+      if (modules.has(m.uuid.toLowerCase())) changes.push([["modules", i, "uuid"], modules.get(m.uuid.toLowerCase())]);
+    });
+    if (p.manifest.dependencies !== undefined && !Array.isArray(p.manifest.dependencies))
+      throw Error("依赖清单格式无效：" + p.dir);
+    (p.manifest.dependencies || []).forEach((d, i) => {
+      const id = typeof d === "string" ? d : d?.uuid, next = typeof id === "string" && headers.get(id.toLowerCase());
+      if (next) changes.push([typeof d === "string" ? ["dependencies", i] : ["dependencies", i, "uuid"], next]);
+    });
+    if (changes.length) await manifestChanges(p, changes, files);
+  }
+  for (const kind of kinds) for (const prefix of ["world_", "netease_world_"]) {
+    const file = path.join(root, prefix + kind + "_packs.json"), before = await packText(file);
+    if (before === null) continue;
+    const list = parsedText(before, file);
+    references(list, file);
+    const changes = [];
+    list.forEach((ref, i) => {
+      const next = headers.get(ref.pack_id.toLowerCase());
+      if (next) changes.push([[i, "pack_id"], next]);
+    });
+    files.push({ file, before, after: editJsonText(before, changes) });
+  }
+  const refs = validatePlan(plan), nextPlan = { ...plan };
+  for (const kind of kinds) nextPlan[kind] = refs[kind].map(ref => ({ ...ref, pack_id: headers.get(ref.pack_id) || ref.pack_id }));
+  await planFiles(root, nextPlan, files);
+  return { ...await writePackChanges(root, plan, files, commit, nextPlan, expected, check),
+    updated: selected.length, mapping: [...headers, ...modules].map(([from, to]) => ({ from, to })), plan: nextPlan };
+}
+async function editWorldPack(root, plan, packId, values, commit, check) {
+  if (!uuid(packId) || !values || typeof values !== "object" || Array.isArray(values) ||
+      Object.keys(values).some(k => !["name", "version", "enabled"].includes(k)))
+    throw Error("无效的模组编辑参数");
+  if (values.enabled !== undefined && typeof values.enabled !== "boolean") throw Error("启用状态必须是布尔值");
+  if (values.name !== undefined && (typeof values.name !== "string" || !values.name.trim() ||
+      values.name.length > 80 || /[\0\r\n]/.test(values.name))) throw Error("模组名称应为 1–80 个字符");
+  if (values.version !== undefined && !version(values.version)) throw Error("模组版本必须是三个非负整数");
+  const expected = await packRevision(root, plan), refs = validatePlan(plan), available = await scan(root),
+    id = packId.toLowerCase(), selected = available.get(id);
+  if (!selected) throw Error("指定的存档模组不存在");
+  const nextVersion = values.version || selected.version, files = [], changes = [];
+  if (values.name !== undefined) changes.push([["header", "name"], values.name.trim()]);
+  if (values.version !== undefined) changes.push([["header", "version"], nextVersion]);
+  if (changes.length) await manifestChanges(selected, changes, files);
+  const nextPlan = { ...plan, behavior: refs.behavior.map(r => ({ ...r })), resource: refs.resource.map(r => ({ ...r })) };
+  const list = nextPlan[selected.kind], index = list.findIndex(ref => ref.pack_id === id);
+  if (values.enabled === false && index >= 0) list.splice(index, 1);
+  else if (index >= 0 && values.version !== undefined) list[index].version = [...nextVersion];
+  else if (index < 0 && values.enabled === true) list.push({ pack_id: id, version: [...nextVersion] });
+  validatePlan(nextPlan);
+  if (values.version !== undefined || values.enabled !== undefined) {
+    for (const prefix of ["world_", "netease_world_"]) {
+      const file = path.join(root, prefix + selected.kind + "_packs.json"), original = await packText(file);
+      if (original === null && prefix === "netease_world_") continue;
+      const before = original || "[]", parsed = parsedText(before, file);
+      references(parsed, file);
+      const at = parsed.findIndex(ref => ref.pack_id.toLowerCase() === id), edits = [];
+      if (values.enabled === false && at >= 0) edits.push([[at], undefined]);
+      else if (at >= 0 && values.version !== undefined) edits.push([[at, "version"], nextVersion]);
+      else if (at < 0 && values.enabled === true) edits.push([[parsed.length], { pack_id: id, version: [...nextVersion] }]);
+      files.push({ file, before: original, after: editJsonText(before, edits) });
+    }
+    if (values.version !== undefined) for (const p of available.values()) {
+      const edits = [];
+      (Array.isArray(p.manifest.dependencies) ? p.manifest.dependencies : []).forEach((d, i) => {
+        if (typeof d?.uuid === "string" && d.uuid.toLowerCase() === id && Array.isArray(d.version))
+          edits.push([["dependencies", i, "version"], nextVersion]);
+      });
+      // 自依赖与包头编辑合并，避免同一文件重复写入。
+      if (edits.length) {
+        const dependencyFiles = [];
+        await manifestChanges(p, edits, dependencyFiles);
+        for (const f of dependencyFiles) {
+          const existing = files.find(x => x.file === f.file);
+          if (existing) existing.after = editJsonText(existing.after, edits);
+          else files.push(f);
+        }
+      }
+    }
+  }
+  await planFiles(root, nextPlan, files);
+  return { ...await writePackChanges(root, plan, files, commit, nextPlan, expected, check), packId: id, plan: nextPlan };
 }
 // Keep the import-time enabled lists in the world index. MCDK rewrites its
 // runtime manifests on every launch, so they cannot be our next-run baseline.
@@ -487,6 +958,12 @@ async function prepareWorldPacksInRunDirectory(
 }
 
 module.exports = {
+  packRevision,
   inspectWorldPacks,
+  inspectWorldPackHealth,
+  inspectWorldPackVersions,
+  editWorldPack,
   prepareWorldPacks,
+  rewriteWorldPackUuids,
+  syncWorldPackVersions,
 };

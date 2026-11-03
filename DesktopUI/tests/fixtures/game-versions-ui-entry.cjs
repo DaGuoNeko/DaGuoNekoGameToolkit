@@ -8,10 +8,16 @@ require("electron").app.setAppPath(root);
 const entry = path.join(root, "dist/main.cjs"), compile = Module.prototype._compile;
 Module.prototype._compile = function (code, file) {
   if (path.resolve(file) === entry) {
-    const marker = "const result = await discoverGames({ known });";
+    const marker = `const result = await discoverGames({
+        known,
+        ...roots?.length ? { roots } : {}
+      });`;
     if (code.split(marker).length !== 2)
       throw Error("Game discovery fixture marker changed");
-    code = code.replace(marker, `const result = await discoverGames({ known, roots: [${JSON.stringify(discoveryRoot)}] });`);
+    code = code.replace(
+      marker,
+      `const result = await discoverGames({ known, roots: [${JSON.stringify(discoveryRoot)}] });`,
+    );
   }
   return compile.call(this, code, file);
 };

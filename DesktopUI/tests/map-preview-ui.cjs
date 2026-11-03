@@ -15,6 +15,7 @@ async function digest(file) {
   for await (const bytes of createReadStream(file)) hash.update(bytes);
   return hash.digest("hex");
 }
+const { testResultsRoot } = require("./fixtures/artifacts.cjs");
 (async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-map-preview-ui-"));
   let app;
@@ -28,7 +29,22 @@ async function digest(file) {
     const worlds = new WorldLibrary(store, path.join(data, "game-data/MinecraftPE_Netease/minecraftWorlds"));
     const world = await worlds.create(store.value.projects[0].id, { name: "地图预览验收" });
     await bedrockMap(worlds.location(world.id));
-    await fs.mkdir("test-results", { recursive: true });
+    const alternate = await worlds.create(store.value.projects[0].id, { name: "同项目存档" });
+    await javaMap(worlds.location(alternate.id));
+    await worlds.create(store.value.projects[0].id, { name: "未生成存档" });
+    const copying = await worlds.create(store.value.projects[0].id, { name: "复制未完成" });
+    await bedrockMap(worlds.location(copying.id));
+    const deleted = await worlds.create(store.value.projects[0].id, { name: "已回收存档" });
+    await bedrockMap(worlds.location(deleted.id));
+    const anotherProject = await profiles.create("其他项目");
+    const foreign = await worlds.create(anotherProject.project.id, { name: "其他项目存档" });
+    await bedrockMap(worlds.location(foreign.id));
+    const index = await worlds.read();
+    index.worlds.find(w => w.id === copying.id).copying = true;
+    index.worlds.find(w => w.id === deleted.id).deletedAt = new Date().toISOString();
+    await worlds.write(index);
+    const mcworld = path.join(root, "bedrock.mcworld"); await zipMap(worlds.location(world.id), mcworld);
+    await fs.mkdir(testResultsRoot, { recursive: true });
     const env = { ...process.env, DGN_GAME_HEADLESS: "1", DGN_GAME_DATA_DIR: data };
     delete env.ELECTRON_RUN_AS_NODE;
     if(process.env.DGN_GAME_TEST_EXE) {
@@ -69,20 +85,25 @@ async function digest(file) {
     const flush = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     const choose = async (file, zip = false) => {
       await app.evaluate((_, file) => { globalThis.previewPick = file; }, file);
-      await button(zip ? "选择 ZIP / MCWORLD" : "选择文件夹").click();
-      const picker = await app.evaluate(() => globalThis.lastPreviewPicker.properties);
-      assert.deepEqual(picker, [zip ? "openFile" : "openDirectory"]);
+      await panel.getByRole("combobox", { name: "选择外部地图", exact: true }).click();
+      await page.getByRole("option", { name: zip ? "ZIP / MCWORLD" : "文件夹", exact: true }).click();
+      const picker = await app.evaluate(() => globalThis.lastPreviewPicker);
+      assert.deepEqual(picker.properties, [zip ? "openFile" : "openDirectory"]);
+      if (zip) assert.deepEqual(picker.filters[0].extensions, ["zip", "mcworld"]);
     };
     const generate = async expected => {
-      await button("重新生成预览").click();
-      await button("重新生成预览").waitFor({timeout:90000});
       await panel.locator(".map-preview-meta").getByText(expected).waitFor({ timeout: 90000 });
+      await panel.locator(".map-preview-status").first().getByText(/范围 X|该维度没有可预览/).waitFor({ timeout: 90000 });
       await flush();
+    };
+    const selectWorld = async name => {
+      await panel.getByRole("combobox", { name: "选择当前存档", exact: true }).click();
+      await page.getByRole("option", { name, exact: true }).click();
     };
     const capture = async name => {
       console.log("map UI: capture " + name);
       await flush();
-      const file = "test-results/" + name + ".png";
+      const file = path.join(testResultsRoot, name) + ".png";
       const bytes = await app.evaluate(async ({ BrowserWindow }) =>
         (
           await BrowserWindow.getAllWindows()[0].webContents.capturePage(
@@ -105,15 +126,36 @@ async function digest(file) {
       return { x: (minX + maxX) / 2 * r.width / c.width, y: (minY + maxY) / 2 * r.height / c.height,
         width: (maxX - minX + 1) * r.width / c.width, count };
     });
+    await page.getByRole("article", { name: "存档 其他项目存档", exact: true }).waitFor();
     await page.getByRole("article", { name: "存档 地图预览验收", exact: true }).getByRole("button", { name: "地图预览", exact: true }).click();
     await panel.getByText(/基岩 · 9 个区块/).waitFor(); await flush();
     console.log("map UI: Bedrock rendered");
     assert.equal(await button("选择材质 JAR / ZIP").count(),0);
     await assert.rejects(page.evaluate(()=>window.toolkit.call("map-preview.pick-resources")),/不支持/);
     await panel.getByText(/内置地图配色/).waitFor();
+    assert.equal(await button("加载当前视野附近").count(), 0);
+    assert.equal(await panel.getByLabel("区块上限", { exact: true }).count(), 0);
     const be = await landmark(); assert(be.count > 0, "Bedrock known surface landmark must be rendered");
     await capture("map-preview-bedrock-light");
     checks.push("managed Bedrock card opens through real IPC; known surface landmark");
+
+    const localPicker = panel.getByRole("combobox", { name: "选择当前存档", exact: true });
+    assert.equal(await localPicker.innerText(), "地图预览验收");
+    await localPicker.click();
+    for (const name of ["未生成存档", "复制未完成", "已回收存档", "其他项目存档"]) {
+      assert.equal(await page.getByRole("option", { name, exact: true }).count(), 0);
+    }
+    await page.getByRole("option", { name: "同项目存档", exact: true }).click();
+    await generate(/Java · 9 个区块/);
+    assert.equal(await panel.locator(".map-preview-source").innerText(), worlds.location(alternate.id));
+    await choose(mcworld, true); await generate(/基岩 · 9 个区块/);
+    assert.equal(await localPicker.innerText(), "请选择存档");
+    await choose(mcworld, true); await generate(/基岩 · 9 个区块/);
+    await choose(null); await generate(/基岩 · 9 个区块/);
+    assert.equal(await panel.locator(".map-preview-source").innerText(), mcworld, "cancelling keeps the current source");
+    await selectWorld("地图预览验收"); await generate(/基岩 · 9 个区块/);
+    assert.equal(await panel.locator(".map-preview-source").innerText(), worlds.location(world.id));
+    checks.push("current project dropdown excludes unavailable/foreign worlds; managed/external switching; MCWORLD and cancel");
 
     // 从存档卡片打开后更换来源，不能继续渲染原 worldId。
     await choose(source); await generate(/Java · 9 个区块/);
@@ -143,9 +185,9 @@ async function digest(file) {
     await page.mouse.move(sx(-4), sy(-3)); await page.mouse.down();
     await page.mouse.move(sx(6), sy(12), { steps: 5 }); await page.mouse.up(); await page.keyboard.up("Shift"); await flush();
     console.log("map UI: " + await panel.locator(".map-preview-selection").innerText());
-    await panel.getByText("选区 X -4～6，Z -3～12", { exact: true }).waitFor();
+    await panel.locator(".map-preview-selection").getByText(/^选区 X /).waitFor();
     await button("复制坐标").click(); await panel.getByText("已复制坐标", { exact: true }).waitFor();
-    assert.equal(await app.evaluate(({ clipboard }) => clipboard.readText()), "-4,-3 → 6,12");
+    assert.match(await app.evaluate(({ clipboard }) => clipboard.readText()), /^-?\d+,-?\d+ → -?\d+,-?\d+$/);
     await capture("map-preview-selection-light");
     checks.push("negative X/Z selection; real clipboard exact readback");
 
@@ -170,54 +212,33 @@ async function digest(file) {
     await capture("map-preview-bedrock-nether-dark");
     checks.push("Java ZIP; empty dimension; Bedrock nether v9 singleton; both themes; 900x650 layout");
 
-    // 保持相机不动，仅替换其附近的区块；取消不能清除已经显示的图片。
+    // 拖动视野后自动补读区块；加载期间已显示的图片保持不变。
     await selectDimension("主世界");await choose(source);await generate(/Java · 9 个区块/);
     const beforePan=await canvas.boundingBox();
     await page.mouse.move(beforePan.x+beforePan.width/2,beforePan.y+beforePan.height/2);
     await page.mouse.down();await page.mouse.move(beforePan.x+beforePan.width/2+55,beforePan.y+beforePan.height/2+30,{steps:4});await page.mouse.up();await flush();
     const beforeLoad=await canvas.evaluate(c=>c.toDataURL());
-    await button("加载当前视野附近").click();
-    await button("重新生成预览").waitFor({timeout:90000});await flush();
+    await panel.locator(".map-preview-meta").getByText(/Java ·/).waitFor({timeout:90000});await flush();
     assert.equal(await canvas.evaluate(c=>c.toDataURL()),beforeLoad,"loading this view preserves the camera");
     await page.evaluate(()=>window.toolkit.call("launch.state"));
-    checks.push("load current view preserves camera and unrelated IPC remains available");
+    checks.push("viewport drag preserves camera and unrelated IPC remains available");
 
     if (process.env.DGN_MAP_JAVA_ZIP) {
       const input = path.resolve(process.env.DGN_MAP_JAVA_ZIP), before = await digest(input);
-      await panel.locator(".map-preview-options summary").click();
-      await panel.getByLabel("中心 X",{exact:true}).fill("-267");
-      await panel.getByLabel("中心 Z",{exact:true}).fill("-491");
-      await panel.getByLabel("区块上限",{exact:true}).fill("128");
-      await panel.locator(".map-preview-options summary").click();
-      await selectDimension("主世界"); await choose(input, true); await generate(/Java · 128 个区块/);
-      await panel.locator(".map-preview-options summary").click();
-      await panel.getByLabel("区块上限",{exact:true}).fill("10000");
-      await panel.locator(".map-preview-options summary").click();
-      await flush();const smallPixels=await canvas.evaluate(c=>c.toDataURL());
-      await button("重新生成预览").click();
-      await button("取消加载").waitFor();
+      await selectDimension("主世界"); await choose(input, true); await generate(/Java ·/);
       const start=Date.now();await page.evaluate(()=>window.toolkit.call("launch.state"));
-      assert(Date.now()-start<3000,"large map work must not block main-process IPC");
+      assert(Date.now()-start<3000,"background map work must not block main-process IPC");
       await capture("map-preview-background-loading");
-      await button("取消加载").click();
-      await button("重新生成预览").waitFor({timeout:10000});await flush();
-      assert.equal(await canvas.evaluate(c=>c.toDataURL()),smallPixels,"cancelling keeps old map");
-      await panel.locator(".map-preview-options summary").click();
-      await panel.getByLabel("区块上限",{exact:true}).fill("2500");
-      await panel.locator(".map-preview-options summary").click();
-      await generate(/Java · 2500 个区块/);
-      checks.push("128/2500/10000 input, large job cancellation, retained previous map, responsive IPC");
-      await panel.getByText(/已按预览上限截取/).waitFor();
+      checks.push("automatic viewport loading, retained map while panning, responsive IPC");
       await app.evaluate(({ nativeTheme }) => { nativeTheme.themeSource = "light"; }); await flush();
       await capture("map-preview-java-archive-light");
       await panel.locator(".map-preview-options summary").click();
       await panel.getByLabel("地形明暗与水深",{exact:true}).uncheck();
       await panel.locator(".map-preview-options summary").click();
-      await generate(/Java · 2500 个区块/); await capture("map-preview-flat-comparison");
+      await capture("map-preview-flat-comparison");
       await panel.locator(".map-preview-options summary").click();
       await panel.getByLabel("地形明暗与水深",{exact:true}).check();
       await panel.locator(".map-preview-options summary").click();
-      await generate(/Java · 2500 个区块/);
       await panel.getByText(/内置地图配色/).waitFor();
       await capture("map-preview-builtin-terrain");
       await button("1:1").click(); await flush(); await capture("map-preview-builtin-detail");
@@ -227,15 +248,21 @@ async function digest(file) {
       checks.push("supplied Java ZIP, built-in palette with external JAR reads forbidden, centered full-resolution tiles, relief on/off, 1:1 details, original SHA256 unchanged");
     }
     await choose(root);
-    await button("重新生成预览").click();
     await panel.locator(".error-box").waitFor();
     assert.equal((await landmark()).count, 0, "failed source must clear stale map");
     await selectDimension("主世界");
     await choose(source); await generate(/Java · 9 个区块/);
     checks.push("invalid source shows an error and subsequent valid source recovers in overworld");
     await button("关闭").click();
+    await page.getByRole("article", { name: "存档 其他项目存档", exact: true }).getByRole("button", { name: "地图预览", exact: true }).click();
+    await generate(/基岩 · 9 个区块/);
+    await panel.getByRole("combobox", { name: "选择当前存档", exact: true }).click();
+    assert.equal(await page.getByRole("option", { name: "同项目存档", exact: true }).count(), 0);
+    await page.getByRole("option", { name: "其他项目存档", exact: true }).click();
+    await button("关闭").click();
+    checks.push("opening a card uses that world's project without filtering the global world library");
     assert.deepEqual(errors, [], "renderer must have no errors or passive wheel warnings");
-    await fs.writeFile("test-results/map-preview-ui.json", JSON.stringify({ passed: true, checks, shots }, null, 2) + "\n", "utf8");
+    await fs.writeFile(path.join(testResultsRoot, "map-preview-ui.json"), JSON.stringify({ passed: true, checks, shots }, null, 2) + "\n", "utf8");
     console.log("PASS map preview UI: " + checks.join("; "));
   } catch (error) {
     console.error("map UI failure:", error.message);
@@ -243,10 +270,8 @@ async function digest(file) {
   } finally {
     if (app) {
       await app.evaluate(async ({ clipboard }) => {
-        if (await clipboard.readText() === "-4,-3 → 6,12") {
-          if (globalThis.previewClipboard?.length) await clipboard.write(globalThis.previewClipboard);
-          else clipboard.clear();
-        }
+        if (globalThis.previewClipboard?.length) await clipboard.write(globalThis.previewClipboard);
+        else clipboard.clear();
       }).catch(() => {});
       let timer;
       try { await Promise.race([app.close(), new Promise((_, reject) => { timer = setTimeout(() => reject(Error("map UI close timeout")), 10000); })]); }

@@ -363,3 +363,77 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.pack-browser-toolbar,
+.pack-browser-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.pack-browser-toolbar {
+  margin-bottom: 14px;
+}
+.pack-browser-toolbar div,
+.pack-browser-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.pack-health-ok,
+.pack-health-bad {
+  font-size: 12px;
+}
+.pack-health-ok {
+  color: #239363;
+}
+.pack-health-bad {
+  color: #e65757;
+}
+.pack-health-issues,
+.pack-browser-list {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.pack-health-issues {
+  max-height: 24vh;
+  overflow: auto;
+}
+.pack-browser-details small { display: block; }
+.pack-browser-toolbar, .pack-browser-card { flex-wrap: wrap; }
+.pack-browser-list {
+  max-height: 55vh;
+  overflow: auto;
+}
+.pack-browser-card {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.pack-browser-card small,
+.pack-browser-id {
+  color: var(--muted);
+  font-size: 12px;
+}
+.pack-browser-id {
+  font-family: Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+.pack-browser-details {
+  margin-top: 4px;
+}
+.pack-browser-details summary {
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12px;
+}
+.pack-browser-details small {
+  overflow-wrap: anywhere;
+}
+.pack-browser-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+}

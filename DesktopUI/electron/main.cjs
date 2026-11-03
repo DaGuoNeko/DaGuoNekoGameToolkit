@@ -51,6 +51,7 @@ let rooms;
 const { TracyProfiler, assertPortFree } = require("./domains/performance/tracy-profiler.cjs");
 const { UpdateService } = require("./domains/update/update-service.cjs");
 const { createUpdateFetch } = require("./domains/update/update-fetch.cjs");
+const { ActivityCenter } = require("./activity-center.cjs");
 let tracyProfiler;
 let updateService;
 const execFile = require("node:util").promisify(
@@ -69,6 +70,7 @@ protocol.registerSchemesAsPrivileged([
   },
 ]);
 const store = new WorkspaceStore(dataRoot);
+const activityCenter = new ActivityCenter(dataRoot);
 const { GameProcesses } = require("./domains/game/game-processes.cjs");
 const gameProcesses = new GameProcesses({
   paths: async () => {
@@ -329,7 +331,12 @@ async function dispatch(method, args, source = win) {
         runtime: launcher.runtime,
         warning: store.warning,
         debug: debuggerService.snapshot(),
+        activity: activityCenter.snapshot(),
       };
+    case "activity.snapshot":
+      return activityCenter.snapshot(args);
+    case "activity.clear":
+      return activityCenter.clear();
     case "debug.state":
       return debuggerService.snapshot();
     case "debug.refresh":
@@ -549,20 +556,29 @@ async function dispatch(method, args, source = win) {
     case "project.backup":
       return store.readBackup(args.id);
     case "games.discover": {
-      const known = store.value.settings.GamePath
-        ? [store.value.settings.GamePath]
-        : [];
-      for (const project of store.value.projects) {
-        const snapshot = await store.readProject(project.id);
-        if (snapshot.config?.game_executable_path)
-          known.push(
-            path.resolve(
-              project.baseDirectory || project.root,
-              snapshot.config.game_executable_path,
-            ),
-          );
-      }
-      const result = await discoverGames({ known });
+      const roots = Array.isArray(args.roots) ? args.roots : undefined;
+      if (roots)
+        for (const root of roots) await fileSelections.require(root, "directory");
+      const known = roots?.length
+        ? []
+        : store.value.settings.GamePath
+          ? [store.value.settings.GamePath]
+          : [];
+      if (!roots?.length)
+        for (const project of store.value.projects) {
+          const snapshot = await store.readProject(project.id);
+          if (snapshot.config?.game_executable_path)
+            known.push(
+              path.resolve(
+                project.baseDirectory || project.root,
+                snapshot.config.game_executable_path,
+              ),
+            );
+        }
+      const result = await discoverGames({
+        known,
+        ...(roots?.length ? { roots } : {}),
+      });
       for (const game of result.games) {
         try {
           const engine = await inspectEngine(game.path);
@@ -677,6 +693,10 @@ async function dispatch(method, args, source = win) {
       return worlds.update(args.worldId, args);
     case "worlds.import": {
       await fileSelections.require(args.source,["directory","archive"]);
+      if (args.background === true)
+        return activityCenter.background("worlds.import", ({ update }) => worlds.importWorld(
+          args.profileId, args.name, args.source, args.mode, undefined, { parallel: true, onProgress: update },
+        ), { projectId: args.profileId, source: "ui", message: "等待导入任务开始" });
       return worlds.importWorld(
         args.profileId,
         args.name,
@@ -760,7 +780,26 @@ async function dispatch(method, args, source = win) {
     case "launch.remove":
       return launcher.remove(args.sessionId);
     case "worlds.list":
-      return worlds.list(args.projectId);
+      return worlds.list(args.projectId, args.includePackChecks === true);
+    case "worlds.sync-pack-versions":
+      return worlds.syncPackVersions(args.worldId, args.confirmed === true, args.revision);
+    case "worlds.inspect-pack-health":
+      return worlds.inspectPackHealth(args.worldId);
+    case "worlds.rebind-pack-uuids":
+      return worlds.rebindPackUuids(
+        args.worldId,
+        args.packId,
+        args.confirmed === true,
+        args.revision,
+      );
+    case "worlds.edit-pack":
+      return worlds.editPack(
+        args.worldId,
+        args.packId,
+        args.values,
+        args.confirmed === true,
+        args.revision,
+      );
     case "worlds.create":
       return worlds.create(args.projectId, args);
     case "worlds.rename":
@@ -775,14 +814,24 @@ async function dispatch(method, args, source = win) {
     case "worlds.copy":
       return worlds.copyCurrent(args.projectId, args.name, args.revision);
     case "worlds.recycle":
+      if (args.background === true)
+        return activityCenter.background("worlds.recycle", ({ update }) => worlds.recycle(
+          args.projectId, args.worldId, args.confirmed === true, { parallel: true },
+        ), { projectId: args.projectId, message: "等待删除任务开始" });
       return worlds.recycle(
         args.projectId,
         args.worldId,
         args.confirmed === true,
       );
     case "worlds.restore":
+      if (args.background === true)
+        return activityCenter.background("worlds.restore", ({ update }) => worlds.restore(
+          args.projectId, args.worldId, { parallel: true },
+        ), { projectId: args.projectId, message: "等待恢复任务开始" });
       return worlds.restore(args.projectId, args.worldId);
     case "worlds.purge":
+      if (args.background === true)
+        return activityCenter.background("worlds.purge", () => worlds.purgeParallel(args.worldIds, args.confirmed), { message: "等待永久删除任务开始" });
       return worlds.purge(args.worldIds, args.confirmed);
     case "worlds.folder": {
       const dir = await worlds.run(() =>
@@ -793,7 +842,9 @@ async function dispatch(method, args, source = win) {
       return true;
     }
     case "map-preview.pick": {
-      const archive = args.kind === "zip";
+      if (!["folder", "archive"].includes(args.kind)) throw Error("请选择文件夹或 ZIP / MCWORLD");
+      const archive = args.kind === "archive";
+      // Windows 原生对话框同时传入两种模式时只允许选目录。
       const result = await dialog.showOpenDialog(win, {
         title: "选择要预览的 Minecraft 存档",
         defaultPath: worlds.worldsRoot,
@@ -802,12 +853,12 @@ async function dispatch(method, args, source = win) {
       });
       if (result.canceled || !result.filePaths.length) return null;
       const selected = result.filePaths[0], stat = await fs.stat(selected);
-      if (stat.isFile() && !/\.(zip|mcworld)$/i.test(selected)) throw Error("请选择存档文件夹或 ZIP / MCWORLD");
+      if (archive ? !stat.isFile() || !/\.(zip|mcworld)$/i.test(selected) : !stat.isDirectory()) throw Error("请选择存档文件夹或 ZIP / MCWORLD");
       await fileSelections.allow(selected,stat.isDirectory()?"directory":"archive");
       return selected;
     }
     case "map-preview.render": {
-      return mapPreviewJobs.render(args.requestId,{format:args.format||"auto",dimension:args.dimension||"overworld",maxChunks:args.maxChunks??2500,centerX:args.centerX??0,centerZ:args.centerZ??0,relief:args.relief??true},async()=>{
+      return mapPreviewJobs.render(args.requestId,{format:args.format||"auto",dimension:args.dimension||"overworld",bounds:args.bounds,chunks:args.chunks,relief:args.relief??true},async()=>{
         let source=args.source;
         if(args.worldId) {
           const record=worlds.find(await worlds.read(),null,args.worldId),info=await worlds.inspect(record);
@@ -817,7 +868,7 @@ async function dispatch(method, args, source = win) {
         if(typeof source!=="string"||!path.isAbsolute(source))throw Error("请选择地图来源");
         const identity=args.worldId?undefined:await fileSelections.require(source,["directory","archive"]);
         return {source,identity};
-      });
+      },batch=>source.webContents.send("map-preview-data",{requestId:args.requestId,...batch}));
     }
     case "map-preview.state": return mapPreviewJobs.state(args.requestId);
     case "map-preview.cancel": return mapPreviewJobs.cancel(args.requestId);
@@ -984,6 +1035,7 @@ else {
     .whenReady()
     .then(async () => {
       await store.load();
+      await activityCenter.load();
       await profiles.initialize();
       await settingsChanged();
       const runtimeRoot = path.join(
@@ -1096,6 +1148,11 @@ else {
         sessions: launcher,
         actions: worldActions,
         debug: debuggerService,
+        protectedRoots: [
+          app.getAppPath(),
+          process.resourcesPath,
+          worlds.worldsRoot,
+        ],
       });
       reloadSources = new ReloadSources(launcher, debuggerService);
       debuggerService.beforeReload = (context) => reloadSources.check(context);
@@ -1150,6 +1207,7 @@ else {
           gameOptions,
           runtime: runtimeRoot,
           captureWindow: (snapshot, worker, bridge) => captureWindow(runtimeRoot, worker, bridge, snapshot),
+           architecture: architectureImport,
           onDataChanged: (value) => {
             if (win && !win.isDestroyed()) win.webContents.send("automation-data-changed", value);
           },
@@ -1202,6 +1260,7 @@ else {
         requestQuit: () => app.quit(),
       });
       updateService.on("state", (value) => send("update-state", value));
+      activityCenter.on("state", (value) => send("activity-state", value));
       debuggerService.on("state", (value) => {
         for (const game of value.sessions) launcher.recordExit(game);
         send("debug-state", value);
@@ -1265,8 +1324,15 @@ else {
         try {
           if (source !== win && !inspectorMethods.has(method))
             throw Error("独立调试窗口不支持此操作");
-          return { ok: true, result: await dispatch(method, args, source) };
+          const tracked = ActivityCenter.tracks(method), projectId = args.projectId || args.profileId || null;
+          if (tracked && args.background !== true) activityCenter.event({ method, projectId, source: "ui", message: "开始：" + method });
+          const result = await dispatch(method, args, source);
+          if (tracked && !result?.operationId && args.background !== true)
+            activityCenter.event({ method, projectId, source: "ui", message: "完成：" + method });
+          return { ok: true, result };
         } catch (error) {
+          if (ActivityCenter.tracks(method))
+            activityCenter.event({ method, projectId: args.projectId || args.profileId || null, level: "error", source: "ui", message: error.message || String(error) });
           return { ok: false, error: error.message };
         }
       });

@@ -12,8 +12,9 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const game = process.env.DGN_TERRAIN_GAME_EXE, jar = process.env.DGN_CHUNKER_JAR;
 if (!game || !jar) throw Error("需要 DGN_TERRAIN_GAME_EXE 和 DGN_CHUNKER_JAR；此测试不会使用真实业务地图");
 
+const { artifactRoot, testResultsRoot } = require("./fixtures/artifacts.cjs");
 (async () => {
-  const root = path.resolve("../.miao/test-data/terrain-e2e-" + Date.now());
+  const root = path.join(artifactRoot, "data");
   const store = new WorkspaceStore(root);
   await store.load();
   const profiles = new Profiles(store); await profiles.initialize();
@@ -158,8 +159,8 @@ if (!game || !jar) throw Error("需要 DGN_TERRAIN_GAME_EXE 和 DGN_CHUNKER_JAR�
     checks.push("chest-items-waterlogged-stairs-and-custom-dimension-readback");
     await ipc("architecture.revoke", { ...args, confirmed: true }); await settled("undone");
     checks.push("overwrite-including-air-undo-preserves-unrelated-world");
-    await fs.mkdir("test-results", { recursive: true });
-    await fs.writeFile("test-results/terrain-live.json", JSON.stringify({ passed: true, checks, root, task: task.id }, null, 2));
+    await fs.mkdir(testResultsRoot, { recursive: true });
+    await fs.writeFile(path.join(testResultsRoot, "terrain-live.json"), JSON.stringify({ passed: true, checks, root, task: task.id }, null, 2));
     console.log("PASS " + checks.join("; "));
   } finally {
     if (app) {

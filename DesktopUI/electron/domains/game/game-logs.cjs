@@ -114,7 +114,7 @@ class GameLogs {
         initialized: false,
         finished: false,
       };
-      r.history = new SessionHistory(this.archive.directory, (message) => {
+      r.history = new SessionHistory(worker.session.externalDataRoot ? path.join(worker.session.externalDataRoot, "logs", "game") : this.archive.directory, (message) => {
         r.error = message;
       });
       this.records.set(id, r);

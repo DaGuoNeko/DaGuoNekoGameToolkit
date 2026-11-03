@@ -9,6 +9,7 @@ const { Client } = require("@modelcontextprotocol/sdk/client/index.js");
 const {
   StdioClientTransport,
 } = require("@modelcontextprotocol/sdk/client/stdio.js");
+const { testResultsRoot } = require("./fixtures/artifacts.cjs");
 (async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-automation-ui-")),
     data = path.join(root, "data");
@@ -190,9 +191,9 @@ const {
     await page
       .getByRole("button", { name: "刷新 MCP 状态", exact: true })
       .click();
-    await fs.mkdir("test-results", { recursive: true });
+    await fs.mkdir(testResultsRoot, { recursive: true });
     await page.screenshot({
-      path: "test-results/automation-settings.png",
+      path: path.join(testResultsRoot, "automation-settings.png"),
       fullPage: true,
     });
     assert.deepEqual(errors, []);

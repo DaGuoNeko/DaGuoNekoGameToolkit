@@ -8,12 +8,13 @@ const {Profiles}=require("../electron/domains/profiles/profiles.cjs");
 const {initialLevel}=require("../electron/host-isolation.cjs");
 const {inspectEngine}=require("../electron/domains/client/engine-profiles.cjs");
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
+const { artifactRoot, testResultsRoot } = require("./fixtures/artifacts.cjs");
 (async()=>{
   const game=process.env.DGN_LIVE_GAME_EXE;
   if(!game||!path.isAbsolute(game)) throw Error("Set DGN_LIVE_GAME_EXE explicitly");
   const engine=await inspectEngine(game);
   assert(engine.profile?.isolatedHost,"Require registered isolated host");
-  const root=path.resolve("../.miao/test-data/auto-"+crypto.randomBytes(4).toString("hex"));
+  const root=path.join(artifactRoot, "data");
   const source=path.join(root,"source"),data=path.join(root,"data");
   await fs.mkdir(path.join(source,"db"),{recursive:true});
   await fs.writeFile(path.join(source,"level.dat"),initialLevel(validateConfig({world_name:"Automation acceptance",world_type:2,world_seed:1234})));
@@ -22,7 +23,7 @@ const delay=ms=>new Promise(r=>setTimeout(r,ms));
   await store.updateSettings({GamePath:game,GameWindowSize:{enabled:true,width:800,height:500}});
   const report={root,engine:engine.version,events:[],passed:false};
   let app,client,call;
-  async function record(label,value){report.events.push({label,value});console.log(label+" "+JSON.stringify(value));await fs.mkdir("test-results",{recursive:true});await fs.writeFile("test-results/automation-live.json",JSON.stringify(report,null,2));}
+  async function record(label,value){report.events.push({label,value});console.log(label+" "+JSON.stringify(value));await fs.mkdir(testResultsRoot,{recursive:true});await fs.writeFile(path.join(testResultsRoot, "automation-live.json"),JSON.stringify(report,null,2));}
   try {
     const env={...process.env,DGN_GAME_DATA_DIR:data,DGN_GAME_HEADLESS:"1"};delete env.ELECTRON_RUN_AS_NODE;
     app=spawn(require("electron"),[process.cwd()],{env,windowsHide:true,stdio:"ignore"});
@@ -75,12 +76,12 @@ const delay=ms=>new Promise(r=>setTimeout(r,ms));
       await delay(1000);
     }
     await record("capture",capture.content.filter(x=>x.type==="text"));assert(!capture.isError);
-    for(const item of capture.content)if(item.type==="image")await fs.writeFile("test-results/automation-window.png",Buffer.from(item.data,"base64"));
+    for(const item of capture.content)if(item.type==="image")await fs.writeFile(path.join(testResultsRoot, "automation-window.png"),Buffer.from(item.data,"base64"));
     const unsupportedHud=await raw("capture_scene",{...base,...target,requestId:"unsupported-hud",settings:{hudHidden:true}});
     assert(unsupportedHud.isError);assert(unsupportedHud.content.some(x=>x.text?.includes("HUD_READBACK_UNSUPPORTED")));
     const scene=await raw("capture_scene",{...base,...target,requestId:"scene",settings:{position:[ready.position[0]+1,ready.position[1],ready.position[2]],dimension:0,fov:70,perspective:0,rotation:[0,20,0],timeOfDay:6000,weather:"clear",chunkRadius:0},timeoutMs:60000});
     await record("scene",scene.content.filter(x=>x.type==="text"));assert(!scene.isError);
-    for(const item of scene.content)if(item.type==="image")await fs.writeFile("test-results/automation-scene.png",Buffer.from(item.data,"base64"));
+    for(const item of scene.content)if(item.type==="image")await fs.writeFile(path.join(testResultsRoot, "automation-scene.png"),Buffer.from(item.data,"base64"));
     await call("close_client",{sessionId,confirmed:true});
     const survived=await call("client_readiness",{sessionId:secondLaunch.client.sessionId,generation:secondReady.generation});
     assert(survived.ready);await record("independent-host-survived",survived);

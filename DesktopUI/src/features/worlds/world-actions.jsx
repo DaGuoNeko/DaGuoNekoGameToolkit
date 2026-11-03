@@ -330,6 +330,7 @@ export function WorldDashboard({
   onBack,
   onStart,
   onQuickTest,
+  onPacks,
   onJoinClient,
   onSettings,
   onLogs,
@@ -563,6 +564,7 @@ export function WorldDashboard({
             <Button disabled={busy || !!session?.running} onClick={onQuickTest}>
               快速测试
             </Button>
+            <Button onClick={onPacks}>存档模组</Button>
             <Button
               onClick={() =>
                 perform(() => call("worlds.folder", { worldId: world.id }))
@@ -579,6 +581,7 @@ export function WorldDashboard({
         </p>
       )}
       <ErrorBox>{error}</ErrorBox>
+      {working && <p className="muted" role="status">正在处理存档功能…</p>}
       {session && (
         <ReloadActions
           context={runtime.reloadTarget || {}}
@@ -836,14 +839,13 @@ export function WorldDashboard({
               <Button
                 danger
                 disabled={working}
-                onClick={() =>
-                  perform(async () => {
-                    await persist(
-                      config.actions.filter((a) => a.id !== remove.id),
-                    );
-                    setRemove(null);
-                  })
-                }
+                onClick={() => {
+                  const action = remove;
+                  setRemove(null);
+                  perform(() =>
+                    persist(config.actions.filter((a) => a.id !== action.id)),
+                  );
+                }}
               >
                 确认删除功能
               </Button>
