@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { readdir, readFile, rm, stat } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 
 const exec = promisify(execFile);
@@ -59,5 +59,6 @@ async function main() {
   }
 }
 
+await mkdir(root, { recursive: true });
 await stat(root);
 await main();
