@@ -78,6 +78,7 @@ class TracyProfiler extends EventEmitter {
   constructor(root, runtime, debug, options = {}) {
     super();
     Object.assign(this, { root, runtime, debug });
+    this.onError = options.onError || (() => {});
     this.spawn = options.spawn || spawn;
     this.discover = options.discover || discoverExecutables;
     this.readConnections = options.connections || connections;
@@ -274,6 +275,8 @@ class TracyProfiler extends EventEmitter {
           message: "官方窗口已打开；连接状态与采样结果以 Tracy 内部显示为准",
         });
       } catch (e) {
+        e.activityLogged = true;
+        this.onError({ method: "tracy.start", message: e.message });
         if (!child.pid) this.child = null;
         if (this.native?.host) this.native.detach();
         this.publish({
@@ -332,6 +335,7 @@ class TracyProfiler extends EventEmitter {
       this.native?.bounds(this.lastRect, this.host);
     } catch (error) {
       this.publish({ message: "Tracy 窗口同步失败：" + error.message });
+        this.onError({ method: "tracy.bounds", message: error.message });
     }
   }
   mode(args, host) {

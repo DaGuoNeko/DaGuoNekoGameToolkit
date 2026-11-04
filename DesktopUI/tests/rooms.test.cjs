@@ -245,6 +245,34 @@ test("close waits for pending startup and cleans network once", async () => {
   assert.equal(stops, 1);
   assert.equal(s.snapshot().phase, "idle");
 });
+test("async room failures report once through the project log callback", async () => {
+  const errors = [];
+  const s = new Rooms(
+    {
+      sessions: {},
+      debug: {},
+      profiles: {},
+      worlds: {},
+      runtime: "unused",
+      dataRoot: "unused",
+    },
+    {
+      makeNetwork: () => ({ stop: async () => {} }),
+      onError: (value) => errors.push(value),
+    },
+  );
+  const r = s.reserve("host");
+  r.method = "rooms.create";
+  s.run(r, async () => {
+    throw Error("网络组件未获得 Windows 授权");
+  });
+  await s.job;
+  s.reportError(r, Error("网络组件未获得 Windows 授权"), "rooms.create");
+  assert.deepEqual(errors, [
+    { method: "rooms.create", message: "网络组件未获得 Windows 授权" },
+  ]);
+  assert.equal(s.snapshot().phase, "failed");
+});
 test("failed invitation allocation stays reserved to prevent IP reuse races", async () => {
   const s = service(),
     r = s.reserve("host");

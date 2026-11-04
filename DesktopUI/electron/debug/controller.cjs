@@ -28,6 +28,7 @@ class DebugController extends EventEmitter {
     super();
     this.store = store;
     this.runtimeRoot = runtimeRoot;
+    this.onError = options.onError || (() => {});
     this.server =
       options.server ||
       new HostBridgeServer({
@@ -129,11 +130,13 @@ class DebugController extends EventEmitter {
                   action: "scripts",
                   embeddedOnly: true,
                 }),
-              report: (result) =>
+              report: (result) => {
+                if (result.error) this.onError({ method: "debug.reload", message: result.error });
                 this.emit("embedded-reload", {
                   registrationId: registration.registrationId,
                   ...result,
-                }),
+                });
+              },
             }),
           );
       } catch (error) {
@@ -670,6 +673,8 @@ class DebugController extends EventEmitter {
     if (record.status === "cancelled") return;
     record.status = "failed";
     record.error = error.message;
+    error.activityLogged = true;
+    this.onError({ method: "debug." + record.kind, message: error.message });
     this.changed();
   }
   async cleanup(record, resource = this.resources.get(record.id)) {

@@ -68,19 +68,33 @@ class EasyTier {
     await this.verify();
     if (this.stopped) throw Error("联机操作已取消");
     const pipe = "dgn-network-" + crypto.randomBytes(16).toString("hex"),
-      token = crypto.randomBytes(32).toString("hex");
-    const { stdout } = await exec(
-      powershell(),
-      [
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        `$p=Get-Process -Id ${process.pid}; @{ticks=$p.StartTime.ToUniversalTime().Ticks.ToString();sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value}|ConvertTo-Json -Compress`,
-      ],
-      { windowsHide: true, timeout: 10000 },
-    );
-    const identity = JSON.parse(stdout);
-    if (this.stopped) throw Error("联机操作已取消");
+      token = crypto.randomBytes(32).toString("hex"),
+      tokenFile = path.join(this.cacheRoot || path.dirname(this.runtime), "network-token-" + crypto.randomUUID() + ".tmp");
+    await fs.mkdir(path.dirname(tokenFile), { recursive: true });
+    await fs.writeFile(tokenFile, token, { encoding: "utf8", flag: "wx" });
+    let stdout;
+    try {
+      ({ stdout } = await exec(
+        powershell(),
+        [
+          "-NoProfile",
+          "-NonInteractive",
+          "-Command",
+          `$p=Get-Process -Id ${process.pid}; @{ticks=$p.StartTime.ToUniversalTime().Ticks.ToString();sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value}|ConvertTo-Json -Compress`,
+        ],
+        { windowsHide: true, timeout: 10000 },
+      ));
+    } catch (error) {
+      await fs.rm(tokenFile, { force: true });
+      throw error;
+    }
+    let identity;
+    try { identity = JSON.parse(stdout); }
+    catch (error) { await fs.rm(tokenFile, { force: true }); throw error; }
+    if (this.stopped) {
+      await fs.rm(tokenFile, { force: true });
+      throw Error("联机操作已取消");
+    }
     try {
       await exec(
         powershell(),
@@ -95,8 +109,8 @@ class EasyTier {
           path.join(this.runtime, "network-helper.exe"),
           "-Pipe",
           pipe,
-          "-Token",
-          token,
+          "-TokenFile",
+          tokenFile,
           "-ParentId",
           String(process.pid),
           "-ParentTicks",
@@ -107,6 +121,7 @@ class EasyTier {
         { windowsHide: true, timeout: 100000 },
       );
     } catch {
+      await fs.rm(tokenFile, { force: true });
       throw Error("网络组件未获得 Windows 授权，或启动被取消");
     }
     let socket;
@@ -123,11 +138,17 @@ class EasyTier {
         });
         break;
       } catch (e) {
-        if (!["ENOENT", "ECONNREFUSED", "EACCES"].includes(e.code)) throw e;
+        if (!["ENOENT", "ECONNREFUSED", "EACCES"].includes(e.code)) {
+          await fs.rm(tokenFile, { force: true });
+          throw e;
+        }
         await delay(200);
       }
     }
-    if (!socket) throw Error("网络助手未就绪，请检查 Windows 安全提示");
+    if (!socket) {
+      await fs.rm(tokenFile, { force: true });
+      throw Error("网络助手未就绪，请检查 Windows 安全提示");
+    }
     this.socket = socket;
     this.helperConnected = true;
     this.buffer = "";
@@ -163,7 +184,9 @@ class EasyTier {
     });
     const ready = this.receive(10000);
     socket.write(token + "\n");
-    await ready;
+    try { await ready; }
+    catch (error) { await fs.rm(tokenFile, { force: true }); throw error; }
+    await fs.rm(tokenFile, { force: true });
     if (this.stopped) {
       await this.stop();
       throw Error("联机操作已取消");

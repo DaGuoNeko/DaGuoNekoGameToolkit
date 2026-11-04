@@ -99,9 +99,9 @@ class WorldActions {
     sessions,
     debug,
     worlds,
-    { interval = 750, timeout = 120000 } = {},
+    { interval = 750, timeout = 120000, onError = () => {} } = {},
   ) {
-    Object.assign(this, { sessions, debug, worlds, timeout });
+    Object.assign(this, { sessions, debug, worlds, timeout, onError });
     this.records = new Map();
     this.disposed = false;
     this.onChange = () => this.reconcile();
@@ -420,6 +420,8 @@ class WorldActions {
       r.message =
         "自动操作已停止：" + e.message + "。未自动重试，后续操作未执行。";
       w.log("stderr", "[存档功能] " + r.message);
+      e.activityLogged = true;
+      this.onError({ method: "world-actions.auto", message: e.message });
     }
   }
   async run({ worldId, sessionId, target, actionId, quick }) {

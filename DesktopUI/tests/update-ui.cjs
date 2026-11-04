@@ -75,9 +75,54 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
     await fs.writeFile(control, "denied", "utf8");
     await page.getByRole("button", { name: "检查更新", exact: true }).click();
     await page.getByText(/更新服务请求失败|暂时没有可用的正式版本/).waitFor();
+    await fs.writeFile(control, "reset", "utf8");
+    await page.getByRole("button", { name: "检查更新", exact: true }).click();
+    await page.getByText("net::ERR_CONNECTION_RESET", { exact: true }).waitFor();
+    const activity = await page.evaluate(() =>
+      window.toolkit.call("activity.snapshot", {}),
+    );
+    assert(
+      activity.events.some(
+        (event) =>
+          event.method === "update.check" &&
+          event.level === "error" &&
+          event.message.includes("net::ERR_CONNECTION_RESET"),
+      ),
+      "update check failures must be recorded in the project log",
+    );
+    assert.equal(activity.events[0].level, "error", "a failed check must not be marked completed");
+    await page.evaluate(() => window.toolkit.call("update.check", { automatic: true }));
+    const automatic = await page.evaluate(() => window.toolkit.call("activity.snapshot"));
+    assert.equal(automatic.events[0].source, "system");
+    assert.equal(automatic.events[0].level, "error");
+    await fs.writeFile(control, "history-reset", "utf8");
+    await page.evaluate(() => window.toolkit.call("update.history"));
+    const historyFailure = await page.evaluate(() => window.toolkit.call("activity.snapshot"));
+    assert.equal(historyFailure.events[0].method, "update.history");
+    assert.equal(historyFailure.events[0].level, "error");
+    assert.match(historyFailure.events[0].message, /net::ERR_CONNECTION_RESET/);
+    const untrackedError = await page.evaluate(() =>
+      window.toolkit.call("files.pick", { kind: "invalid-fixture" }).catch(error => error.message),
+    );
+    assert.equal(untrackedError, "不支持的文件类型");
+    const failures = await page.evaluate(() => window.toolkit.call("activity.snapshot", { level: "error" }));
+    assert(failures.events.some(event => event.method === "files.pick" && event.message.includes(untrackedError)), "untracked IPC failures must also reach the project log");
+    await page.locator(".sidebar").getByRole("button", { name: "项目日志", exact: true }).click();
+    await page.locator(".activity-events").getByText(/net::ERR_CONNECTION_RESET/).first().waitFor();
+    await page.locator(".sidebar").getByRole("button", { name: "设置", exact: true }).click();
+    const persisted = await fs.readFile(path.join(root, "logs/activity/events.jsonl"), "utf8");
+    assert(persisted.split("\n").filter(Boolean).map(line => JSON.parse(line).event).some(event => event?.method === "update.check" && event.level === "error" && event.message.includes("net::ERR_CONNECTION_RESET")), "update failures must be persisted to disk");
     await fs.writeFile(control, "current", "utf8");
     await page.getByRole("button", { name: "检查更新", exact: true }).click();
     await page.getByText("当前已是最新正式版本。", { exact: true }).waitFor();
+    // 历史请求成功时不能沿用上次检查的错误。
+    await page.evaluate(() => window.toolkit.call("update.history"));
+    const historyActivity = await page.evaluate(() => window.toolkit.call("activity.snapshot"));
+    assert.equal(historyActivity.events[0].method, "update.history");
+    assert.equal(historyActivity.events[0].level, "info");
+    const eventCount = await page.evaluate(async () => (await window.toolkit.call("activity.snapshot")).events.length);
+    await page.evaluate(() => window.toolkit.call("update.check", { automatic: true }));
+    assert.equal(await page.evaluate(async () => (await window.toolkit.call("activity.snapshot")).events.length), eventCount, "successful automatic checks must not add events");
     const isolated = await page.evaluate(() => ({
       require: typeof window.require,
       node: typeof window.process,
@@ -128,6 +173,9 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
             "light/dark",
             "no releases",
             "public feed errors",
+            "project log failure recording and persistence",
+            "automatic check errors",
+            "untracked IPC errors",
             "current version",
             "sandbox",
           ],

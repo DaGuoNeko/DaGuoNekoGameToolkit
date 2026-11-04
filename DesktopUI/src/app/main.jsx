@@ -46,14 +46,14 @@ const nav = [
   { id: "launch", label: "存档", icon: "archive" },
   { id: "rooms", label: "联机房间", icon: "gamepad" },
   { id: "config", label: "启动配置", icon: "launch-profile" },
-  { id: "game-options", label: "游戏设置", icon: "gamepad" },
   { id: "mods", label: "模组库", icon: "cube" },
   { id: "logs", label: "运行日志", icon: "terminal" },
   { id: "activity", label: "项目日志", icon: "activity" },
   { id: "debug", label: "游戏调试", icon: "bug" },
   { id: "ui-debug", label: "UI 调试器", icon: "inspect" },
-  { id: "tracy", label: "Tracy 性能", icon: "activity" },
   { id: "ui-editor", label: "UI 编辑器", icon: "layout-edit" },
+  { id: "tracy", label: "Tracy 性能", icon: "activity" },
+  { id: "game-options", label: "游戏设置", icon: "gamepad" },
   { id: "settings", label: "设置", icon: "gear" },
   { id: "about", label: "关于", icon: "info" },
 ];
@@ -208,7 +208,9 @@ function App() {
         if (latest.snapshot === current.snapshot && latest.raw === current.raw && latest.form === current.form) applySnapshot(value);
       }).catch(report);
     });
-    const offActivity = window.toolkit.onActivity(() => {
+    const offActivity = window.toolkit.onActivity((value) => {
+      // 错误事件不刷新配置，避免刷新失败再次写日志形成循环。
+      if (value.events?.[0]?.level === "error") return;
       api("profiles.list").then(setProjects).catch(report);
     });
     const offState = window.toolkit.onSession(receive);

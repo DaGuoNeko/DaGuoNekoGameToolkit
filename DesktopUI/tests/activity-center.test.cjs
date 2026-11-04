@@ -20,3 +20,21 @@ test("activity center persists events and task state", async t => {
   assert.equal(snapshot.tasks[0].status, "success");
   assert(snapshot.events.some(event => event.operationId === task.id));
 });
+
+test("activity center folds repeated errors and compacts its journal", async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-activity-fold-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const center = new ActivityCenter(root, { dedupeWindowMs: 60000, maxFileBytes: 400 });
+  await center.load();
+  center.event({ method: "rooms.state", level: "error", source: "ui", message: "连接失败" });
+  center.event({ method: "rooms.state", level: "error", source: "ui", message: "连接失败" });
+  center.event({ method: "rooms.state", level: "error", source: "ui", message: "连接失败" });
+  await center.flush();
+  const events = center.snapshot().events;
+  assert.equal(events.length, 1);
+  assert.equal(events[0].repeatCount, 3);
+  assert((await fs.stat(center.file)).size < 4000);
+  const reopened = new ActivityCenter(root, { dedupeWindowMs: 60000, maxFileBytes: 400 });
+  await reopened.load();
+  assert.equal(reopened.snapshot().events[0].repeatCount, 3);
+});

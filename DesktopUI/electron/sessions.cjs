@@ -31,6 +31,7 @@ class Sessions extends EventEmitter {
       discover = discoverGames,
       engineInfo = inspectEngine,
       launcherOptions = {},
+      onError = () => {},
     } = {},
   ) {
     super();
@@ -48,6 +49,7 @@ class Sessions extends EventEmitter {
       discover,
       engineInfo,
       launcherOptions,
+      onError,
     });
     this.workers = [];
     this.selected = "";
@@ -637,6 +639,7 @@ class Sessions extends EventEmitter {
       );
       const worker = new Launcher(launchStore, this.runtime, {
         ...this.launcherOptions,
+        onError: this.onError,
         ...(isolated
           ? { spawn: isolated.spawn, kill: () => isolated.stop() }
           : {}),

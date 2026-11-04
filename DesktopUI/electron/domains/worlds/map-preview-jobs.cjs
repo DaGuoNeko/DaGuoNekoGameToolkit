@@ -3,8 +3,8 @@ const {Worker}=require("node:worker_threads");
 const {inspectSelection,verifySelection}=require("../../file-selection.cjs");
 
 class MapPreviewJobs {
-  constructor(dataRoot,workerFile,{timeoutMs=120000,memoryMb=768}={}) {
-    Object.assign(this,{dataRoot,workerFile,timeoutMs,memoryMb}); this.active=null; this.closed=false;
+  constructor(dataRoot,workerFile,{timeoutMs=120000,memoryMb=768,onError=()=>{}}={}) {
+    Object.assign(this,{dataRoot,workerFile,timeoutMs,memoryMb,onError}); this.active=null; this.closed=false;
   }
   state(id) { const j=this.active; return j && j.id===id ? {id:j.id,...j.progress} : null; }
   render(id,args,resolveSource,onBatch=()=>{}) {
@@ -13,7 +13,7 @@ class MapPreviewJobs {
     const job={id,cancelled:false,progress:{stage:"准备地图",completed:0,total:null}};
     this.active=job;
     job.promise=(async()=>{
-      let directory;
+      let directory, failure;
       try {
         if(resolveSource) args={...args,...await resolveSource()};
         if(job.cancelled) throw Error("地图加载已取消");
@@ -35,7 +35,10 @@ class MapPreviewJobs {
           timer=setTimeout(()=>finish(Error("地图加载超时，请缩小视野或降低缩放后重试")),this.timeoutMs);
           worker.on("message",message=>{
             if(message.progress) job.progress=message.progress;
-            else if(message.batch) onBatch(message.batch);
+            else if(message.batch) {
+              try { onBatch(message.batch); }
+              catch (error) { finish(error); }
+            }
             else if(message.error) finish(Error(message.error));
             else if(message.result) finish(null,message.result);
           });
@@ -43,15 +46,21 @@ class MapPreviewJobs {
           worker.on("exit",code=>{if(!settled)finish(Error("地图后台任务意外结束（"+code+"）"));});
           if(job.cancelled) job.abort();
         });
+      } catch (error) {
+        failure = error;
+        throw error;
       } finally {
         try { if(directory) {
           const base=path.resolve(this.dataRoot,"map-preview-jobs");
           if(path.dirname(directory)!==base||!path.basename(directory).startsWith("job-")) throw Error("地图临时目录边界无效");
           await inspectSelection(directory,"directory");
           await fs.rm(directory,{recursive:true,force:true,maxRetries:3,retryDelay:100});
-        } } finally {if(this.active===job)this.active=null;}
+        } } catch (cleanupError) {
+          if (failure) failure.message += "；临时目录清理失败：" + cleanupError.message;
+          else throw cleanupError;
+        } finally {if(this.active===job)this.active=null;}
       }
-    })();
+      })().catch(error => { if (!job.cancelled) { error.activityLogged = true; this.onError({ method: "map-preview.render", message: error.message }); } throw error; });
     return job.promise;
   }
   async cancel(id) {

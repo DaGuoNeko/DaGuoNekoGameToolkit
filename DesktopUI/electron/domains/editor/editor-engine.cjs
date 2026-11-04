@@ -16,11 +16,12 @@ const ps = path.join(
   "System32/WindowsPowerShell/v1.0/powershell.exe",
 );
 class EditorEngine extends EventEmitter {
-  constructor(root, runtime, documents) {
+  constructor(root, runtime, documents, { onError = () => {} } = {}) {
     super();
     this.root = root;
     this.runtime = runtime;
     this.documents = documents;
+    this.onError = onError;
     this.status = { phase: "stopped", message: "" };
     this.queue = Promise.resolve();
     this.generation = 0;
@@ -35,6 +36,8 @@ class EditorEngine extends EventEmitter {
   }
   publish(patch) {
     Object.assign(this.status, patch);
+    if (patch.phase === "error" && patch.message)
+      this.onError({ method: "ui-editor.preview", message: patch.message });
     this.emit("state", this.snapshot());
   }
   async resolveExe() {

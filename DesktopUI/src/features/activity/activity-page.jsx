@@ -24,6 +24,7 @@ export function ActivityPage({ projects = [] }) {
       <Button onClick={refresh}>刷新</Button>
       <Button onClick={() => api("activity.clear").then(setState).catch(e => setError(e.message))}>清理已结束</Button>
     </Intro>
+    {state.error && <p className="activity-error">{state.error}</p>}
     <div className="activity-toolbar">
       <Select aria-label="项目筛选" value={projectId} onChange={setProjectId} options={[{ value: "", label: "全部项目" }, ...projects.map(p => ({ value: p.id, label: p.name }))]} />
       <Select aria-label="级别筛选" value={level} onChange={setLevel} options={[{ value: "all", label: "全部级别" }, { value: "info", label: "信息" }, { value: "warning", label: "警告" }, { value: "error", label: "错误" }]} />
@@ -41,7 +42,7 @@ export function ActivityPage({ projects = [] }) {
     </section>
     <section className="activity-events" aria-label="项目事件">
       <header><div><span className="activity-eyebrow">EVENT STREAM</span><h2>事件时间线</h2></div><span>最近 {state.events?.length || 0} 条</span></header>
-      {state.events?.length ? <div className="activity-event-list">{state.events.map(event => <div className={`activity-event ${event.level}`} key={event.id}><span className="activity-event-dot" /><div><div className="activity-event-line"><strong>{event.message}</strong><small>{levelLabels[event.level] || event.level} · {new Date(event.time).toLocaleString()}</small></div><small>{event.projectId ? projects.find(p => p.id === event.projectId)?.name || event.projectId : "工具箱"}{event.source ? ` · ${event.source}` : ""}</small></div></div>)}</div> : <p className="activity-empty">暂无事件。</p>}
+      {state.events?.length ? <div className="activity-event-list">{state.events.map(event => <div className={`activity-event ${event.level}`} key={event.id}><span className="activity-event-dot" /><div><div className="activity-event-line"><strong>{event.message}{event.repeatCount > 1 ? `（重复 ${event.repeatCount} 次）` : ""}</strong><small>{levelLabels[event.level] || event.level} · {new Date(event.time).toLocaleString()}</small></div><small>{event.projectId ? projects.find(p => p.id === event.projectId)?.name || event.projectId : "工具箱"}{event.source ? ` · ${event.source}` : ""}</small></div></div>)}</div> : <p className="activity-empty">暂无事件。</p>}
     </section>
   </div>;
 }

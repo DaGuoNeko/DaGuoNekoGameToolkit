@@ -636,6 +636,7 @@ class Launcher extends EventEmitter {
     this.bridge = options.bridge || null;
     this.worlds = options.worlds || null;
     this.beforeSpawn = options.beforeSpawn;
+    this.onError = options.onError || (() => {});
     this.session = null;
     this.logs = [];
     this.serial = 0;
@@ -648,6 +649,7 @@ class Launcher extends EventEmitter {
       path.join(path.dirname(store.file), "logs"),
       (message) => {
         this.historyError = message;
+        this.onError({ method: "logs.history", message });
         this.publish();
       },
     );
@@ -842,9 +844,10 @@ class Launcher extends EventEmitter {
         this.log("stderr", error.message);
         this.publish();
       });
-      child.on("close", (code) => {
+      child.on("close", (code, signal) => {
         session.running = false;
         session.code = session.error ? -1 : code;
+        session.signal = signal || null;
         session.endedAt = new Date().toISOString();
         if (session.bridgeRegistrationId)
           this.bridge.releaseLaunch(session.bridgeRegistrationId);
@@ -854,8 +857,15 @@ class Launcher extends EventEmitter {
             ? `启动失败：${session.error}`
             : session.stopped
               ? "会话已停止"
-              : `会话已结束（退出码 ${code}）`,
+              : signal
+                ? `会话已结束（信号 ${signal}）`
+                : `会话已结束（退出码 ${code}）`,
         );
+        if (!session.stopped && (session.error || code !== 0 || signal))
+          this.onError({
+            method: "launch.process",
+            message: session.error || (signal ? `游戏会话被信号 ${signal} 终止` : `游戏会话异常结束（退出码 ${code}）`),
+          });
         this.history.finish();
         this.publish();
       });

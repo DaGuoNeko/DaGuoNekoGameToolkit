@@ -4,9 +4,10 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const { atomicWrite } = require("../../services.cjs");
 class AutomationBridge {
-  constructor(root, router) {
+  constructor(root, router, { onError = () => {} } = {}) {
     this.root = root;
     this.router = router;
+    this.onError = onError;
     this.file = path.join(root, "mcp/connection.json");
     this.pending = new Set();
     this.queue = Promise.resolve();
@@ -76,6 +77,8 @@ class AutomationBridge {
           throw Error("结果超过 24 MiB，请缩小请求范围");
         res.end(body);
       })().catch((error) => {
+        if (!error.activityLogged)
+          this.onError({ method: "mcp.request", message: error.message || String(error) });
         if (!res.writableEnded && !res.destroyed) {
           res.statusCode = 400;
           res.end(JSON.stringify({ error: error.message }));
@@ -88,6 +91,7 @@ class AutomationBridge {
     server.headersTimeout = 5000;
     server.maxConnections = 32;
     this.server = server;
+    server.on("error", (error) => this.onError({ method: "mcp.server", message: error.message || String(error) }));
     await new Promise((resolve, reject) => {
       server.once("error", reject);
       server.listen(0, "127.0.0.1", resolve);

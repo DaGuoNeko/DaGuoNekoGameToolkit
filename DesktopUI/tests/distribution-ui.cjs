@@ -81,15 +81,18 @@ const fs = require("node:fs/promises"),
         .startsWith(path.dirname(executable).toLowerCase()),
     );
     await fs.access(initial.runtime);
+    let previous = "存档";
     for (const name of [
+      "联机房间",
       "启动配置",
-      "游戏设置",
       "模组库",
       "运行日志",
+      "项目日志",
       "游戏调试",
       "UI 调试器",
-      "Tracy 性能",
       "UI 编辑器",
+      "Tracy 性能",
+      "游戏设置",
       "设置",
       "关于",
     ]) {
@@ -97,6 +100,11 @@ const fs = require("node:fs/promises"),
         .locator(".sidebar")
         .getByRole("button", { name, exact: true })
         .click();
+      assert.equal(
+        await page.evaluate(() => document.documentElement.dataset.pageDirection),
+        "forward",
+        `${previous} -> ${name} should move down the sidebar`,
+      );
       await page.waitForFunction(
         (name) =>
           document
@@ -105,6 +113,7 @@ const fs = require("node:fs/promises"),
           !document.documentElement.dataset.pageAnimating,
         name,
       );
+      previous = name;
     }
     await page
       .locator(".sidebar")
