@@ -99,6 +99,24 @@ class UpdateService extends EventEmitter {
     return path.join(this.dataRoot, "update");
   }
 
+  async loadInstallation() {
+    const file = path.join(this.cacheDirectory(), "update-result.json");
+    try {
+      const value = JSON.parse(await fs.readFile(file, "utf8"));
+      if (typeof value?.ok !== "boolean") throw Error("更新结果无效");
+      this.setState({ installation: {
+        ok: value.ok,
+        ...(typeof value.error === "string" ? { error: value.error.slice(0, 2000) } : {}),
+        ...(typeof value.backup === "string" ? { backup: value.backup } : {}),
+        ...(typeof value.version === "string" ? { version: value.version } : {}),
+      } });
+      await fs.rm(file, { force: true });
+    } catch (error) {
+      if (error.code !== "ENOENT") this.setState({ installation: { ok: false, error: "读取上次更新结果失败：" + error.message } });
+    }
+    return this.snapshot();
+  }
+
   headers() {
     return { Accept: "application/vnd.github+json", "User-Agent": USER_AGENT };
   }
@@ -319,6 +337,7 @@ class UpdateService extends EventEmitter {
       if (!this.release || this.state.phase !== "available" || !this.state.canDownload) throw Error("请先检查可用更新");
       if (!this.isPackaged) throw Error("开发环境不能安装更新");
       this.setState({ phase: "downloading", progress: 0, error: "" });
+      this.plan = undefined;
       const directory = this.cacheDirectory();
       await fs.mkdir(directory, { recursive: true });
       const archive = path.join(directory, this.release.assetName);
@@ -345,8 +364,10 @@ class UpdateService extends EventEmitter {
         this.plan = plan;
         this.setState({ phase: "downloaded", progress: 100, error: "" });
       } catch (error) {
-        await fs.rm(archive, { force: true });
-        this.setState({ phase: "error", error: error.message || String(error) });
+        let cleanupError = "";
+        try { await fs.rm(archive, { force: true }); }
+        catch (cleanup) { cleanupError = "；临时文件清理失败：" + cleanup.message; }
+        this.setState({ phase: "error", error: (error.message || String(error)) + cleanupError });
       }
       return this.snapshot();
     });

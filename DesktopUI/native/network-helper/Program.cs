@@ -125,7 +125,11 @@ class Program {
     static int Main(string[] args) {
         try {
             SetErrorMode(0x8003); // Child loader failures become errors, not modal OS dialogs.
-            if(args.Length!=5 || !Regex.IsMatch(args[0],@"^dgn-network-[a-f0-9]{32}$") || !Regex.IsMatch(args[1],@"^[a-f0-9]{64}$")) return 2;
+            if(args.Length!=5 || !Regex.IsMatch(args[0],@"^dgn-network-[a-f0-9]{32}$")) return 2;
+            string tokenFile=Path.GetFullPath(args[1]), token;
+            try { token=File.ReadAllText(tokenFile).Trim(); File.Delete(tokenFile); }
+            catch { return 2; }
+            if(!Regex.IsMatch(token,@"^[a-f0-9]{64}$")) return 2;
             Parent=Process.GetProcessById(int.Parse(args[2]));ParentStart=Parent.StartTime.ToUniversalTime();
             if(ParentStart.Ticks.ToString()!=args[3]) return 3;
             var sid=new SecurityIdentifier(args[4]);
@@ -140,7 +144,7 @@ class Program {
             using(var timer=new Timer(_=>{try {if(Parent.HasExited || Parent.StartTime.ToUniversalTime()!=ParentStart){Clean();Environment.Exit(0);}}catch{Clean();Environment.Exit(0);}},null,1000,1000)) {
                 var pending=pipe.BeginWaitForConnection(null,null);if(!pending.AsyncWaitHandle.WaitOne(90000))return 4;pipe.EndWaitForConnection(pending);
                 using(var reader=new StreamReader(pipe,new UTF8Encoding(false))) using(var writer=new StreamWriter(pipe,new UTF8Encoding(false)) {AutoFlush=true}) {
-                    if(ReadBounded(reader)!=args[1])return 5;
+                    if(ReadBounded(reader)!=token)return 5;
                     writer.WriteLine("{\"ready\":true}");
                     while(!Ending) {string line=ReadBounded(reader);if(line==null)break;try {var d=Json.Deserialize<Dictionary<string,object>>(line);writer.WriteLine(Json.Serialize(new {ok=true,result=Handle(d)}));}catch(Exception e){writer.WriteLine(Json.Serialize(new {ok=false,error=e is FormatException ? "网络参数格式无效" : e.Message}));} }
                 }

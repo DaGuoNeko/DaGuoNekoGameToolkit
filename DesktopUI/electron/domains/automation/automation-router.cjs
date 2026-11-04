@@ -41,6 +41,7 @@ class AutomationRouter {
     captureWindow,
     architecture,
     proxy = withMcdk,
+    onError = () => {},
   }) {
     Object.assign(this, {
       sessions,
@@ -57,6 +58,7 @@ class AutomationRouter {
       captureWindow,
       architecture,
       proxy,
+      onError,
     });
     this.instanceId = crypto.randomUUID();
     this.launches = new Map();
@@ -310,15 +312,20 @@ class AutomationRouter {
     };
   }
   async call(name, args = {}) {
-    validate(name, args);
-    const mutating = args.sessionId && !["list_clients", "client_logs", "client_readiness", "wait_client_ready", "list_client_assertions", "list_client_mcdk_tools"].includes(name);
-    if (mutating && this.busy.has(args.sessionId)) throw Error("CLIENT_BUSY：此会话已有自动化操作未完成");
-    if (mutating) this.busy.add(args.sessionId);
+    let mutating = false;
     try {
+      validate(name, args);
+      mutating = args.sessionId && !["list_clients", "client_logs", "client_readiness", "wait_client_ready", "list_client_assertions", "list_client_mcdk_tools"].includes(name);
+      if (mutating && this.busy.has(args.sessionId)) throw Error("CLIENT_BUSY：此会话已有自动化操作未完成");
+      if (mutating) this.busy.add(args.sessionId);
       const response = await this.dispatch(name, args);
       if (["create_project", "update_project", "import_world", "clone_world", "update_game_options"].includes(name))
         this.onDataChanged?.({method:name,projectId:args.projectId||null});
       return response;
+    } catch (error) {
+      error.activityLogged = true;
+      this.onError({ method: "mcp." + name, message: error.message || String(error) });
+      throw error;
     }
     finally { if (mutating) this.busy.delete(args.sessionId); }
   }

@@ -12,8 +12,8 @@ const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 const uuid = value => typeof value === "string" && /^[a-f0-9-]{36}$/.test(value);
 
 class ArchitectureImport {
-  constructor({ dataRoot, worlds, profiles, sessions, actions, converter = prepareChunker, protectedRoots = [] }) {
-    Object.assign(this, { worlds, profiles, sessions, actions, converter });
+  constructor({ dataRoot, worlds, profiles, sessions, actions, converter = prepareChunker, protectedRoots = [], onError = () => {} }) {
+    Object.assign(this, { worlds, profiles, sessions, actions, converter, onError });
     this.root = path.join(dataRoot, "architecture");
     this.protectedRoots = [dataRoot, ...protectedRoots].map(value => path.resolve(value).toLowerCase());
     this.file = path.join(this.root, "task.json");
@@ -120,6 +120,8 @@ class ArchitectureImport {
       } catch (e) {
         this.task.stage = "interrupted";
         this.task.error = e.message;
+        if (!this.controller?.signal.aborted)
+          this.onError({ method: "architecture", message: e.message });
       } finally {
         if (record) record.busy = false;
         this.task.busy = false;

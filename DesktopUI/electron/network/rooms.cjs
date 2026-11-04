@@ -46,6 +46,7 @@ class Rooms {
     this.checkEngine = options.checkEngine || checkEngine;
     this.clock = options.clock || (() => Date.now());
     this.wait = options.wait || delay;
+    this.onError = options.onError || (() => {});
     this.room = null;
     this.job = null;
     this.closing = false;
@@ -90,6 +91,16 @@ class Rooms {
           network: r.networkStats || null,
         }
       : { phase: "idle", members: [] };
+  }
+  reportError(r, error, method = r?.method || "rooms") {
+    const message = String(error?.message || error || "联机操作失败").slice(0, 2000),
+      key = method + "\n" + message;
+    if (r && r.lastReportedError === key) return;
+    if (r) r.lastReportedError = key;
+    if (error && typeof error === "object") error.activityLogged = true;
+    try {
+      this.onError({ method, message });
+    } catch { /* 日志记录失败不能影响联机清理。 */ }
   }
   progress(r, phase, message) {
     this.check(r);
@@ -215,6 +226,8 @@ class Rooms {
       invites: new Map(),
       network: this.makeNetwork(),
       cancelled: false,
+      method: "rooms",
+      lastReportedError: "",
     };
     this.room = r;
     return r;
@@ -225,6 +238,7 @@ class Rooms {
         await action();
       } catch (e) {
         if (!r.cancelled) {
+          this.reportError(r, e);
           r.error = e.message;
           r.preserveClient = [
             "GAME_ASSERT_DIALOG",
@@ -237,6 +251,8 @@ class Rooms {
             : "联机失败";
         }
         await this.cleanup(r);
+        if (r.cleanupFailed)
+          this.reportError(r, Error(r.cleanupErrors.join("；")), "rooms.cleanup");
       } finally {
         this.job = null;
       }
@@ -252,6 +268,7 @@ class Rooms {
     const code =
       args.roomCode === undefined ? null : fixed.roomCode(args.roomCode);
     const r = this.reserve("host");
+    r.method = "rooms.create";
     Object.assign(r, {
       endpoint,
       localPort,
@@ -418,6 +435,7 @@ class Rooms {
             await r.network.revoke(i.inviteId);
           }
       } catch (e) {
+        this.reportError(r, e, r.reconnectEnabled ? "rooms.reconnect" : r.method);
         if (
           r.reconnectEnabled &&
           r.role === "guest" &&
@@ -533,6 +551,7 @@ class Rooms {
         worker.session.runDirectory,
         () => this.hostCheck(r),
       );
+      r.lastReportedError = "";
       r.error = "";
       r.phase = "hosting";
       r.message = "房主已恢复，朋友将使用原邀请自动重新加入";
@@ -696,6 +715,7 @@ class Rooms {
       await this.enter(r, prepared.game);
       this.joined(r);
     } catch (error) {
+      this.reportError(r, error, "rooms.reconnect");
       r.preserveClient = true;
       if (r.context) {
         try {
@@ -724,6 +744,7 @@ class Rooms {
   }
   joined(r) {
     this.progress(r, "joined", "已通过房主验证，成功进入游戏");
+    r.lastReportedError = "";
     r.error = "";
     r.canRetry = false;
     r.preserveClient = false;
@@ -926,6 +947,12 @@ class Rooms {
           }),
         );
       } catch (e) {
+        if (i && msg?.requestId && !["hello", "health"].includes(msg.action))
+          this.reportError(
+            r,
+            e,
+            msg.action?.startsWith("scripts.") ? "rooms.script-sync" : "rooms.remote",
+          );
         if (i && msg?.requestId) {
           res.end(
             JSON.stringify({
@@ -952,6 +979,7 @@ class Rooms {
       server.once("error", reject);
       server.listen(r.controlPort, r.ip, resolve);
     });
+    server.on("error", (error) => this.reportError(r, error, "rooms.server"));
   }
   async command(r, i, action, data) {
     const hostReady = () =>
@@ -1139,6 +1167,7 @@ class Rooms {
     if (!localJoin && p.subnetConflict(invite.guestIp))
       throw Error("邀请的虚拟网段与本机网络冲突，请房主重建房间");
     const r = this.reserve("guest");
+    r.method = "rooms.join";
     Object.assign(r, {
       invite,
       localJoin,

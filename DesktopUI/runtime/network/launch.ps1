@@ -1,8 +1,8 @@
-param([string]$Helper,[string]$Pipe,[string]$Token,[int]$ParentId,[string]$ParentTicks,[string]$Sid)
+param([string]$Helper,[string]$Pipe,[string]$TokenFile,[int]$ParentId,[string]$ParentTicks,[string]$Sid)
 $ErrorActionPreference='Stop'
 try {
     $identity=[Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
-    $options=@{FilePath=$Helper;ArgumentList=@($Pipe,$Token,$ParentId,$ParentTicks,$Sid);WindowStyle='Hidden';PassThru=$true}
+    $options=@{FilePath=$Helper;ArgumentList=@($Pipe,$TokenFile,$ParentId,$ParentTicks,$Sid);WindowStyle='Hidden';PassThru=$true}
     if(-not $identity.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){$options.Verb='RunAs'}
     $p=Start-Process @options
     @{pid=$p.Id}|ConvertTo-Json -Compress

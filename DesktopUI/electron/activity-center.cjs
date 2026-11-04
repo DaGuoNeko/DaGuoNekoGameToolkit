@@ -4,15 +4,16 @@ const crypto = require("node:crypto");
 const { EventEmitter } = require("node:events");
 
 const tracked = new Set([
-  "settings.update", "project.save", "profiles.create", "profiles.rename", "profiles.remove",
+  "settings.update", "project.save", "projects.add", "projects.remove", "projects.relocate", "project.backup", "profiles.create", "profiles.rename", "profiles.remove",
+  "ui-editor.save", "ui-editor.save-as", "game-options.save",
   "mods.save", "mods.remove", "mods.import-profiles", "mods.add-directories",
   "worlds.create", "worlds.update", "worlds.import", "worlds.rename", "worlds.recycle",
   "worlds.restore", "worlds.purge", "worlds.sync-pack-versions", "worlds.rebind-pack-uuids",
-  "worlds.edit-pack", "launch.start", "launch.quick", "launch.blank", "launch.joined",
+  "worlds.edit-pack", "worlds.copy", "worlds.select", "launch.start", "launch.quick", "launch.blank", "launch.joined",
   "launch.stop", "debug.reload", "debug.restartLatest", "debug.execute", "world-actions.run",
-  "architecture.prepare", "architecture.start-source", "architecture.save-source", "architecture.source-done",
+  "architecture.prepare", "architecture.start-source", "architecture.save-source", "architecture.source-done", "architecture.stop",
   "architecture.start-target", "architecture.preview", "architecture.paste", "architecture.revoke",
-  "map-preview.render", "rooms.create", "rooms.join", "rooms.close", "rooms.retry", "update.download", "update.install",
+  "map-preview.render", "rooms.create", "rooms.join", "rooms.close", "rooms.retry", "rooms.revoke", "rooms.invite", "world-actions.save", "world-actions.cancel", "update.check", "update.history", "update.download", "update.install",
 ]);
 
 function label(method) {
@@ -25,13 +26,20 @@ function label(method) {
 }
 
 class ActivityCenter extends EventEmitter {
-  constructor(dataRoot) {
+  constructor(dataRoot, { dedupeWindowMs = 5000, maxFileBytes = 4 * 1024 * 1024 } = {}) {
     super();
     this.directory = path.join(dataRoot, "logs", "activity");
     this.file = path.join(this.directory, "events.jsonl");
     this.events = [];
     this.tasks = new Map();
     this.queue = Promise.resolve();
+    this.recent = new Map();
+    this.dedupeWindowMs = dedupeWindowMs;
+    this.maxFileBytes = maxFileBytes;
+    this.persistenceError = "";
+  }
+  eventKey(value) {
+    return [value.method, value.level, value.projectId || "", value.source || "", value.message].join("\0");
   }
   async load() {
     try {
@@ -41,24 +49,63 @@ class ActivityCenter extends EventEmitter {
           const value = JSON.parse(line);
           if (value.kind === "task") this.tasks.set(value.task.id, value.task);
           else if (value.kind === "event") this.events.push(value.event);
+          else if (value.kind === "event-update") {
+            const event = this.events.find((item) => item.id === value.event.id);
+            if (event) Object.assign(event, value.event);
+          }
         } catch { /* 保留可读性：损坏行不阻止工具箱启动。 */ }
       }
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
+    }
+    const now = Date.now();
+    for (const event of this.events) {
+      const time = Date.parse(event.lastTime || event.time);
+      if (Number.isFinite(time) && now - time < this.dedupeWindowMs)
+        this.recent.set(this.eventKey(event), event);
+    }
+  }
+  async compact() {
+    const temporary = this.file + ".compact-" + crypto.randomUUID() + ".tmp";
+    const lines = [
+      ...this.tasks.values()].map((task) => JSON.stringify({ kind: "task", task }));
+    lines.push(...this.events.slice(-3000).map((event) => JSON.stringify({ kind: "event", event })));
+    try {
+      await fs.writeFile(temporary, lines.length ? lines.join("\n") + "\n" : "", "utf8");
+      await fs.rename(temporary, this.file);
+    } finally {
+      await fs.rm(temporary, { force: true });
     }
   }
   async append(value) {
     this.queue = this.queue.catch(() => {}).then(async () => {
       await fs.mkdir(this.directory, { recursive: true });
       await fs.appendFile(this.file, JSON.stringify(value) + "\n", "utf8");
+      if ((await fs.stat(this.file)).size > this.maxFileBytes) await this.compact();
     });
-    return this.queue;
+    return this.queue.catch((error) => {
+      this.persistenceError = "项目日志写盘失败：" + (error.message || String(error));
+      this.emitState();
+      throw error;
+    });
   }
   emitState() {
     this.emit("state", this.snapshot());
   }
   event({ method, level = "info", message, projectId = null, operationId = null, source = "ui", details = null }) {
-    const value = { id: crypto.randomUUID(), time: new Date().toISOString(), method, level, message, projectId, operationId, source, ...(details ? { details } : {}) };
+    const now = new Date().toISOString();
+    const key = [method, level, projectId || "", source || "", message].join("\0");
+    const previous = level === "error" ? this.recent.get(key) : null;
+    if (previous && Date.parse(previous.lastTime || previous.time) + this.dedupeWindowMs >= Date.now()) {
+      previous.repeatCount = (previous.repeatCount || 1) + 1;
+      previous.lastTime = now;
+      this.append({ kind: "event-update", event: { id: previous.id, repeatCount: previous.repeatCount, lastTime: previous.lastTime } }).catch(() => {});
+      this.emitState();
+      return previous;
+    }
+    const value = { id: crypto.randomUUID(), time: now, lastTime: now, repeatCount: 1, method, level, message, projectId, operationId, source, ...(details ? { details } : {}) };
+    if (level === "error") this.recent.set(key, value);
+    this.persistenceError = "";
     this.events.push(value);
     if (this.events.length > 3000) this.events.splice(0, this.events.length - 3000);
     this.append({ kind: "event", event: value }).catch(() => {});
@@ -106,10 +153,12 @@ class ActivityCenter extends EventEmitter {
     return {
       tasks: [...this.tasks.values()].filter(task => !projectId || task.projectId === projectId).sort((a, b) => (b.startedAt || "").localeCompare(a.startedAt || "")).slice(0, 100),
       events: this.events.filter(matches).slice(-300).reverse(),
+      error: this.persistenceError,
     };
   }
   clear() {
     this.events = [];
+    this.recent.clear();
     for (const [id, task] of this.tasks) if (["success", "failed", "cancelled"].includes(task.status)) this.tasks.delete(id);
     this.queue = this.queue.catch(() => {}).then(async () => {
       await fs.mkdir(this.directory, { recursive: true });
@@ -117,6 +166,9 @@ class ActivityCenter extends EventEmitter {
     });
     this.emitState();
     return this.snapshot();
+  }
+  async flush() {
+    await this.queue.catch(() => {});
   }
   static tracks(method) { return tracked.has(method); }
 }

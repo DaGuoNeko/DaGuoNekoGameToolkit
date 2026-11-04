@@ -154,6 +154,25 @@ test("empty releases is distinct from a public repository request failure", asyn
   assert.equal(result.canDownload, false);
 });
 
+test("installer result is loaded into update state and consumed once", async (t) => {
+  const service = await fixture(t, async () => {
+    throw Error("Unexpected network call");
+  });
+  await fs.writeFile(
+    path.join(service.cacheDirectory(), "update-result.json"),
+    JSON.stringify({ ok: false, error: "安装失败", backup: "app.previous", version: "0.1.2" }),
+    "utf8",
+  );
+  const state = await service.loadInstallation();
+  assert.deepEqual(state.installation, {
+    ok: false,
+    error: "安装失败",
+    backup: "app.previous",
+    version: "0.1.2",
+  });
+  await assert.rejects(fs.access(path.join(service.cacheDirectory(), "update-result.json")), { code: "ENOENT" });
+});
+
 test("history includes prereleases, filters drafts and paginates without duplicate tags", async (t) => {
   const releases = Array.from({ length: 30 }, (_, i) => release(`v0.0.${i}`));
   releases[0].draft = true;

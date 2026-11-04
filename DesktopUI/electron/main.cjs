@@ -71,6 +71,9 @@ protocol.registerSchemesAsPrivileged([
 ]);
 const store = new WorkspaceStore(dataRoot);
 const activityCenter = new ActivityCenter(dataRoot);
+const reportBackgroundError = ({ method = "background", message }) => {
+  activityCenter.event({ method, level: "error", source: "background", message: String(message || "后台操作失败").slice(0, 2000) });
+};
 const { GameProcesses } = require("./domains/game/game-processes.cjs");
 const gameProcesses = new GameProcesses({
   paths: async () => {
@@ -858,17 +861,18 @@ async function dispatch(method, args, source = win) {
       return selected;
     }
     case "map-preview.render": {
+      const browserWindow = source;
       return mapPreviewJobs.render(args.requestId,{format:args.format||"auto",dimension:args.dimension||"overworld",bounds:args.bounds,chunks:args.chunks,relief:args.relief??true},async()=>{
-        let source=args.source;
+        let mapSource=args.source;
         if(args.worldId) {
           const record=worlds.find(await worlds.read(),null,args.worldId),info=await worlds.inspect(record);
           if(info.deleted||!info.ready||!info.present)throw Error("存档尚未生成或已移除");
-          source=info.path;
+          mapSource=info.path;
         }
-        if(typeof source!=="string"||!path.isAbsolute(source))throw Error("请选择地图来源");
-        const identity=args.worldId?undefined:await fileSelections.require(source,["directory","archive"]);
-        return {source,identity};
-      },batch=>source.webContents.send("map-preview-data",{requestId:args.requestId,...batch}));
+        if(typeof mapSource!=="string"||!path.isAbsolute(mapSource))throw Error("请选择地图来源");
+        const identity=args.worldId?undefined:await fileSelections.require(mapSource,["directory","archive"]);
+        return {source: mapSource,identity};
+      },batch=>{ if (!browserWindow.isDestroyed()) browserWindow.webContents.send("map-preview-data",{requestId:args.requestId,...batch}); });
     }
     case "map-preview.state": return mapPreviewJobs.state(args.requestId);
     case "map-preview.cancel": return mapPreviewJobs.cancel(args.requestId);
@@ -1042,9 +1046,9 @@ else {
         app.isPackaged ? process.resourcesPath : app.getAppPath(),
         "runtime",
       );
-      mapPreviewJobs=new MapPreviewJobs(dataRoot,path.join(runtimeRoot,"automation/map-preview-worker.cjs"));
-      debuggerService = new DebugController(store, runtimeRoot);
-      tracyProfiler = new TracyProfiler(dataRoot, runtimeRoot, debuggerService);
+      mapPreviewJobs=new MapPreviewJobs(dataRoot,path.join(runtimeRoot,"automation/map-preview-worker.cjs"), { onError: reportBackgroundError });
+      debuggerService = new DebugController(store, runtimeRoot, { onError: reportBackgroundError });
+      tracyProfiler = new TracyProfiler(dataRoot, runtimeRoot, debuggerService, { onError: reportBackgroundError });
       debuggerService.nativeViewerGuard = async (session, port) => {
         const view = tracyProfiler.snapshot();
         if (
@@ -1060,7 +1064,7 @@ else {
         if (win && !win.isDestroyed())
           win.webContents.send("tracy-state", value);
       });
-      editorEngine = new EditorEngine(dataRoot, runtimeRoot, uiDocuments);
+      editorEngine = new EditorEngine(dataRoot, runtimeRoot, uiDocuments, { onError: reportBackgroundError });
       editorEngine.on("state", (value) => {
         if (win && !win.isDestroyed())
           win.webContents.send("ui-editor-preview", { type: "state", value });
@@ -1132,6 +1136,7 @@ else {
         {
           bridge: debuggerService,
           worlds,
+          onError: reportBackgroundError,
           profiles,
           gameOptions,
           modLibrary,
@@ -1140,7 +1145,7 @@ else {
           detectPids: (file) => gameProcesses.pids(file),
         },
       );
-      worldActions = new WorldActions(launcher, debuggerService, worlds);
+      worldActions = new WorldActions(launcher, debuggerService, worlds, { onError: reportBackgroundError });
       architectureImport = new ArchitectureImport({
         dataRoot,
         worlds,
@@ -1153,6 +1158,7 @@ else {
           process.resourcesPath,
           worlds.worldsRoot,
         ],
+        onError: reportBackgroundError,
       });
       reloadSources = new ReloadSources(launcher, debuggerService);
       debuggerService.beforeReload = (context) => reloadSources.check(context);
@@ -1168,7 +1174,16 @@ else {
           runtime: runtimeRoot,
           dataRoot,
         },
-        { protection: safeStorage },
+        {
+          protection: safeStorage,
+          onError: ({ method, message }) =>
+            activityCenter.event({
+              method,
+              level: "error",
+              source: "rooms",
+              message: "联机失败：" + message,
+            }),
+        },
       );
       launcher.gameLogs = new GameLogs({
         directory: path.join(
@@ -1194,6 +1209,7 @@ else {
             ? { pid: b.minecraftPid, registration: b.registrationId }
             : null;
         },
+        onError: reportBackgroundError,
       });
       automation = new AutomationBridge(
         dataRoot,
@@ -1208,6 +1224,7 @@ else {
           runtime: runtimeRoot,
           captureWindow: (snapshot, worker, bridge) => captureWindow(runtimeRoot, worker, bridge, snapshot),
            architecture: architectureImport,
+           onError: reportBackgroundError,
           onDataChanged: (value) => {
             if (win && !win.isDestroyed()) win.webContents.send("automation-data-changed", value);
           },
@@ -1215,6 +1232,7 @@ else {
             await settingsChanged();
           },
         }),
+        { onError: reportBackgroundError },
       );
       await installAutomation(
         dataRoot,
@@ -1259,6 +1277,7 @@ else {
         },
         requestQuit: () => app.quit(),
       });
+      await updateService.loadInstallation();
       updateService.on("state", (value) => send("update-state", value));
       activityCenter.on("state", (value) => send("activity-state", value));
       debuggerService.on("state", (value) => {
@@ -1325,14 +1344,31 @@ else {
           if (source !== win && !inspectorMethods.has(method))
             throw Error("独立调试窗口不支持此操作");
           const tracked = ActivityCenter.tracks(method), projectId = args.projectId || args.profileId || null;
-          if (tracked && args.background !== true) activityCenter.event({ method, projectId, source: "ui", message: "开始：" + method });
+          const automatic = method === "update.check" && args.automatic === true;
+          if (tracked && !automatic && args.background !== true) activityCenter.event({ method, projectId, source: "ui", message: "开始：" + method });
           const result = await dispatch(method, args, source);
-          if (tracked && !result?.operationId && args.background !== true)
-            activityCenter.event({ method, projectId, source: "ui", message: "完成：" + method });
+          const pending = result?.operationId || result?.busy ||
+            ((method === "rooms.create" || method === "rooms.join") &&
+              ["preparing", "network_starting", "game_starting", "connecting", "finding_room", "joining"].includes(result?.phase));
+          if (tracked && !pending && args.background !== true) {
+            let failure = "";
+            if (method === "update.history" && result?.historyHasMore !== false) failure = result?.historyError;
+            else if (method === "update.check" && result?.phase !== "no-release" && (result?.error || result?.historyError))
+              failure = [...new Set([result?.error, result?.historyError].filter(Boolean))].join("\n");
+            else if (method === "update.download" || method === "update.install")
+              failure = result?.error;
+            if (!automatic || failure)
+              activityCenter.event({
+                method,
+                projectId,
+                source: automatic ? "system" : "ui",
+                ...(failure ? { level: "error", message: "失败：" + method + "：" + failure } : { message: "完成：" + method }),
+              });
+          }
           return { ok: true, result };
         } catch (error) {
-          if (ActivityCenter.tracks(method))
-            activityCenter.event({ method, projectId: args.projectId || args.profileId || null, level: "error", source: "ui", message: error.message || String(error) });
+          if (!error?.activityLogged)
+            activityCenter.event({ method, projectId: args.projectId || args.profileId || null, level: "error", source: method === "update.check" && args.automatic === true ? "system" : "ui", message: "失败：" + method + "：" + (error.message || String(error)) });
           return { ok: false, error: error.message };
         }
       });
@@ -1435,32 +1471,44 @@ else {
   app.on("will-quit", (event) => {
     if (!closing && launcher) {
       event.preventDefault();
-      Promise.resolve(automation?.setEnabled(false))
-        .then(() => mapPreviewJobs?.dispose())
-        .then(() => fileSelections.dispose())
-        .then(() => architectureImport?.dispose())
-        .then(() => worldActions?.dispose())
-        .then(() => gameTitles?.dispose())
-        .then(() => rooms?.shutdown())
-        .then(() => clientJoiner.shutdown())
-        .then(() => modLibrary.queue)
-        .then(() => uiDocuments.queue)
-        .then(() => editorEngine.stop())
-        .then(() => tracyProfiler.dispose())
-        .then(() => gameOptions.queue)
-        .then(() => launcher.shutdown())
-        .then(() => debuggerService.dispose())
-        .then(() => {
+      const cleanup = async () => {
+        const failures = [];
+        const steps = [
+          ["mcp.shutdown", () => automation?.setEnabled(false), false],
+          ["map-preview.shutdown", () => mapPreviewJobs?.dispose(), false],
+          ["file-selection.shutdown", () => fileSelections.dispose(), false],
+          ["architecture.shutdown", () => architectureImport?.dispose(), false],
+          ["world-actions.shutdown", () => worldActions?.dispose(), false],
+          ["game-titles.shutdown", () => gameTitles?.dispose(), false],
+          ["rooms.shutdown", () => rooms?.shutdown(), true],
+          ["client.shutdown", () => clientJoiner?.shutdown(), true],
+          ["mod-library.shutdown", () => modLibrary.queue, false],
+          ["ui-documents.shutdown", () => uiDocuments.queue, false],
+          ["ui-editor.shutdown", () => editorEngine?.stop(), false],
+          ["tracy.shutdown", () => tracyProfiler?.dispose(), false],
+          ["game-options.shutdown", () => gameOptions.queue, false],
+          ["launcher.shutdown", () => launcher.shutdown(), true],
+          ["debug.shutdown", () => debuggerService?.dispose(), false],
+          ["activity.flush", () => activityCenter.flush(), false],
+        ];
+        for (const [method, operation, critical] of steps) {
+          try { await operation(); }
+          catch (error) {
+            reportBackgroundError({ method, message: error.message });
+            if (critical) failures.push(method + "：" + error.message);
+          }
+        }
+        return failures;
+      };
+      cleanup().then((failures) => {
+          if (failures.length) {
+            dialog.showErrorBox("无法结束游戏会话", failures.join("\n") + "\n请先确认游戏和联机进程已退出，再重试关闭工具箱。");
+            return;
+          }
           closing = true;
           // Do not re-enter Electron's quit sequence from its own microtask.
           setImmediate(() => app.quit());
-        })
-        .catch((error) =>
-          dialog.showErrorBox(
-            "无法结束游戏会话",
-            error.message + "\n请保存游戏并手动退出后，再关闭工具箱。",
-          ),
-        );
+        });
     }
   });
 }

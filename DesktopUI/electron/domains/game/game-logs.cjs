@@ -67,6 +67,7 @@ class GameLogs {
     workers,
     identity,
     discover = ownedLogFiles,
+    onError = () => {},
     interval = 1000,
     discoveryInterval = 10000,
   }) {
@@ -78,6 +79,7 @@ class GameLogs {
       discover,
       interval,
       discoveryInterval,
+      onError,
     });
     this.archive = new SessionHistory(archiveDirectory, () => {});
     this.records = new Map();
@@ -87,6 +89,7 @@ class GameLogs {
       () =>
         this.tick().catch((error) => {
           this.error = error.message;
+          this.onError({ method: "game.logs", message: error.message });
         }),
       interval,
     );
@@ -116,6 +119,7 @@ class GameLogs {
       };
       r.history = new SessionHistory(worker.session.externalDataRoot ? path.join(worker.session.externalDataRoot, "logs", "game") : this.archive.directory, (message) => {
         r.error = message;
+        this.onError({ method: "game.logs", message });
       });
       this.records.set(id, r);
     }
@@ -388,6 +392,7 @@ class GameLogs {
         } catch (error) {
           r.phase = "error";
           r.message = error.message;
+          this.onError({ method: "game.logs", message: error.message });
           await this.closeFiles(r);
         }
       }

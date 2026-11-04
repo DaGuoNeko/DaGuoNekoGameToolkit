@@ -35,6 +35,7 @@ net.fetch = async (url, options) => {
     "utf8",
   );
   if (url.startsWith("https://github.com/")) {
+    if (mode === "reset") throw Error("net::ERR_CONNECTION_RESET");
     if (mode === "denied") return Response.json({ message: "failure" }, { status: 503 });
     if (!url.endsWith("latest.json")) return new Response("fixture");
     if (mode === "empty") return Response.json({ message: "Not Found" }, { status: 404 });
@@ -53,6 +54,7 @@ net.fetch = async (url, options) => {
     });
   }
   if (!url.startsWith(`https://api.github.com/repos/${repository}/`)) throw Error("Unexpected fixture URL");
+  if (mode === "history-reset") throw Error("net::ERR_CONNECTION_RESET");
   if (mode === "denied")
     return Response.json({ message: "Not Found" }, { status: 404 });
   if (url.endsWith("/latest")) {
