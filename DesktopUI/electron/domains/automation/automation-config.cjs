@@ -4,7 +4,7 @@ const flag={type:"boolean"};
 const settingsSchema=object({
   AppearanceMode:{enum:["System","Light","Dark"]},ThemeHue:{type:"number",minimum:0,maximum:360},
   SidebarCollapsed:flag,IndependentWorlds:flag,GamePath:string,
-  GameWindowSize:object({enabled:flag,width:{type:"integer",minimum:320,maximum:7680},height:{type:"integer",minimum:200,maximum:4320}}),
+  GameWindowSize:object({enabled:flag,width:{type:"integer",minimum:320,maximum:7680},height:{type:"integer",minimum:200,maximum:4320},fullscreen:flag}),
   ReloadKeys:object({reload_key:string,reload_world_key:string,reload_addon_key:string,reload_shaders_key:string,reload_key_global:flag}),
 });
 const projectSchema=object({

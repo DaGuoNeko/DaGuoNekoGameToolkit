@@ -149,6 +149,7 @@ const fs = require("node:fs/promises"),
     );
     await width.fill("1600");
     await height.fill("900");
+    await page.getByLabel("全屏模式", { exact: true }).check();
     await page
       .getByRole("button", { name: "保存窗口大小", exact: true })
       .click();
@@ -163,7 +164,7 @@ const fs = require("node:fs/promises"),
     assert.deepEqual(
       (await page.evaluate(() => window.toolkit.call("bootstrap"))).settings
         .GameWindowSize,
-      { enabled: true, width: 1600, height: 900 },
+      { enabled: true, width: 1600, height: 900, fullscreen: true },
     );
     const profiles = await page.evaluate(() =>
       window.toolkit.call("profiles.list"),

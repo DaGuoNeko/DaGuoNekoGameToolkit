@@ -1,10 +1,16 @@
-const windowSizeDefaults = { enabled: true, width: 1280, height: 720 };
+const windowSizeDefaults = {
+  enabled: true,
+  width: 1280,
+  height: 720,
+  fullscreen: false,
+};
 function validateWindowSize(value) {
   if (
     !value ||
     typeof value !== "object" ||
     Array.isArray(value) ||
     typeof value.enabled !== "boolean" ||
+    (value.fullscreen !== undefined && typeof value.fullscreen !== "boolean") ||
     !Number.isInteger(value.width) ||
     value.width < 640 ||
     value.width > 7680 ||
@@ -13,7 +19,12 @@ function validateWindowSize(value) {
     value.height > 4320
   )
     throw Error("窗口宽度须为 640–7680，高度须为 360–4320 的整数像素");
-  return { enabled: value.enabled, width: value.width, height: value.height };
+  return {
+    enabled: value.enabled,
+    width: value.width,
+    height: value.height,
+    fullscreen: value.fullscreen ?? false,
+  };
 }
 function applyWindowSize(config, settings) {
   const size = validateWindowSize(settings || windowSizeDefaults);

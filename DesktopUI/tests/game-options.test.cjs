@@ -93,6 +93,24 @@ test("template save leaves actual options untouched; prepare backs up and preser
     "1",
   );
 });
+test("launch fullscreen override wins for this preparation without changing the saved template", async (t) => {
+  const { root, options } = await fixture(t);
+  const service = new GameOptions(root, options);
+  await service.save(null, { gfx_fullscreen: "1" });
+  const result = await service.prepare({ gfx_fullscreen: "0" });
+  assert.deepEqual(result.changed, ["gfx_fullscreen"]);
+  assert.equal(valuesOf(await fs.readFile(options, "utf8")).gfx_fullscreen, "0");
+  assert.deepEqual((await service.snapshot()).overrides, { gfx_fullscreen: "1" });
+});
+test("runtime-only fullscreen override waits for a newly generated options file", async (t) => {
+  const { root, options } = await fixture(t);
+  const service = new GameOptions(root, options);
+  await fs.unlink(options);
+  assert.deepEqual(await service.prepare({ gfx_fullscreen: "0" }), {
+    changed: [],
+    optionsFile: options,
+  });
+});
 test("running games block changed shared options but allow no-op launches and saving future templates", async (t) => {
   const { root, options, original } = await fixture(t);
   const service = new GameOptions(root, options, {

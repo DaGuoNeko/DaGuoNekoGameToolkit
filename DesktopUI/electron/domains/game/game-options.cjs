@@ -130,13 +130,16 @@ class GameOptions {
     });
     return this.snapshot();
   }
-  prepare() {
+  prepare(runtimeOverrides = {}) {
     return this.run(async () => {
-      const { overrides } = await this.template();
+      const { overrides: saved } = await this.template();
+      const overrides = validateOverrides({ ...saved, ...runtimeOverrides });
       if (!Object.keys(overrides).length)
         return { changed: [], optionsFile: this.optionsFile };
       // options.txt is shared by this game build even when the child's APPDATA is isolated.
       const original = await readFile(this.optionsFile);
+      if (!original.buffer && !Object.keys(saved).length)
+        return { changed: [], optionsFile: this.optionsFile };
       if (!original.buffer)
         throw Error(
           "未找到游戏 options.txt，请先启动游戏生成设置，再使用启动覆盖",
@@ -173,9 +176,10 @@ class GameOptions {
       };
     });
   }
-  prepareIsolated(optionsFile) {
+  prepareIsolated(optionsFile, runtimeOverrides = {}) {
     return this.run(async () => {
-      const { overrides } = await this.template();
+      const { overrides: saved } = await this.template();
+      const overrides = validateOverrides({ ...saved, ...runtimeOverrides });
       const own = await readFile(optionsFile);
       const original = own.buffer ? own : await readFile(this.optionsFile);
       const patched = patchOptions(original.text, overrides);

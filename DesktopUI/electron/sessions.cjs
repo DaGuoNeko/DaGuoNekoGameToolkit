@@ -412,6 +412,7 @@ class Sessions extends EventEmitter {
         selection: sourceSelection(config),
         ...(quickTest ? { modIds: [...quickTest.modIds] } : {}),
         debug: !!automation?.debug,
+        fullscreen: this.store.value.settings.GameWindowSize?.fullscreen ?? false,
         ...(automation?.playerName !== undefined
           ? { playerName: automation.playerName }
           : {}),
@@ -647,10 +648,19 @@ class Sessions extends EventEmitter {
         worlds: ownedWorlds,
         detectRunning,
         beforeSpawn: async () => {
+          const windowSettings =
+            this.store.value.settings.GameWindowSize || { fullscreen: false };
+          const fullscreen =
+            automation?.runtimeConfig && !automation?.roomGuest
+              ? automation.runtimeFullscreen ?? windowSettings.fullscreen
+              : windowSettings.fullscreen;
+          const gameOptionOverrides = {
+            gfx_fullscreen: fullscreen ? "1" : "0",
+          };
           const applied = isolated
-            ? await isolated.options()
+            ? await isolated.options(gameOptionOverrides)
             : this.gameOptions
-              ? await this.gameOptions.prepare()
+              ? await this.gameOptions.prepare(gameOptionOverrides)
               : { changed: [] };
           await automation?.preflight?.();
           if (

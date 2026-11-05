@@ -2,7 +2,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { EventEmitter } = require("node:events");
-const { createWriteStream } = require("node:fs");
+const { createReadStream, createWriteStream } = require("node:fs");
 const { Readable } = require("node:stream");
 const { pipeline } = require("node:stream/promises");
 const { spawn } = require("node:child_process");
@@ -99,6 +99,66 @@ class UpdateService extends EventEmitter {
     return path.join(this.dataRoot, "update");
   }
 
+  async fileHash(location) {
+    const digest = crypto.createHash("sha256");
+    for await (const chunk of createReadStream(location)) digest.update(chunk);
+    return digest.digest("hex");
+  }
+
+  async loadPendingUpdate() {
+    if (!this.isPackaged) return this.snapshot();
+    const directory = path.resolve(this.cacheDirectory());
+    let entries;
+    try {
+      entries = await fs.readdir(directory, { withFileTypes: true });
+    } catch (error) {
+      if (error.code === "ENOENT") return this.snapshot();
+      throw error;
+    }
+    const plans = entries
+      .filter((entry) => entry.isFile() && /^update-\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?\.json$/.test(entry.name))
+      .map((entry) => path.join(directory, entry.name));
+    const invalidArchives = new Set();
+    let selected = null;
+    for (const planPath of plans) {
+      let archive;
+      try {
+        const plan = JSON.parse(await fs.readFile(planPath, "utf8"));
+        const version = parseVersion(plan.version);
+        archive = typeof plan.archive === "string" ? path.resolve(plan.archive) : "";
+        const expectedArchive = `DaGuoNeko-Game-Toolkit-${version?.text}-win-x64.zip`;
+        if (!version || version.prerelease || compareVersions(version, this.currentVersion) <= 0 ||
+            path.basename(planPath) !== `update-${version.text}.json` ||
+            path.resolve(plan.targetDirectory) !== path.resolve(this.appDirectory) ||
+            path.resolve(plan.executablePath) !== path.resolve(this.executablePath) ||
+            path.dirname(archive) !== directory || path.basename(archive) !== expectedArchive ||
+            !/^[a-f0-9]{64}$/i.test(plan.sha256) ||
+            !(await fs.stat(archive)).isFile() || await this.fileHash(archive) !== plan.sha256.toLowerCase())
+          throw Error("缓存更新计划无效");
+        if (!selected || compareVersions(version, selected.version) > 0)
+          selected = { planPath, archive, version, sha256: plan.sha256.toLowerCase() };
+      } catch {
+        await fs.rm(planPath, { force: true });
+        if (archive && path.dirname(archive) === directory &&
+            /^DaGuoNeko-Game-Toolkit-\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?-win-x64\.zip$/.test(path.basename(archive)))
+          invalidArchives.add(archive);
+      }
+    }
+    for (const archive of invalidArchives)
+      if (!selected || selected.archive !== archive) await fs.rm(archive, { force: true });
+    if (!selected) return this.snapshot();
+    this.plan = selected.planPath;
+    this.setState({
+      phase: "downloaded",
+      latestVersion: selected.version.text,
+      assetName: path.basename(selected.archive),
+      progress: 100,
+      error: "",
+      canDownload: false,
+    });
+    return this.snapshot();
+  }
+
   async loadInstallation() {
     const file = path.join(this.cacheDirectory(), "update-result.json");
     try {
@@ -114,7 +174,12 @@ class UpdateService extends EventEmitter {
     } catch (error) {
       if (error.code !== "ENOENT") this.setState({ installation: { ok: false, error: "读取上次更新结果失败：" + error.message } });
     }
-    return this.snapshot();
+    try {
+      return await this.loadPendingUpdate();
+    } catch (error) {
+      this.setState({ error: "读取已下载更新失败：" + (error.message || String(error)) });
+      return this.snapshot();
+    }
   }
 
   headers() {

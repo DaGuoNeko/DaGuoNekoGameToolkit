@@ -26,7 +26,7 @@ import { InspectorShell } from "../features/debug/inspector-shell.jsx";
 import { WorldHome } from "../features/worlds/worlds.jsx";
 import { WindowSizeSettings } from "../features/settings/window-size-settings.jsx";
 import { ProfilesPage } from "../features/profiles/profiles-page.jsx";
-import { ModLibraryPage } from "../features/mods/mod-library.jsx";
+import { ModWorkspacePage } from "../features/mods/mod-library.jsx";
 import { modKey, withoutMod, removeModJson } from "../../shared/mod-removal.cjs";
 import { ReloadSettings } from "../features/settings/reload-settings.jsx";
 import { GameOptionsPage } from "../features/settings/game-options.jsx";
@@ -90,6 +90,7 @@ const patchFor = (config) =>
   Object.fromEntries(fields.map((key) => [key, config[key]]));
 function App() {
   const [worldImportDraft, setWorldImportDraft] = useState(null);
+  const [modWorkspaceRequest, setModWorkspaceRequest] = useState(null);
   const [profileCreateRequest, setProfileCreateRequest] = useState(null);
   const [roomDraft, setRoomDraft] = useState({
     endpoint: "",
@@ -533,7 +534,7 @@ function App() {
                   onClick={() => go(item.id)}
                 >
                   <Icon name={item.icon} />
-                  {!settings.SidebarCollapsed && <span>{item.label}</span>}
+                  {!settings.SidebarCollapsed && <span>{item.id === "mods" ? "模组与内容" : item.label}</span>}
                 </button>
               ))}
             </div>
@@ -608,6 +609,7 @@ function App() {
                   }
                 }}
                 onStop={stop}
+                onBrowseContent={(request) => { setModWorkspaceRequest(request); go("mods"); }}
               />
             )}
             {page === "tracy" && <TracyPage />}
@@ -678,7 +680,7 @@ function App() {
               />
             )}
             {page === "activity" && <ActivityPage projects={projects} />}
-            {page === "mods" && <ModLibraryPage onRemoved={removedMod} />}
+            {page === "mods" && <ModWorkspacePage request={modWorkspaceRequest} onRemoved={removedMod} />}
             {page === "debug" && (
               <DebugPage
                 projectId={snapshot?.project.id}

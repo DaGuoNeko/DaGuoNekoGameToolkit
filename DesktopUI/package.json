@@ -1,6 +1,6 @@
 {
   "name": "daguoneko-game-toolkit",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "private": true,
   "productName": "大果喵游戏工具箱",
   "description": "网易我的世界开发测试的独立启动、配置与日志工具",

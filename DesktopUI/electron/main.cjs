@@ -102,6 +102,8 @@ const { EditorEngine } = require("./domains/editor/editor-engine.cjs");
 let editorEngine;
 const { ModLibrary } = require("./domains/profiles/mod-library.cjs");
 const modLibrary = new ModLibrary(store, profiles);
+const { ContentIndex } = require("./domains/profiles/content-index.cjs");
+const contentIndex = new ContentIndex(modLibrary);
 const { GameOptions } = require("./domains/game/game-options.cjs");
 const gameOptions = new GameOptions(
   dataRoot,
@@ -340,6 +342,15 @@ async function dispatch(method, args, source = win) {
       return activityCenter.snapshot(args);
     case "activity.clear":
       return activityCenter.clear();
+    case "activity.export": {
+      const result = await dialog.showSaveDialog(win, {
+        title: "导出项目日志",
+        defaultPath: "project-activity.log",
+        filters: [{ name: "日志文件", extensions: ["log", "txt"] }],
+      });
+      if (result.canceled || !result.filePath) return false;
+      return activityCenter.export(result.filePath, args);
+    }
     case "debug.state":
       return debuggerService.snapshot();
     case "debug.refresh":
@@ -638,6 +649,13 @@ async function dispatch(method, args, source = win) {
       return modLibrary.importProfiles(args.revision);
     case "mods.add-directories":
       return modLibrary.addDirectories(args.directories, args.revision);
+    case "content.scan": {
+      if (!args.worldId) return contentIndex.scan();
+      const record = worlds.find(await worlds.read(), null, args.worldId);
+      const info = await worlds.inspect(record);
+      if (info.deleted || !info.ready || !info.present) throw Error("存档尚未生成或已移除");
+      return contentIndex.scan({ root: info.path, packId: args.packId, sourceId: record.id, sourceName: record.name });
+    }
     case "world-actions.read":
       return {
         ...(await worldActions.config(args.worldId)),

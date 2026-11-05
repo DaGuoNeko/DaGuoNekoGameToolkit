@@ -134,6 +134,10 @@ class ActivityCenter extends EventEmitter {
     const task = this.tasks.get(id);
     if (!task) return;
     task.status = status;
+    if (status === "success") {
+      task.total = Number.isFinite(task.total) && task.total > 0 ? task.total : 1;
+      task.completed = task.total;
+    }
     task.error = error;
     task.finishedAt = new Date().toISOString();
     task.message = status === "success" ? "已完成" : status === "cancelled" ? "已取消" : error || "执行失败";
@@ -159,13 +163,38 @@ class ActivityCenter extends EventEmitter {
   clear() {
     this.events = [];
     this.recent.clear();
-    for (const [id, task] of this.tasks) if (["success", "failed", "cancelled"].includes(task.status)) this.tasks.delete(id);
+    for (const [id, task] of this.tasks) if (["success", "failed", "cancelled", "interrupted"].includes(task.status)) this.tasks.delete(id);
     this.queue = this.queue.catch(() => {}).then(async () => {
       await fs.mkdir(this.directory, { recursive: true });
       await fs.writeFile(this.file, [...this.tasks.values()].map(task => JSON.stringify({ kind: "task", task })).join("\n") + (this.tasks.size ? "\n" : ""), "utf8");
     });
     this.emitState();
     return this.snapshot();
+  }
+  async export(target, filters = {}) {
+    const destination = path.resolve(target);
+    const directory = path.resolve(this.directory);
+    if (destination.toLowerCase().startsWith(directory.toLowerCase() + path.sep))
+      throw Error("请导出到项目日志目录以外的位置");
+    try {
+      const stat = await fs.lstat(destination);
+      if (stat.isSymbolicLink() || !stat.isFile()) throw Error("项目日志导出目标不是普通文件");
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+    await this.flush();
+    const value = this.snapshot(filters);
+    const lines = [
+      `# 大果喵游戏工具箱项目日志 ${new Date().toISOString()}`,
+      ...value.tasks.slice().reverse().map((task) =>
+        `[${task.finishedAt || task.startedAt || ""}] [task] [${task.status}] ${task.method} ${task.message}${task.error ? ` | ${task.error}` : ""}`,
+      ),
+      ...value.events.slice().reverse().map((event) =>
+        `[${event.time || ""}] [${event.level}] [${event.source || "system"}] ${event.method} ${event.message}${event.repeatCount > 1 ? ` (重复 ${event.repeatCount} 次)` : ""}`,
+      ),
+    ];
+    await fs.writeFile(destination, lines.join("\n") + "\n", "utf8");
+    return true;
   }
   async flush() {
     await this.queue.catch(() => {});

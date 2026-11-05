@@ -172,8 +172,11 @@ class HostIsolation {
         roaming,
         mode: "isolated",
         stop: () => lease.stop(),
-        options: async () => {
-          const result = await this.gameOptions.prepareIsolated(optionsFile);
+        options: async (runtimeOverrides) => {
+          const result = await this.gameOptions.prepareIsolated(
+            optionsFile,
+            runtimeOverrides,
+          );
           const { patchOptions } = require("./domains/game/game-options.cjs");
           const { atomicWrite } = require("./services.cjs");
           const before = await fs.readFile(optionsFile, "utf8");
@@ -376,7 +379,9 @@ class HostIsolation {
         mode: privateHost ? "isolated" : "shared",
         isolationReason: assessment.reason,
         stop: () => lease.stop(),
-        options: () => privateHost ? this.gameOptions.prepareIsolated(optionsFile) : this.gameOptions.prepare(),
+        options: (runtimeOverrides) => privateHost
+          ? this.gameOptions.prepareIsolated(optionsFile, runtimeOverrides)
+          : this.gameOptions.prepare(runtimeOverrides),
         spawn: async (exe, args, options) => {
           if (
             (await this.digest(config.game_executable_path)) !== gameHash ||

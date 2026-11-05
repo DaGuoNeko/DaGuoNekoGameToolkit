@@ -7,6 +7,9 @@ param(
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 $planPath = [IO.Path]::GetFullPath($Plan)
+$cacheDirectory = [IO.Path]::GetDirectoryName($planPath)
+Set-Location -LiteralPath $cacheDirectory
+[IO.Directory]::SetCurrentDirectory($cacheDirectory)
 $resultPath = Join-Path ([IO.Path]::GetDirectoryName($planPath)) 'update-result.json'
 $readyPath = $planPath + '.ready'
 $cancelledPath = $planPath + '.cancelled'

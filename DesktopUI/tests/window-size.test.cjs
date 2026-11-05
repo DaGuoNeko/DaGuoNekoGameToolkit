@@ -41,7 +41,7 @@ test("window settings save/reopen and reject invalid drafts without overwriting 
   const store = new WorkspaceStore(root);
   await store.load();
   assert.deepEqual(store.value.settings.GameWindowSize, windowSizeDefaults);
-  const value = { enabled: true, width: 1600, height: 900 };
+  const value = { enabled: true, width: 1600, height: 900, fullscreen: true };
   await store.updateSettings({ GameWindowSize: value });
   await assert.rejects(
     store.updateSettings({ GameWindowSize: { ...value, height: 0 } }),

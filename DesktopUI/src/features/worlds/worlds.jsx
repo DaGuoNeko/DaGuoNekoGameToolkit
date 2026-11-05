@@ -53,6 +53,7 @@ export function WorldHome({
   onStartJoined,
   onLogs,
   onStop,
+  onBrowseContent,
 }) {
   const activeHost = runtimeState.sessions?.findLast(
     (s) => s.running && s.worldId,
@@ -242,6 +243,7 @@ export function WorldHome({
     running={!!runtimeState.starting || !!runtimeState.stopping || !!runtimeState.sessions?.some(s => s.running)}
     onChanged={refresh}
     onImport={() => { setPackWorld(null); setFocusId(""); open("import"); }}
+    onContent={pack => { setPackWorld(null); onBrowseContent?.({ worldId: packWorld.id, packId: pack.packId, packName: pack.packName, worldName: packWorld.name }); }}
     onClose={() => { setPackWorld(null); refresh(); }} />;
   const joinDialog = joinTarget && (
     <LocalJoinDialog

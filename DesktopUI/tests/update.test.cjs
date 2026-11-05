@@ -106,6 +106,71 @@ test("public GitHub release check validates the anonymous release asset", async 
     ),
   );
   assert.equal(parseChecksum(`${digest}  ${assetName}\n`, assetName), digest);
+
+  const reopened = new UpdateService({
+    currentVersion: "0.1.0",
+    dataRoot: root,
+    runtimeRoot: root,
+    appDirectory: path.join(root, "app"),
+    executablePath: path.join(root, "app", "DaGuoNeko-Game-Toolkit.exe"),
+    isPackaged: true,
+    protection,
+    config: {
+      repository: "DaGuoNeko/DaGuoNekoGameToolkit",
+      feedUrl: "https://api.github.com/repos/DaGuoNeko/DaGuoNekoGameToolkit/releases/latest",
+    },
+    fetchImpl: async () => {
+      throw Error("重启后不应重新请求网络");
+    },
+  });
+  const restored = await reopened.loadInstallation();
+  assert.equal(restored.phase, "downloaded");
+  assert.equal(restored.latestVersion, "0.1.1");
+  assert.equal(reopened.plan, path.join(reopened.cacheDirectory(), `update-${restored.latestVersion}.json`));
+});
+
+test("invalid persisted update plans are removed instead of being installed", async (t) => {
+  const service = await fixture(t, async () => {
+    throw Error("Unexpected network call");
+  });
+  const archive = path.join(service.cacheDirectory(), "DaGuoNeko-Game-Toolkit-0.1.1-win-x64.zip");
+  const plan = path.join(service.cacheDirectory(), "update-0.1.1.json");
+  await fs.writeFile(archive, "damaged", "utf8");
+  await fs.writeFile(plan, JSON.stringify({
+    archive,
+    targetDirectory: service.appDirectory,
+    executablePath: service.executablePath,
+    version: "0.1.1",
+    sha256: "0".repeat(64),
+  }), "utf8");
+  const state = await service.loadInstallation();
+  assert.equal(state.phase, "idle");
+  assert.equal(service.plan, undefined);
+  await assert.rejects(fs.access(plan), { code: "ENOENT" });
+  await assert.rejects(fs.access(archive), { code: "ENOENT" });
+});
+
+test("invalid plans do not remove an archive retained by a valid plan", async (t) => {
+  const service = await fixture(t, async () => {
+    throw Error("Unexpected network call");
+  });
+  const archive = path.join(service.cacheDirectory(), "DaGuoNeko-Game-Toolkit-0.1.1-win-x64.zip");
+  const bytes = Buffer.from("checked update");
+  const sha256 = crypto.createHash("sha256").update(bytes).digest("hex");
+  await fs.writeFile(archive, bytes);
+  const base = {
+    archive,
+    targetDirectory: service.appDirectory,
+    executablePath: service.executablePath,
+    version: "0.1.1",
+    sha256,
+  };
+  await fs.writeFile(path.join(service.cacheDirectory(), "update-0.1.1.json"), JSON.stringify(base), "utf8");
+  await fs.writeFile(path.join(service.cacheDirectory(), "update-0.1.2.json"), JSON.stringify({ ...base, version: "0.1.2", sha256: "0".repeat(64) }), "utf8");
+  const state = await service.loadInstallation();
+  assert.equal(state.phase, "downloaded");
+  assert.equal(service.plan, path.join(service.cacheDirectory(), "update-0.1.1.json"));
+  await fs.access(archive);
 });
 
 const repository = "DaGuoNeko/DaGuoNekoGameToolkit";

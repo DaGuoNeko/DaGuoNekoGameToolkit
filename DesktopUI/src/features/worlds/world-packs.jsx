@@ -22,7 +22,7 @@ const issueText = {
 };
 const ver = value => Array.isArray(value) ? value.join(".") : value || "未指定";
 
-export function WorldPacks({ world, onClose, onChanged, onImport, running }) {
+export function WorldPacks({ world, onClose, onChanged, onImport, onContent, running }) {
   const [health, setHealth] = useState(null), [selected, setSelected] = useState(null);
   const [name, setName] = useState(""), [version, setVersion] = useState(""), [enabled, setEnabled] = useState(true);
   const [confirm, setConfirm] = useState(null), [busy, setBusy] = useState(false);
@@ -115,7 +115,7 @@ export function WorldPacks({ world, onClose, onChanged, onImport, running }) {
             {pack.modules.map((m,i) => <small key={i}>模块：{m.uuid || "无 UUID"} · {m.type} · {ver(m.version)}</small>)}
             {pack.dependencies.map((d,i) => <small key={i}>依赖：{d.uuid || d.moduleName || "未知"} · {ver(d.version)}</small>)}
           </details></div>
-        <div className="world-toolbar"><Button disabled={blocked} onClick={() => edit(pack)}>编辑</Button>
+        <div className="world-toolbar"><Button disabled={busy} onClick={() => onContent?.(pack)}>编辑内容</Button><Button disabled={blocked} onClick={() => edit(pack)}>编辑</Button>
           <Button disabled={blocked} onClick={() => rebind(pack)}>重绑 UUID</Button></div>
       </div>)}</div>
       {health && !filtered.length && <p>没有符合条件的模组。</p>}

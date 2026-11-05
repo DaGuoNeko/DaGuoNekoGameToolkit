@@ -1,17 +1,24 @@
 import React, { useEffect, useState } from "react";
 import { Section, Field, Select, Button, ErrorBox } from "../../app/ui.jsx";
 export function WindowSizeSettings({ value, save }) {
-  const current = value || { enabled: true, width: 1280, height: 720 };
+  const current = value || {
+    enabled: true,
+    width: 1280,
+    height: 720,
+    fullscreen: false,
+  };
   const [enabled, setEnabled] = useState(current.enabled);
+  const [fullscreen, setFullscreen] = useState(current.fullscreen ?? false);
   const [width, setWidth] = useState(String(current.width));
   const [height, setHeight] = useState(String(current.height));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
     setEnabled(current.enabled);
+    setFullscreen(current.fullscreen ?? false);
     setWidth(String(current.width));
     setHeight(String(current.height));
-  }, [current.enabled, current.width, current.height]);
+  }, [current.enabled, current.fullscreen, current.width, current.height]);
   const presets = ["960×540", "1280×720", "1600×900", "1920×1080", "2560×1440"];
   const size = width + "×" + height;
   const valid =
@@ -23,6 +30,7 @@ export function WindowSizeSettings({ value, save }) {
     Number(height) <= 4320;
   const dirty =
     enabled !== current.enabled ||
+    fullscreen !== (current.fullscreen ?? false) ||
     width !== String(current.width) ||
     height !== String(current.height);
   return (
@@ -38,6 +46,14 @@ export function WindowSizeSettings({ value, save }) {
             onChange={(e) => setEnabled(e.target.checked)}
           />
           使用默认窗口大小
+        </label>
+        <label className="check-row">
+          <input
+            type="checkbox"
+            checked={fullscreen}
+            onChange={(e) => setFullscreen(e.target.checked)}
+          />
+          全屏模式
         </label>
         <Field label="常用窗口尺寸">
           <Select
@@ -83,7 +99,7 @@ export function WindowSizeSettings({ value, save }) {
           </p>
         )}
         <p className="muted">
-          关闭后使用游戏原有尺寸。启动配置中单独指定的尺寸优先；自动加入房主的测试客户端继承房主本次启动尺寸。
+          关闭“使用默认窗口大小”后使用游戏原有尺寸；全屏模式会在下一次启动时生效。启动配置中单独指定的尺寸优先；自动加入房主的测试客户端继承房主本次启动尺寸。
         </p>
         <ErrorBox>{error}</ErrorBox>
         <Button
@@ -98,6 +114,7 @@ export function WindowSizeSettings({ value, save }) {
                   enabled,
                   width: Number(width),
                   height: Number(height),
+                  fullscreen,
                 },
               });
             } catch (e) {

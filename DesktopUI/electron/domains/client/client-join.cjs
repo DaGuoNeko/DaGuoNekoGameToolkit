@@ -211,6 +211,7 @@ class ClientJoiner {
             }
           },
           runtimeConfig: structuredClone(target.worker.sourceSnapshot.config),
+          runtimeFullscreen: target.worker.launchSource?.fullscreen,
         },
       );
       worker = this.sessions.workers.find(

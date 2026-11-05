@@ -85,7 +85,7 @@ async function fixture(t) {
       .digest("hex"),
   };
   const planPath = path.join(cache, "plan.json");
-  const run = async () => {
+  const run = async (cwd = root) => {
     await fs.writeFile(planPath, JSON.stringify(plan), "utf8");
     let failed = false;
     try {
@@ -101,7 +101,7 @@ async function fixture(t) {
           "-Plan",
           planPath,
         ],
-        { windowsHide: true, timeout: 20000 },
+        { cwd, windowsHide: true, timeout: 20000 },
       );
     } catch {
       failed = true;
@@ -121,7 +121,8 @@ test(
   { skip: process.platform !== "win32" },
   async (t) => {
     const f = await fixture(t);
-    const { failed, result } = await f.run();
+    // 模拟发行版从自身目录启动，确保更新脚本不会继承旧目录句柄。
+    const { failed, result } = await f.run(f.target);
     assert.equal(failed, false, result.error);
     assert.equal(result.ok, true);
     assert.equal(
