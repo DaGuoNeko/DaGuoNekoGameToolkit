@@ -398,6 +398,7 @@ test(
     assert.equal(quit, false);
     assert.equal(state.phase, "downloaded");
     assert.match(state.error, /更新脚本未能启动/);
+    assert.equal(JSON.parse(await fs.readFile(service.plan, "utf8")).pid, process.pid);
   },
 );
 

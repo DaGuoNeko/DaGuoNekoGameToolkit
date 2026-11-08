@@ -85,24 +85,34 @@ async function fixture(t) {
       .digest("hex"),
   };
   const planPath = path.join(cache, "plan.json");
-  const run = async (cwd = root) => {
+  const run = async (cwd = root, useLauncher = false) => {
     await fs.writeFile(planPath, JSON.stringify(plan), "utf8");
     let failed = false;
     try {
-      await exec(
-        powershell,
-        [
-          "-NoProfile",
-          "-NonInteractive",
-          "-ExecutionPolicy",
-          "Bypass",
-          "-File",
-          path.resolve("electron/update-helper.ps1"),
-          "-Plan",
-          planPath,
-        ],
-        { cwd, windowsHide: true, timeout: 20000 },
-      );
+      if (useLauncher) {
+        const log = path.join(cache, "launcher.log");
+        await fs.writeFile(log, "", "utf8");
+        await exec(
+          path.resolve("runtime/native/update-launcher.exe"),
+          [path.resolve("electron/update-helper.ps1"), planPath, log],
+          { cwd, windowsHide: true, timeout: 20000 },
+        );
+      } else {
+        await exec(
+          powershell,
+          [
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            path.resolve("electron/update-helper.ps1"),
+            "-Plan",
+            planPath,
+          ],
+          { cwd, windowsHide: true, timeout: 20000 },
+        );
+      }
     } catch {
       failed = true;
     }
@@ -121,8 +131,8 @@ test(
   { skip: process.platform !== "win32" },
   async (t) => {
     const f = await fixture(t);
-    // 模拟发行版从自身目录启动，确保更新脚本不会继承旧目录句柄。
-    const { failed, result } = await f.run(f.target);
+    // 从安装目录启动更新器，确认启动器不会占住即将替换的目录。
+    const { failed, result } = await f.run(f.target, true);
     assert.equal(failed, false, result.error);
     assert.equal(result.ok, true);
     assert.equal(

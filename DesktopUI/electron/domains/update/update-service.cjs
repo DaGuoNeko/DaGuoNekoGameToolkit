@@ -443,6 +443,9 @@ class UpdateService extends EventEmitter {
       if (this.state.phase !== "downloaded" || !this.plan) throw Error("请先下载更新");
       const allowed = await this.canInstall();
       if (!allowed?.ok) throw Error(allowed?.reason || "请先停止运行中的游戏和房间");
+      const plan = JSON.parse(await fs.readFile(this.plan, "utf8"));
+      plan.pid = process.pid;
+      await fs.writeFile(this.plan, JSON.stringify(plan), "utf8");
       const helper = path.join(this.cacheDirectory(), `update-helper-${crypto.randomUUID()}.ps1`);
       await fs.copyFile(path.join(this.runtimeRoot, "automation", "update-helper.ps1"), helper);
       const launcher = helper.replace(/\.ps1$/, ".exe");
@@ -456,7 +459,12 @@ class UpdateService extends EventEmitter {
       this.setState({ phase: "preparing", error: "" });
       let child;
       try {
-        child = spawn(launcher, [helper, this.plan, logFile], { detached: true, stdio: "ignore", windowsHide: true });
+        child = spawn(launcher, [helper, this.plan, logFile], {
+          detached: true,
+          stdio: "ignore",
+          windowsHide: true,
+          cwd: this.cacheDirectory(),
+        });
         await once(child, "spawn");
         let launchError;
         child.on("error", (error) => (launchError = error));

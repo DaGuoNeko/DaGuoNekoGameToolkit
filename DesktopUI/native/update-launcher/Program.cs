@@ -17,6 +17,9 @@ static class Program {
         if (args.Length != 3) return 2;
         try {
             foreach (string value in args) if (!Path.IsPathRooted(value)) throw new ArgumentException("Updater paths must be absolute");
+            string cacheDirectory = Path.GetDirectoryName(args[1]);
+            if (string.IsNullOrEmpty(cacheDirectory)) throw new ArgumentException("Invalid update plan");
+            Directory.SetCurrentDirectory(cacheDirectory);
             string powershell = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "WindowsPowerShell\\v1.0\\powershell.exe");
             using (var process = new Process()) {
                 process.StartInfo = new ProcessStartInfo(powershell,

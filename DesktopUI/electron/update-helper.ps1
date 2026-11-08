@@ -37,6 +37,20 @@ function Get-ArchiveHash([string]$Location) {
   finally { $stream.Dispose(); $sha.Dispose() }
 }
 
+function Move-UpdateDirectory([string]$From, [string]$To) {
+  # HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION). Avoid localized text in this UTF-8 script.
+  $sharingViolation = -2147024864
+  $until = (Get-Date).AddSeconds(20)
+  while ($true) {
+    try { Move-Item -LiteralPath $From -Destination $To; return }
+    catch {
+      $locked = $_.Exception.HResult -eq $sharingViolation -or $_.Exception.InnerException.HResult -eq $sharingViolation
+      if (-not $locked -or (Get-Date) -gt $until) { throw }
+      Start-Sleep -Milliseconds 250
+    }
+  }
+}
+
 try {
   $job = Get-Content -LiteralPath $planPath -Raw -Encoding UTF8 | ConvertFrom-Json
   $archive = [IO.Path]::GetFullPath([string]$job.archive)
@@ -86,19 +100,29 @@ try {
     if (Test-Path -LiteralPath $cancelledPath) { throw 'Update cancelled before replacing the application' }
     $running = Get-Process -Id ([int]$job.pid) -ErrorAction SilentlyContinue
     if (-not $running) { break }
-    if ($running.Path -ne $executable) { throw 'Application process identity changed' }
+    $path = $null
+    try { $path = $running.Path } catch { $path = $null }
+    if ($path -and $path -ne $executable) { throw 'Application process identity changed' }
     if ((Get-Date) -gt $deadline) { throw 'The old application did not exit' }
     Start-Sleep -Milliseconds 250
   }
-  foreach ($running in @(Get-Process -Name 'DaGuoNeko-Game-Toolkit' -ErrorAction SilentlyContinue)) {
-    if (-not $running.Path -or $running.Path -eq $executable) { throw 'Another application instance is still running' }
+  while ($true) {
+    if (Test-Path -LiteralPath $cancelledPath) { throw 'Update cancelled before replacing the application' }
+    $blocking = @(Get-Process -Name 'DaGuoNeko-Game-Toolkit' -ErrorAction SilentlyContinue | Where-Object {
+      $path = $null
+      try { $path = $_.Path } catch { $path = $null }
+      -not $path -or $path -eq $executable
+    })
+    if ($blocking.Count -eq 0) { break }
+    if ((Get-Date) -gt $deadline) { throw 'Another application instance is still running' }
+    Start-Sleep -Milliseconds 250
   }
   if (Test-Path -LiteralPath $cancelledPath) { throw 'Update cancelled before replacing the application' }
   Assert-NoLink $target
   Assert-NoLink $source
-  Move-Item -LiteralPath $target -Destination $backup
+  Move-UpdateDirectory $target $backup
   $oldMoved = $true
-  Move-Item -LiteralPath $source -Destination $target
+  Move-UpdateDirectory $source $target
   $newMoved = $true
   Start-Process -FilePath $executable -WorkingDirectory $target -WindowStyle Normal -ErrorAction Stop | Out-Null
   $outcome = @{ ok = $true; version = $job.version; backup = $backup }
@@ -111,16 +135,18 @@ try {
     try {
       if ($newMoved) {
         Assert-NoLink $target
-        Move-Item -LiteralPath $target -Destination ($stage + '.failed')
+        Move-UpdateDirectory $target ($stage + '.failed')
       }
       Assert-NoLink $backup
-      Move-Item -LiteralPath $backup -Destination $target
+      Move-UpdateDirectory $backup $target
       Start-Process -FilePath $executable -WorkingDirectory $target -WindowStyle Normal -ErrorAction Stop | Out-Null
     } catch { $failure += '; rollback requires manual recovery: ' + $_.Exception.Message }
   }
-  $outcome = @{ ok = $false; error = $failure; backup = $backup }
+  $outcome = @{ ok = $false; error = $failure }
+  if ($backup -and (Test-Path -LiteralPath $backup)) { $outcome.backup = $backup }
   [IO.File]::WriteAllText($resultPath, ($outcome | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
-  Write-Error $failure
+  [Console]::Error.WriteLine($failure)
+  exit 1
 } finally {
   [IO.File]::Delete($readyPath)
   [IO.File]::Delete($readyPath + '.tmp')
