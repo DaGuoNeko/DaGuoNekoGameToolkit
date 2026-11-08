@@ -99,6 +99,7 @@ function App() {
     playerName: "",
     invitation: "",
     roomCode: "",
+    gamePath: "",
   });
   const [uiEditorDraft, setUiEditorDraft] = useState(null);
   const uiEditorDirty =

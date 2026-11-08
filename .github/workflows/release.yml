@@ -51,6 +51,24 @@ jobs:
           if ($env:RELEASE_TAG -ne "v$($manifest.version)" -or $manifest.version -notmatch '^\d+\.\d+\.\d+$') { throw 'Version/tag mismatch' }
           if (-not (Test-Path "../docs/releases/$($manifest.version).md")) { throw 'Missing release notes' }
       - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      - name: Prepare verified Electron runtime
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $electronVersion = node -p "require('electron/package.json').version"
+          $archiveName = "electron-v$electronVersion-win32-x64.zip"
+          gh release download "v$electronVersion" --repo electron/electron --pattern $archiveName --dir node_modules/.cache
+          if ($LASTEXITCODE -ne 0) { throw 'Electron asset download failed' }
+          $archivePath = Join-Path 'node_modules/.cache' $archiveName
+          $checksums = Get-Content -Raw 'node_modules/electron/checksums.json' | ConvertFrom-Json
+          $expected = $checksums.PSObject.Properties[$archiveName].Value
+          if ($expected -notmatch '^[a-f0-9]{64}$' -or (Get-FileHash -Algorithm SHA256 -LiteralPath $archivePath).Hash.ToLowerInvariant() -ne $expected) { throw 'Electron checksum mismatch' }
+          Expand-Archive -LiteralPath $archivePath -DestinationPath 'node_modules/electron/dist' -Force
+          [IO.File]::WriteAllText((Join-Path (Get-Location) 'node_modules/electron/path.txt'), 'electron.exe', [Text.UTF8Encoding]::new($false))
+          node -p "require('electron')"
+          if ($LASTEXITCODE -ne 0) { throw 'Electron runtime preparation failed' }
       - run: npm run build
       - run: npm test
       - name: Update UI acceptance

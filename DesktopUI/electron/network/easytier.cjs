@@ -11,12 +11,19 @@ const powershell = () =>
     process.env.SystemRoot,
     "System32/WindowsPowerShell/v1.0/powershell.exe",
   );
-async function freePort(host = "127.0.0.1") {
+async function freePort(host = "127.0.0.1", preferredPort = 0) {
   const server = net.createServer();
-  await new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, host, resolve);
-  });
+  try {
+    await new Promise((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(preferredPort, host, resolve);
+    });
+  } catch (error) {
+    // Windows 可能在重启后将固定房间的旧端口纳入排除范围。
+    if (preferredPort && ["EACCES", "EADDRINUSE"].includes(error.code))
+      return freePort(host);
+    throw error;
+  }
   const port = server.address().port;
   await new Promise((resolve) => server.close(resolve));
   return port;

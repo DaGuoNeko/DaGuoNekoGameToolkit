@@ -3,11 +3,12 @@ const { test } = require("node:test"),
   fs = require("node:fs/promises"),
   os = require("node:os"),
   path = require("node:path"),
-  crypto = require("node:crypto");
+  crypto = require("node:crypto"),
+  net = require("node:net");
 const fixed = require("../electron/network/fixed-room.cjs"),
   p = require("../electron/network/protocol.cjs"),
   { Rooms } = require("../electron/network/rooms.cjs");
-test("closing and recreating Rooms with the same code reproduces the complete invitation", async (t) => {
+test("recreating a fixed room keeps its invitation unless the saved port becomes unavailable", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-fixed-create-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const str = (s) => {
@@ -75,13 +76,26 @@ test("closing and recreating Rooms with the same code reproduces the complete in
     s.hostCheck = () => ({});
     s.hostCode = async () => ({ netherNetId: "123" });
     s.verifyWorld = async () => ({});
-    s.listen = async () => {};
+    s.listen = async (r) => {
+      assert.equal(r.controlPort, starts.at(-1).controlPort);
+      assert.equal(r.fixedIdentity.controlPort, r.controlPort);
+    };
     s.monitor = () => {};
     return s;
   }
-  let text;
-  for (let pass = 0; pass < 2; pass++) {
+  let text, original;
+  for (let pass = 0; pass < 4; pass++) {
     const s = service();
+    t.after(() => s.close());
+    let occupied;
+    if (pass === 2) {
+      occupied = net.createServer();
+      t.after(() => new Promise((resolve) => occupied.close(resolve)));
+      await new Promise((resolve, reject) => {
+        occupied.once("error", reject);
+        occupied.listen(original.controlPort, "127.0.0.1", resolve);
+      });
+    }
     s.create({
       worldId: "test",
       endpoint: "example.test:30000",
@@ -92,14 +106,32 @@ test("closing and recreating Rooms with the same code reproduces the complete in
     assert.equal(s.snapshot().phase, "hosting", s.snapshot().error);
     const invitation = await s.invite();
     assert.equal(invitation.fixed, true);
-    if (pass) assert.equal(invitation.text, text);
-    else text = invitation.text;
+    const parsed = p.parseInvite(invitation.text),
+      saved = (await new fixed.RoomPreferences(root).read()).host;
+    assert.equal(parsed.controlPort, starts[pass].controlPort);
+    assert.equal(saved.controlPort, parsed.controlPort);
+    if (pass === 2) {
+      assert.notEqual(parsed.controlPort, original.controlPort);
+      assert.notEqual(invitation.text, text);
+      assert.deepEqual(saved, { ...original, controlPort: parsed.controlPort });
+      assert.match(s.snapshot().message, /连接端口已更新.*重新复制完整邀请/);
+      assert.equal(occupied.listening, true);
+      text = invitation.text;
+    } else if (pass) assert.equal(invitation.text, text);
+    else {
+      text = invitation.text;
+      original = saved;
+    }
     await s.close();
     assert.equal(worker.session.running, true);
+    if (occupied)
+      await new Promise((resolve) => occupied.close(resolve));
   }
-  assert.equal(starts[0].fixedCredential, starts[1].fixedCredential);
-  assert.equal(starts[0].privateKey, starts[1].privateKey);
-  assert.notEqual(starts[0].instance, starts[1].instance);
+  for (const next of starts.slice(1)) {
+    assert.equal(starts[0].fixedCredential, next.fixedCredential);
+    assert.equal(starts[0].privateKey, next.privateKey);
+    assert.notEqual(starts[0].instance, next.instance);
+  }
 });
 test("fixed invitation survives reopening the store, has no product expiry and rotates only on changed code", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-fixed-"));
@@ -124,16 +156,17 @@ test("fixed invitation survives reopening the store, has no product expiry and r
   );
   const b = new fixed.RoomPreferences(root);
   assert.deepEqual(
-    await b.identity("朋友地图", "tcp://example.test:30000", () => {
-      throw Error("must not reallocate");
+    await b.identity("朋友地图", "tcp://example.test:30000", (port) => {
+      assert.equal(port, original.controlPort);
+      return port;
     }),
     original,
   );
   assert.equal(
-    fixed.encode(await b.identity("朋友地图", original.endpoint, () => {})),
+    fixed.encode(await b.identity("朋友地图", original.endpoint, (port) => port)),
     text,
   );
-  const moved = await b.identity("朋友地图", "tcp://new.test:32000", () => {});
+  const moved = await b.identity("朋友地图", "tcp://new.test:32000", (port) => port);
   assert.equal(moved.roomId, original.roomId);
   assert.notEqual(fixed.encode(moved), text);
   const changed = await b.identity(
@@ -145,6 +178,30 @@ test("fixed invitation survives reopening the store, has no product expiry and r
   assert.notEqual(changed.credential, original.credential);
   assert(!text.includes(original.privateKey));
   assert(!text.includes(original.secret));
+});
+test("fixed port repair preserves identity and an allocation failure leaves persisted settings intact", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-fixed-port-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const a = new fixed.RoomPreferences(root),
+    original = await a.identity("朋友地图", "tcp://example.test:30000", () => 33001);
+  const repaired = await a.identity(original.code, original.endpoint, (port) => {
+    assert.equal(port, original.controlPort);
+    return 33002;
+  });
+  assert.deepEqual(repaired, { ...original, controlPort: 33002 });
+  const reopened = new fixed.RoomPreferences(root);
+  assert.deepEqual(
+    await reopened.identity(original.code, original.endpoint, (port) => port),
+    repaired,
+  );
+  const before = await fs.readFile(reopened.file);
+  await assert.rejects(
+    reopened.identity(original.code, "tcp://new.test:32000", () => {
+      throw Object.assign(Error("fixture bind failure"), { code: "EADDRNOTAVAIL" });
+    }),
+    { code: "EADDRNOTAVAIL" },
+  );
+  assert.deepEqual(await fs.readFile(reopened.file), before);
 });
 test("draft autosaves merge serialized updates, clear persists and invalid input cannot replace secrets", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-draft-"));

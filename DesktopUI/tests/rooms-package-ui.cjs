@@ -99,7 +99,7 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
       .click();
     await page
       .getByText(
-        "请先在“设置 → 默认游戏程序”选择开发版 Minecraft.Windows.exe，再粘贴邀请加入",
+        "请先在“设置 → 全局游戏程序”选择开发版 Minecraft.Windows.exe，再粘贴邀请加入",
         { exact: true },
       )
       .waitFor();

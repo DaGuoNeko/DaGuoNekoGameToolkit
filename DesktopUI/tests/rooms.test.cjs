@@ -819,3 +819,120 @@ test("cancelled component preparation stops before filesystem or network work", 
     name: "AbortError",
   });
 });
+for (const configured of [true, false])
+test(`host create launches the selected game and keeps mods (configured: ${configured})`, async (t) => {
+  const selected = path.resolve("D:/games/448891/Minecraft.Windows.exe");
+  const current = configured ? path.resolve("D:/games/436581/Minecraft.Windows.exe") : "";
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-room-game-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const profile = {
+    game_executable_path: current,
+    included_mod_dirs: ["keep-me"],
+  };
+  let started = null,
+    networked = null;
+  const s = new Rooms(
+    {
+      sessions: {
+        store: { value: { settings: { GamePath: current } } },
+        workers: [],
+        start: async (_profileId, _worldId, _blank, automation) => {
+          started = automation;
+          throw Error("stop after launch args");
+        },
+      },
+      debug: { snapshot: () => ({ sessions: [] }) },
+      profiles: { read: async () => ({ config: profile, project: { root } }) },
+      worlds: {
+        list: async () => ({
+          worlds: [{ id: "w", name: "地图", path: root, profileId: "p" }],
+        }),
+      },
+      runtime: "unused",
+      dataRoot: root,
+    },
+    {
+      checkEngine: async (file) => ({
+        digest: file.includes("448891") ? "new" : "old",
+      }),
+      makeNetwork: () => ({
+        start: async (c) => {
+          networked = c.gamePath;
+          return { peers: [] };
+        },
+        stop: async () => {},
+      }),
+    },
+  );
+  assert.throws(
+    () =>
+      s.create({
+        worldId: "w",
+        endpoint: "example.test:30000",
+        localPort: 11010,
+        gamePath: "relative.exe",
+      }),
+    /有效的游戏版本/,
+  );
+  s.create({
+    worldId: "w",
+    endpoint: "example.test:30000",
+    localPort: 11010,
+    gamePath: selected,
+  });
+  await s.job;
+  assert.equal(networked, selected);
+  assert.equal(started.gameExecutablePath, selected);
+  assert.equal(started.debug, true);
+  assert.deepEqual(profile.included_mod_dirs, ["keep-me"]);
+  assert.match(s.snapshot().error, /stop after launch args/);
+});
+for (const sameBuild of [false, true])
+test(`host create keeps the running executable and refuses version changes (same build: ${sameBuild})`, async () => {
+  const selected = path.resolve("D:/games/448891/Minecraft.Windows.exe");
+  const current = path.resolve("D:/games/436581/Minecraft.Windows.exe");
+  let networked = false;
+  const s = new Rooms(
+    {
+      sessions: {
+        store: { value: { settings: {} } },
+        workers: [
+          {
+            session: { running: true, worldId: "w" },
+            sourceSnapshot: { config: { game_executable_path: current } },
+          },
+        ],
+      },
+      debug: {},
+      profiles: {},
+      worlds: {
+        list: async () => ({
+          worlds: [{ id: "w", name: "地图", profileId: "p" }],
+        }),
+      },
+      runtime: "unused",
+      dataRoot: "unused",
+    },
+    {
+      checkEngine: async (file) => ({
+        digest: sameBuild ? "same-build" : path.basename(path.dirname(file)),
+      }),
+      makeNetwork: () => ({
+        start: async (config) => {
+          networked = config.gamePath;
+          throw Error("stop after firewall args");
+        },
+        stop: async () => {},
+      }),
+    },
+  );
+  s.create({
+    worldId: "w",
+    endpoint: "example.test:30000",
+    localPort: 11010,
+    gamePath: selected,
+  });
+  await s.job;
+  assert.equal(networked, sameBuild ? current : false);
+  assert.match(s.snapshot().error, sameBuild ? /stop after firewall args/ : /已用其他游戏版本/);
+});

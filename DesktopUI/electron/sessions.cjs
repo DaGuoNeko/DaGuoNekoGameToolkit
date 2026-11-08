@@ -389,8 +389,14 @@ class Sessions extends EventEmitter {
         profile = this.store.project(profileId);
       }
       const launchConfig = automation?.runtimeConfig || snapshot.config;
-      const inheritedGame = !launchConfig.game_executable_path.trim();
-      const selectedGame = inheritedGame
+      const roomGame = automation?.gameExecutablePath || "";
+      if (roomGame && (typeof roomGame !== "string" || !path.isAbsolute(roomGame)))
+        throw Error("开房游戏版本路径无效");
+      const inheritedGame =
+        !roomGame && !launchConfig.game_executable_path.trim();
+      const selectedGame = roomGame
+        ? roomGame
+        : inheritedGame
         ? this.store.value.settings.GamePath
         : launchConfig.game_executable_path;
       if (!selectedGame)

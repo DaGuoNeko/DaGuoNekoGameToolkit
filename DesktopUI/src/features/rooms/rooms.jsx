@@ -46,6 +46,11 @@ export function RoomsPage({ draft, onDraft }) {
   const touched = useRef(new Set());
   const [state, setState] = useState({ phase: "idle", members: [] }),
     [worlds, setWorlds] = useState([]),
+    [games, setGames] = useState([]),
+    [defaultGame, setDefaultGame] = useState(""),
+    [gameHint, setGameHint] = useState(
+      "只列出已适配自动入房的开发版。不选则跟随存档配置。加入方仍用设置里的默认游戏程序。",
+    ),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
     [busy, setBusy] = useState(false),
@@ -75,6 +80,7 @@ export function RoomsPage({ draft, onDraft }) {
       .then(([w, s, saved]) => {
         if (active) {
           setWorlds(w.worlds.filter((x) => !x.deleted && !x.deletedAt));
+          setDefaultGame(s.gamePath || "");
           onDraft((d) => {
             const next = { ...d };
             for (const key of [
@@ -84,6 +90,7 @@ export function RoomsPage({ draft, onDraft }) {
               "roomCode",
               "invitation",
               "playerName",
+              "gamePath",
             ])
               if (!touched.current.has(key) && saved[key] !== undefined)
                 next[key] = saved[key];
@@ -95,6 +102,20 @@ export function RoomsPage({ draft, onDraft }) {
               .slice(0, 16);
             return next;
           });
+          call("games.discover")
+            .then((found) => {
+              if (!active) return;
+              const supported = (found.games || []).filter(
+                (g) => g.engineProfile?.autoJoin,
+              );
+              setGames(supported);
+              if (!supported.length)
+                setGameHint("没有发现已适配的开发版，本次将跟随存档配置。");
+            })
+            .catch(() => {
+              if (active)
+                setGameHint("没有列出本机版本，本次将跟随存档配置。");
+            });
         }
       })
       .catch((e) => active && setError(e.message));
@@ -238,6 +259,23 @@ export function RoomsPage({ draft, onDraft }) {
                 options={worlds.map((w) => ({ value: w.id, label: w.name }))}
               />
             </Field>
+            <Field label="游戏版本" hint={gameHint}>
+              <Select
+                value={draft.gamePath || ""}
+                onChange={(v) => edit("gamePath", v)}
+                options={[
+                  { value: "", label: "跟随存档配置" },
+                  ...games.map((g) => {
+                    const version = g.engineVersion || g.version;
+                    return {
+                      value: g.path,
+                      label:
+                        g.path === defaultGame ? version + " · 当前默认" : version,
+                    };
+                  }),
+                ]}
+              />
+            </Field>
             <Field
               label="自定义邀请码"
               hint="自动保存，不限时。重建房间时保持此码即可复用邀请；更换此码会使旧邀请失效。"
@@ -291,6 +329,7 @@ export function RoomsPage({ draft, onDraft }) {
                   endpoint: draft.endpoint,
                   localPort: Number(draft.localPort),
                   roomCode: draft.roomCode,
+                  ...(draft.gamePath ? { gamePath: draft.gamePath } : {}),
                 })
               }
             >

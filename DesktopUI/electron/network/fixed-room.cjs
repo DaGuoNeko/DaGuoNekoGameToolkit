@@ -113,6 +113,7 @@ class RoomPreferences {
       endpoint: 300,
       localPort: 5,
       worldId: 100,
+      gamePath: 1024,
     };
     const patch = {};
     for (const [key, limit] of Object.entries(limits))
@@ -150,6 +151,8 @@ class RoomPreferences {
             .scryptSync(code, crypto.randomBytes(32), 32)
             .toString("base64"),
         };
+      } else {
+        d.host.controlPort = await allocate(d.host.controlPort);
       }
       d.host.endpoint = endpoint;
       return { ...d.host };

@@ -108,15 +108,20 @@ class Rooms {
     r.message = message;
   }
   async settings() {
+    const gamePath = this.sessions.store.value.settings.GamePath || "";
     try {
-      return JSON.parse(
-        await fs.readFile(
-          path.join(this.dataRoot, "network-settings.json"),
-          "utf8",
+      return {
+        ...JSON.parse(
+          await fs.readFile(
+            path.join(this.dataRoot, "network-settings.json"),
+            "utf8",
+          ),
         ),
-      );
+        gamePath,
+      };
     } catch (e) {
-      if (e.code === "ENOENT") return { endpoint: "", localPort: 11010 };
+      if (e.code === "ENOENT")
+        return { endpoint: "", localPort: 11010, gamePath };
       throw e;
     }
   }
@@ -126,10 +131,11 @@ class Rooms {
   saveDraft(args) {
     return this.preferences.saveDraft(args);
   }
-  async profile(id) {
+  async profile(id, gamePath = "") {
     const s = await this.profiles.read(id);
     if (!s.config) throw Error(s.error || "配置不存在");
     if (!(
+      gamePath ||
       s.config.game_executable_path ||
       this.sessions.store.value.settings.GamePath
     ))
@@ -138,6 +144,7 @@ class Rooms {
       {
         ...s.config,
         game_executable_path:
+          gamePath ||
           s.config.game_executable_path ||
           this.sessions.store.value.settings.GamePath,
       },
@@ -265,6 +272,14 @@ class Rooms {
     if (!Number.isInteger(localPort) || localPort < 1024 || localPort > 65535)
       throw Error("樱花本地端口必须为 1024–65535");
     if (typeof args.worldId !== "string") throw Error("请选择存档");
+    if (args.gamePath !== undefined && args.gamePath !== "") {
+      if (
+        typeof args.gamePath !== "string" ||
+        !path.isAbsolute(args.gamePath) ||
+        !/\.exe$/i.test(args.gamePath)
+      )
+        throw Error("请选择有效的游戏版本");
+    }
     const code =
       args.roomCode === undefined ? null : fixed.roomCode(args.roomCode);
     const r = this.reserve("host");
@@ -286,10 +301,20 @@ class Rooms {
       const existing = this.sessions.workers.find(
         (w) => w.session?.running && w.session.worldId === world.id,
       );
+      const requested = args.gamePath || "";
       const config = existing
         ? existing.sourceSnapshot.config
-        : await this.profile(world.profileId);
-      r.engine = await this.checkEngine(config.game_executable_path);
+        : await this.profile(world.profileId, requested);
+      const gamePath = config.game_executable_path;
+      if (requested && existing) {
+        const running = await this.checkEngine(config.game_executable_path);
+        const chosen = await this.checkEngine(requested);
+        if (running.digest !== chosen.digest)
+          throw Error(
+            "该存档已用其他游戏版本运行，请先退出后再用所选版本创建房间",
+          );
+        r.engine = running;
+      } else r.engine = await this.checkEngine(gamePath);
       this.check(r);
       r.ip = p.subnet();
       r.networkName = "dgn-" + crypto.randomBytes(16).toString("hex");
@@ -302,7 +327,15 @@ class Rooms {
         "base64url",
       ).toString("base64");
       if (code !== null) {
-        const saved = await this.preferences.identity(code, endpoint, freePort);
+        const saved = await this.preferences.identity(
+          code,
+          endpoint,
+          async (port) => {
+            const selected = await freePort("127.0.0.1", port);
+            r.controlPortChanged = !!port && selected !== port;
+            return selected;
+          },
+        );
         Object.assign(r, {
           fixed: true,
           id: saved.roomId,
@@ -330,7 +363,7 @@ class Rooms {
         privateKey: r.privateKey,
         localPort: r.localPort,
         controlPort: r.controlPort,
-        gamePath: config.game_executable_path,
+        gamePath,
         ...(r.fixed
           ? { fixedCredential: r.fixedIdentity.credential, fixedId: r.id }
           : {}),
@@ -350,7 +383,10 @@ class Rooms {
           world.profileId,
           world.id,
           null,
-          { debug: true },
+          {
+            debug: true,
+            ...(requested && !existing ? { gameExecutablePath: requested } : {}),
+          },
         );
         r.worker = this.sessions.workers.find(
           (w) => w.session?.id === state.selectedSession,
@@ -380,7 +416,9 @@ class Rooms {
       this.progress(
         r,
         "hosting",
-        "房间已创建，可复制邀请；请确认樱花 TCP 隧道正在运行",
+        r.controlPortChanged
+          ? "房间已创建，连接端口已更新，请重新复制完整邀请发给朋友；请确认樱花 TCP 隧道正在运行"
+          : "房间已创建，可复制邀请；请确认樱花 TCP 隧道正在运行",
       );
       this.monitor(r);
     });
