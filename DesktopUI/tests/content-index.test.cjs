@@ -58,4 +58,16 @@ test("content index marks duplicate identifiers without changing source files", 
   assert.equal(result.summary.duplicateCount, 1);
   assert.ok(result.issues.some(issue => issue.code === "duplicate-identifier"));
   assert.equal(result.assets.filter(asset => asset.status === "warning").length, 2);
+  const again = await index.scan();
+  assert.deepEqual({ ...again, generatedAt: null }, { ...result, generatedAt: null });
+  const edited = path.join(root, "behavior_packs/A/items/item.json");
+  await fs.writeFile(edited, JSON.stringify({ identifier: "demo:changed" }));
+  const updated = await index.scan();
+  assert.equal(updated.summary.duplicateCount, 0);
+  assert(updated.assets.some(asset => asset.identifiers.includes("demo:changed")));
+  await fs.rename(edited, edited + ".old");
+  await fs.writeFile(edited, "{ broken");
+  assert((await index.scan()).issues.some(issue => issue.code === "invalid-json"));
+  await fs.writeFile(edited, JSON.stringify({ identifier: "demo:shared" }));
+  assert.equal((await index.scan()).summary.duplicateCount, 1);
 });

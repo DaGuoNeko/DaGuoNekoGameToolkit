@@ -6,6 +6,8 @@ import { useDebugSession } from "../debug/debug-session.jsx";
 import { ReloadActions } from "../debug/debugger.jsx";
 import { logQuery, highlightTokens } from "../../../shared/log-search.cjs";
 import { joinLabel } from "../../../shared/join-status.cjs";
+import { useWorkspaceState } from "../../app/workspaces.jsx";
+import { useRuntimeState } from "../../app/runtime-view.jsx";
 const api = (method, args = {}) => window.toolkit.call(method, args);
 const logColors = Object.fromEntries(
   Object.entries(palette).map(([key, value]) => ["--log-" + key, value]),
@@ -21,9 +23,19 @@ const LogText = React.memo(function LogText({ text, stream, regex }) {
     </span>
   );
 });
+const LogRow = React.memo(function LogRow({ entry, active, regex, source, setNotice, report }) {
+  return <div data-log-id={entry.id} className={`log-line ${entry.stream} ${active ? "log-search-current" : ""}`}>
+    <time>{entry.time && Number.isFinite(Date.parse(entry.time)) ? new Date(entry.time).toLocaleTimeString() : ""}</time>
+    <LogText text={entry.text} stream={entry.stream} regex={regex} />
+    {entry.occurrences > 1 && <span className="log-repeat-count" title={`重复出现 ${entry.occurrences} 次，原始记录全部保留`} aria-label={`重复 ${entry.occurrences} 次`}>×{entry.occurrences}</span>}
+    {/File "[^"]+", line \d+|[A-Za-z]:[\\/].+?\.(py|json)/.test(entry.text) && <Button aria-label={`定位日志 ${entry.id} 的文件`} onClick={() => api("logs.source", { entryId: entry.id, ...source }).then(value => setNotice(`已定位 ${value.file}${value.line ? `，第 ${value.line} 行` : ""}`)).catch(report)}>定位文件</Button>}
+  </div>;
+});
 
-export function LogsPage({ state, receive, stop, busy, report }) {
-  const [channel, setChannel] = useState("script");
+export function LogsPage({ receive, stop, busy, report }) {
+  const state = useRuntimeState(true);
+  const { selectionLocked } = useDebugSession();
+  const [channel, setChannel] = useWorkspaceState("logs-channel", "script");
   const [gameView, setGameView] = useState(null);
   const channelName = channel === "game" ? "游戏调试日志" : "脚本日志";
   const receiveGame = (value) =>
@@ -39,7 +51,7 @@ export function LogsPage({ state, receive, stop, busy, report }) {
   const liveSession = debugSnapshot.sessions.find(
     (s) => s.registrationId === state.session?.bridgeRegistrationId,
   );
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useWorkspaceState("logs-settings", false);
   const [switching, setSwitching] = useState("");
   const [removing, setRemoving] = useState("");
   const [cleanup, setCleanup] = useState(null),
@@ -50,11 +62,11 @@ export function LogsPage({ state, receive, stop, busy, report }) {
     setSettingsOpen(false);
     requestAnimationFrame(() => settingsToggle.current?.focus());
   }
-  const [search, setSearch] = useState(""),
-    [level, setLevel] = useState("all");
-  const [queryText, setQueryText] = useState(""),
-    [caseSensitive, setCaseSensitive] = useState(false),
-    [fullHistory, setFullHistory] = useState(false);
+  const [search, setSearch] = useWorkspaceState("logs-search", ""),
+    [level, setLevel] = useWorkspaceState("logs-level", "all");
+  const [queryText, setQueryText] = useWorkspaceState("logs-query", ""),
+    [caseSensitive, setCaseSensitive] = useWorkspaceState("logs-case", false),
+    [fullHistory, setFullHistory] = useWorkspaceState("logs-full", false);
   const [queryResult, setQueryResult] = useState(null),
     [queryBusy, setQueryBusy] = useState(false),
     [queryRefresh, setQueryRefresh] = useState(0);
@@ -74,6 +86,7 @@ export function LogsPage({ state, receive, stop, busy, report }) {
     fullHistory ||
     level === "errors" ||
     level === "important";
+  const sourceContext = useMemo(() => ({ historyId: useArchive ? archiveId : historyId, channel, level }), [useArchive, archiveId, historyId, channel, level]);
   const baseKey = JSON.stringify([
     archiveId,
     channel,
@@ -229,6 +242,7 @@ export function LogsPage({ state, receive, stop, busy, report }) {
     setHistoryId(id);
   }
   async function selectSession(id) {
+    if (selectionLocked) return;
     const current = ++ticket.current;
     setSwitching(id);
     setHistoryId("");
@@ -546,7 +560,7 @@ export function LogsPage({ state, receive, stop, busy, report }) {
                 className="log-session-card"
                 title={`${s.profileName || s.projectName} · ${s.userName || "玩家"} · ${s.autoJoin ? joinLabel(s) + " · " + s.autoJoin.message : s.blank ? "空白客户端" : s.worldName || "联机客户端"} · PID ${s.pid} · ${new Date(s.startedAt).toLocaleString()}`}
                 aria-label={`查看会话 ${s.profileName || s.projectName} ${s.userName || ""} PID ${s.pid}`}
-                disabled={deleting}
+                disabled={deleting || selectionLocked}
                 aria-pressed={
                   !historyId && (switching || state.session?.id) === s.id
                 }
@@ -634,54 +648,7 @@ export function LogsPage({ state, receive, stop, busy, report }) {
         >
           {visible.length ? (
             visible.map((entry) => (
-              <div
-                key={entry.id}
-                data-log-id={entry.id}
-                className={`log-line ${entry.stream} ${queryText && entry.id === activeId ? "log-search-current" : ""}`}
-              >
-                <time>
-                  {entry.time && Number.isFinite(Date.parse(entry.time))
-                    ? new Date(entry.time).toLocaleTimeString()
-                    : ""}
-                </time>
-                <LogText
-                  text={entry.text}
-                  stream={entry.stream}
-                  regex={filter.regex}
-                />
-                {entry.occurrences > 1 && (
-                  <span
-                    className="log-repeat-count"
-                    title={`重复出现 ${entry.occurrences} 次，原始记录全部保留`}
-                    aria-label={`重复 ${entry.occurrences} 次`}
-                  >
-                    ×{entry.occurrences}
-                  </span>
-                )}
-                {/File "[^"]+", line \d+|[A-Za-z]:[\\/].+?\.(py|json)/.test(
-                  entry.text,
-                ) && (
-                  <Button
-                    aria-label={`定位日志 ${entry.id} 的文件`}
-                    onClick={() =>
-                      api("logs.source", {
-                        entryId: entry.id,
-                        historyId: useArchive ? archiveId : historyId,
-                        channel,
-                        level,
-                      })
-                        .then((value) =>
-                          setNotice(
-                            `已定位 ${value.file}${value.line ? `，第 ${value.line} 行` : ""}`,
-                          ),
-                        )
-                        .catch(report)
-                    }
-                  >
-                    定位文件
-                  </Button>
-                )}
-              </div>
+              <LogRow key={entry.id} entry={entry} active={!!queryText && entry.id === activeId} regex={filter.regex} source={sourceContext} setNotice={setNotice} report={report} />
             ))
           ) : (
             <p className="muted">

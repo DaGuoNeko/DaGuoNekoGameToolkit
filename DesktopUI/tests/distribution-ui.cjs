@@ -96,29 +96,18 @@ const fs = require("node:fs/promises"),
       "设置",
       "关于",
     ]) {
-      await page
-        .locator(".sidebar")
-        .getByRole("button", { name, exact: true })
-        .click();
-      assert.equal(
-        await page.evaluate(() => document.documentElement.dataset.pageDirection),
-        "forward",
-        `${previous} -> ${name} should move down the sidebar`,
-      );
+      const root = await require("./fixtures/navigation.cjs").navigate(page, name);
       await page.waitForFunction(
         (name) =>
           document
             .querySelector(".sidebar button.active")
             ?.getAttribute("aria-label") === name &&
           !document.documentElement.dataset.pageAnimating,
-        name,
+        root,
       );
       previous = name;
     }
-    await page
-      .locator(".sidebar")
-      .getByRole("button", { name: "运行日志", exact: true })
-      .click();
+    await require("./fixtures/navigation.cjs").navigate(page, "运行日志");
     await page.getByRole("button", { name: "脚本日志", exact: true }).waitFor();
     assert.equal(
       await page
@@ -133,10 +122,7 @@ const fs = require("node:fs/promises"),
     assert.deepEqual(created.config.included_mod_dirs, []);
     assert(created.project.root.toLowerCase().startsWith(root.toLowerCase()));
     assert.deepEqual(errors, []);
-    await page
-      .locator(".sidebar")
-      .getByRole("button", { name: "设置", exact: true })
-      .click();
+    await require("./fixtures/navigation.cjs").navigate(page, "设置");
     const width = page.getByLabel("窗口宽度（像素）", { exact: true });
     const height = page.getByLabel("窗口高度（像素）", { exact: true });
     assert.equal(await width.inputValue(), "1280");
@@ -183,7 +169,7 @@ const fs = require("node:fs/promises"),
       0,
     );
     console.log(
-      "PASS extracted distribution: clean first run, empty data, bundled runtime, 11 pages, default script logs, profile persistence, no Node/Python PATH",
+      "PASS extracted distribution: clean first run, empty data, bundled runtime, workspace navigation, default script logs, profile persistence, no Node/Python PATH",
     );
   } finally {
     if (app) await app.close();

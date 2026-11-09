@@ -12,6 +12,16 @@ const air = { name: "minecraft:air", states: {}, entity: null };
 const stone = { name: "minecraft:stone", states: {}, entity: null };
 const dirt = { name: "minecraft:dirt", states: {}, entity: null };
 
+test("terrain planning validates a three-dimensional selection and independent target dimension", () => {
+  const input = { x1: 6, y1: 95, z1: 12, x2: -4, y2: 64, z2: -3, targetX: 80, targetY: 90, targetZ: -120, sourceDimension: 0, targetDimension: 818555435, policy: "keep", includeAir: false };
+  const plan = model.normalizePlan(input);
+  assert.deepEqual([plan.x1, plan.y1, plan.z1], [-4, 64, -3]);
+  assert.deepEqual([plan.x2, plan.y2, plan.z2], [6, 95, 12]);
+  assert.equal(plan.targetDimension, 818555435);
+  for (const patch of [{ targetDimension: NaN }, { sourceDimension: 2.5 }, { targetX: 29999984 }, { y2: 3000 }, { policy: "guess" }])
+    assert.throws(() => model.normalizePlan({ ...input, ...patch }));
+});
+
 test("terrain geometry preserves negative bounds and partial chunks; inputs reject empty, fractional and oversized regions", () => {
   const r = model.region({ x1: 1, y1: 66, z1: 0, x2: -17, y2: 64, z2: -1 });
   const positions = [...model.tiles(r)].flatMap(model.positions);
@@ -129,10 +139,12 @@ test("terrain task can keep snapshots, runs and game logs in an external root", 
     worlds: { store: { project: () => ({ id: "profile", root }) }, read: async () => ({}), find: () => ({ id: "target", profileId: "profile", name: "target" }), inspect: async () => ({ path: root }) },
     sessions: { workers: [] }, profiles: {}, actions: {},
   });
-  await service.prepare({ kind: "bedrock", source: root, name: "external", targetWorldId: "target", externalDataRoot: external });
+  const planning = { x1: -1, y1: 10, z1: -3, x2: 1, y2: 20, z2: 3, targetX: 100, targetY: 64, targetZ: 100, sourceDimension: 0, targetDimension: 3, policy: "keep", includeAir: false };
+  await service.prepare({ kind: "bedrock", source: root, name: "external", targetWorldId: "target", externalDataRoot: external, planning });
   await service.job;
   assert.equal(service.task.stage, "prepared", service.task.error);
   assert.equal(service.task.externalDataRoot, path.resolve(external));
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(external, "task.json"), "utf8")).planning, planning);
   assert.equal(path.dirname(service.directory()), path.resolve(external));
   assert.equal(await fs.stat(path.join(external, "task.json")).then(() => true), true);
   assert.equal(await fs.stat(path.join(root, "settings.json")).catch(() => null), null);

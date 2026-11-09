@@ -6,6 +6,8 @@
 
 ## 工具目录
 
+离线数据先调用 `scan_world_data(worldId, requestId, scope)`，scope 可为 all/gameplay/world/entities，默认 all；最长可能占用 120 秒，客户端应设置对应调用超时。结果只返回摘要与 requestId，随后用 `read_world_data` 按 view=objects/relations 分页（limit 最多 100），includeData 才返回原始字段。`world_data_scan_state` 可查询或取消明确 requestId，`compare_world_data(left,right)` 使用两份已完成快照；最近四份之外的快照需重扫，扫描 ID 不可复用。MCP 不接受任意未选择的外部路径；外部查看与文件导出使用 UI。比较和关系是静态结果，partial、未找到或无法判断不得表述为游戏运行失败。
+
 当前工具目录以安装实例 `tools/list` 为准，包含客户端控制、配置/存档、固定拍摄、运行时地形探针和架构导入任务接口。更新源码后需要构建并重新启动对应工具箱实例，已有发行程序不会自动获得接口。按领域理解工具即可，不要依赖工具总数。
 
 | 范围 | 新工具 | 约束 |
@@ -18,6 +20,7 @@
 | 游戏选项 | `read_game_options`、`update_game_options` | 修改下次启动覆盖模板；数值采用 options.txt 的字符串形式 |
 | 存档 | `inspect_world_source`、`import_world`、`clone_world` | 检查来源、复制/原目录导入、复制已登记存档；沿用运行冲突、路径、ZIP 和备份保护 |
 | 预检 | `validate_world_assets` | 启动前扫描 PNG 结构、空资源路径、JSON/JSONC 资源引用和缺失目标 |
+| 离线世界数据 | `scan_world_data`、`read_world_data`、`world_data_scan_state`、`compare_world_data` | 仅已登记存档；不启动游戏、不写数据库；显式 requestId、有界快照、覆盖与分页 |
 | 固定拍摄 | `capture_scene` | 结构化参数、能力检查、区块等待、参数回读和截图前后核对；HUD 回读暂不支持 |
 | 地形探针 | `probe_dimension_runtime`、`probe_build_height` | 读取实体所在维度的实际高度边界和候选 Y 方块；高度写入只允许 isolated 会话，写前保存、回读并恢复 |
 | 架构导入 | `terrain_prepare`、`terrain_capture_source`、`terrain_preview`、`terrain_apply`、`terrain_rollback`、`terrain_status` | 复用 UI 的来源副本、维度边界、预览、覆盖/保留、空气策略、备份、写入和撤销状态机；支持 `externalDataRoot` |

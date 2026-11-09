@@ -13,6 +13,7 @@ import {
 import { GameDiscovery, ConfigExtras } from "../settings/config-extras.jsx";
 import "./profiles.css";
 import { ModSelector } from "../mods/mod-library.jsx";
+import { useWorkspaceState } from "../../app/workspaces.jsx";
 export function ProfilesPage({
   profiles,
   snapshot,
@@ -39,6 +40,10 @@ export function ProfilesPage({
   onCreateRequestHandled,
   onNewProfile,
   onReturnToImport,
+  openRequest,
+  onOpenRequestHandled,
+  originWorldName,
+  onReturnToWorld,
 }) {
   const [dialog, setDialog] = useState(null),
     [name, setName] = useState(""),
@@ -46,9 +51,14 @@ export function ProfilesPage({
     [working, setWorking] = useState(false),
     [editing, setEditing] = useState(false),
     [target, setTarget] = useState(null),
-    [query, setQuery] = useState(""),
+    [query, setQuery] = useWorkspaceState("profile-query", ""),
     [summaries, setSummaries] = useState({});
   const [customGame, setCustomGame] = useState(!!form?.game_executable_path);
+  useEffect(() => {
+    if (openRequest?.profileId !== snapshot?.project.id || !openRequest) return;
+    setEditing(true);
+    onOpenRequestHandled?.();
+  }, [openRequest?.id, snapshot?.project.id]);
   useEffect(() => {
     if (createRequest && !dirty && !busy && !working) {
       edit("new");
@@ -131,6 +141,7 @@ export function ProfilesPage({
             : "每张卡片是一套独立配置，可直接编辑、复制或启动联机客户端。"
         }
       >
+        {onReturnToWorld && <Button disabled={busy || working} title={"返回 " + originWorldName} onClick={onReturnToWorld}>返回来源存档</Button>}
         {onReturnToImport && (
           <Button disabled={busy || working} onClick={onReturnToImport}>
             返回导入存档
@@ -150,6 +161,7 @@ export function ProfilesPage({
         )}
       </Intro>
       <ErrorBox>{!dialog && error}</ErrorBox>
+      {onReturnToWorld && <p className="muted">来自存档“{originWorldName}”。此启动配置可能被其他存档共用；保存影响后续启动，返回不会自动保存或丢弃草稿。</p>}
       {working && <p className="muted" role="status">正在处理启动配置…</p>}
       {createRequest && dirty && (
         <p className="world-hint">

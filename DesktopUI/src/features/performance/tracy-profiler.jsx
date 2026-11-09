@@ -4,13 +4,12 @@ import { useDebugSession } from "../debug/debug-session.jsx";
 import "./tracy-profiler.css";
 const api = (method, args = {}) => window.toolkit.call(method, args);
 export function TracyPage() {
-  const { snapshot } = useDebugSession();
+  const { snapshot, selected, setSelected } = useDebugSession();
   const [state, setState] = useState({
       phase: "stopped",
       generation: 0,
       mode: "embedded",
     }),
-    [selected, setSelected] = useState(""),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [confirm, setConfirm] = useState(false);
@@ -31,7 +30,7 @@ export function TracyPage() {
   const clients = snapshot.sessions.filter(
     (s) => s.connected && s.minecraftPid && s.state !== "exited",
   );
-  const chosen = clients.find((s) => s.id === selected) || clients[0];
+  const chosen = clients.find((s) => s.id === selected);
   const active = !!state.pid;
   useEffect(() => {
     let last = "";

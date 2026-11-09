@@ -107,7 +107,7 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
     assert.equal(untrackedError, "不支持的文件类型");
     const failures = await page.evaluate(() => window.toolkit.call("activity.snapshot", { level: "error" }));
     assert(failures.events.some(event => event.method === "files.pick" && event.message.includes(untrackedError)), "untracked IPC failures must also reach the project log");
-    await page.locator(".sidebar").getByRole("button", { name: "项目日志", exact: true }).click();
+    await require("./fixtures/navigation.cjs").navigate(page, "项目日志");
     await page.locator(".activity-events").getByText(/net::ERR_CONNECTION_RESET/).first().waitFor();
     await page.locator(".sidebar").getByRole("button", { name: "设置", exact: true }).click();
     const persisted = await fs.readFile(path.join(root, "logs/activity/events.jsonl"), "utf8");

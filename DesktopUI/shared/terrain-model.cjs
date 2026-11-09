@@ -34,6 +34,19 @@ function* tiles(bounds) {
     x = xx + 1;
   }
 }
+function normalizePlan(input) {
+  const selected = region(input);
+  const options = placement(input, selected);
+  const dimension = (value, label) => integer(value, label, -2147483648, 2147483647);
+  return {
+    x1: selected.min[0], y1: selected.min[1], z1: selected.min[2],
+    x2: selected.max[0], y2: selected.max[1], z2: selected.max[2],
+    targetX: options.origin[0], targetY: options.origin[1], targetZ: options.origin[2],
+    sourceDimension: dimension(input.sourceDimension, "来源维度"),
+    targetDimension: dimension(input.targetDimension, "目标维度"),
+    policy: options.policy, includeAir: options.includeAir,
+  };
+}
 function positions(tile) {
   const result = [];
   for (let x = tile.min[0]; x <= tile.max[0]; x++)
@@ -74,4 +87,4 @@ function changes(source, before, tile, offset, options) {
   });
   return { writes, counts };
 }
-module.exports = { LIMIT, integer, region, placement, tiles, positions, equal, air, changes };
+module.exports = { LIMIT, integer, region, placement, normalizePlan, tiles, positions, equal, air, changes };

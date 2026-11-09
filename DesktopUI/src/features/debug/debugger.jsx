@@ -13,6 +13,8 @@ import {
 import { useDebugSession, DebugSessionBar } from "./debug-session.jsx";
 import { ProfilerPanel } from "./debug-profiler.jsx";
 import "./debugger.css";
+import { useWorkspaceState } from "../../app/workspaces.jsx";
+import { TracyPage } from "../performance/tracy-profiler.jsx";
 export const debugApi = (method, args = {}) =>
   window.toolkit.call(method, args);
 const tabs = [
@@ -22,19 +24,20 @@ const tabs = [
   ["memory", "Python 内存"],
   ["native", "Native 性能"],
 ];
-export function DebugPage({ projectId, draft, setDraft }) {
+export function DebugPage({ projectId, draft, setDraft, performance = false }) {
   const { snapshot, session, ready, context } = useDebugSession();
-  const [tab, setTab] = useState("code");
+  const [tab, setTab] = useWorkspaceState(performance ? "performance-tab" : "debug-tab", performance ? "python" : "code");
+  const visibleTabs = performance ? [...tabs.slice(2), ["tracy", "Tracy"]] : tabs.slice(0, 2);
   return (
     <div className="debug-page">
       <Intro
-        title="游戏调试"
-        subtitle="执行代码、调用函数并分析游戏性能。UI 控件调试已移至侧栏独立页面。"
+        title={performance ? "性能分析" : "游戏调试"}
+        subtitle={performance ? "按当前会话采样 Python、内存、Native 或使用 Tracy。" : "在当前会话执行代码、调用调试函数。"}
       />
       <DebugSessionBar />
       <ReloadActions context={context} ready={ready} />
       <div className="debug-tabs" role="tablist" aria-label="调试工具">
-        {tabs.map(([id, label]) => (
+        {visibleTabs.map(([id, label]) => (
           <button
             role="tab"
             aria-selected={tab === id}
@@ -50,6 +53,7 @@ export function DebugPage({ projectId, draft, setDraft }) {
       <div
         key={`${session?.id || "offline"}:${session?.connectionGeneration || 0}`}
       >
+        {tab === "tracy" && <TracyPage />}
         {tab === "code" && (
           <CodePanel
             context={context}

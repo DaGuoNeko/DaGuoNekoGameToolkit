@@ -26,5 +26,7 @@
 .activity-log-time { color: #7f8c9d; }.activity-log-info { color: #8bb7dc; }.activity-log-warning { color: #e9b85c; }.activity-log-error { color: #ef7c86; }
 .activity-log-source { color: #8d9aaa; }.activity-log-method { color: #b7d0e8; font-weight: 600; }.activity-log-message { color: #d9e2eb; white-space: pre-wrap; }.activity-log-line small { color: #8997a8; }
 .activity-empty { color: var(--muted); }
+.activity-history > summary { cursor:pointer; font-weight:600; }
+.activity-history[open] > summary { margin-bottom:16px; }
 @keyframes activity-slide { from { background-position: -180px 0; } to { background-position: 180px 0; } }
 @media (max-width: 700px) { .activity-toolbar { flex-wrap: wrap; }.activity-summary { width: 100%; margin-left: 0; } .activity-event-line { display: block; }.activity-event-line small { display: block; margin-top: 4px; } }

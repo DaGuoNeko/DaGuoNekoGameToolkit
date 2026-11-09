@@ -103,15 +103,12 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
       { project, log: path.join(root, "export.log") },
     );
     const nav = async (name) => {
-      await page
-        .locator(".sidebar")
-        .getByRole("button", { name, exact: true })
-        .click();
+      const root = await require("./fixtures/navigation.cjs").navigate(page, name);
       await page.waitForFunction(
         (title) =>
           document.querySelector(".sidebar button.active")?.title === title &&
           !document.documentElement.dataset.pageAnimating,
-        name,
+        root,
       );
     };
     await nav("启动配置");
@@ -297,10 +294,14 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
       .locator(".log-search-summary")
       .boundingBox();
     const sourceBar = await page.locator(".reload-sources").boundingBox();
+    const workspaceTabs = await page.locator(".main-shell > .workspace-tabs").boundingBox();
+    const runtimeContext = await page.locator(".runtime-context").boundingBox();
     assert.ok(
       compact.height >
         viewport.height -
           195 -
+          (workspaceTabs?.height || 0) -
+          (runtimeContext?.height || 0) -
           cardStrip.height -
           reloadBar.height -
           searchBar.height -
@@ -540,9 +541,8 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
     );
     await nav("运行日志");
     await page.getByRole("button", { name: "脚本日志", exact: true }).click();
-    await page
-      .getByRole("button", { name: "展开日志设置", exact: true })
-      .click();
+    const expandSettings = page.getByRole("button", { name: "展开日志设置", exact: true });
+    if (await expandSettings.count()) await expandSettings.click();
     await page.getByRole("combobox", { name: "日志会话", exact: true }).click();
     await page.getByRole("option", { name: /游戏项目/ }).click();
     await page

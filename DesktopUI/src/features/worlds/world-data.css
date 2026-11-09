@@ -1,0 +1,25 @@
+.world-data { display:flex; flex-direction:column; gap:16px; padding-top:16px; }
+.data-coverage { display:grid; gap:7px; padding:16px; background:var(--surface); border:1px solid var(--line); border-radius:10px; }
+.data-coverage small,.data-coverage p { color:var(--muted); overflow-wrap:anywhere; margin:0; }
+.data-toolbar { display:flex; gap:8px; flex-wrap:wrap; }
+.data-toolbar input { flex:1; min-width:190px; }
+.data-toolbar .select-control { width:170px; }
+.data-layout { display:grid; grid-template-columns:minmax(220px, .8fr) minmax(280px, 1.2fr); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+.data-results { max-height:65vh; overflow:auto; border-right:1px solid var(--line); }
+.data-results > button { display:flex; flex-direction:column; gap:5px; width:100%; padding:12px 14px; border:0; border-bottom:1px solid var(--line); color:var(--text); background:transparent; text-align:left; cursor:pointer; overflow-wrap:anywhere; }
+.data-results > button.selected { background:color-mix(in srgb,var(--accent) 14%,var(--surface)); }
+.data-results small,.data-list-summary { color:var(--muted); font-size:12px; }
+.data-list-summary { padding:12px; }
+.data-detail { padding:16px; overflow:auto; max-height:65vh; min-width:0; }
+.data-detail h3 { margin-top:0; }
+.world-data pre { white-space:pre-wrap; overflow-wrap:anywhere; font-size:12px; max-height:420px; overflow:auto; }
+.data-table { overflow:auto; max-height:65vh; }
+.data-table table { border-collapse:collapse; width:100%; text-align:left; }
+.data-table th,.data-table td { padding:10px; border-bottom:1px solid var(--line); vertical-align:top; }
+.data-table small { display:block; color:var(--muted); overflow-wrap:anywhere; }
+.data-graph svg { width:100%; color:var(--muted); }
+.data-graph rect { fill:var(--surface); stroke:var(--line); cursor:pointer; }
+.data-graph text { fill:var(--text); font-size:12px; }
+.data-graph g[role=button]:focus { outline:2px solid var(--accent); }
+.world-data summary { cursor:pointer; padding:10px 0; }
+@media (max-width:1000px) { .data-layout { grid-template-columns:1fr; } .data-results { max-height:260px; border-right:0; border-bottom:1px solid var(--line); } .data-detail { max-height:none; } }

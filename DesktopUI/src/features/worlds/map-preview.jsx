@@ -9,15 +9,22 @@ function fit(bounds, width, height) {
   return { zoom: Math.max(.00001, zoom), x: (bounds.minX + bounds.maxX + 1) / 2, z: (bounds.minZ + bounds.maxZ + 1) / 2 };
 }
 
-export function MapPreview({ worldId, initialSource, projectId, worlds = [], onClose }) {
+export function MapPreview({ worldId, initialSource, projectId, worlds = [], onClose, onTerrain, onSelect, selectionMode = "area", initialDimension = "overworld", lockedSource = false, footprint, inline = false, onSource, focus, remembered, onRemember, markers = [], onObject }) {
   const canvas = useRef(null), drag = useRef(null), request = useRef(0), currentRequest = useRef(""), currentView = useRef({ zoom: 1, x: 0, z: 0 }), renderRef = useRef(null), viewInitialized = useRef(false), mapRef = useRef(null), loadedChunks = useRef(new Set()), mapUpdate = useRef(Promise.resolve()), loadTimer = useRef(null), pendingLoad = useRef(false);
-  const currentWorlds = worlds.filter(world => (world.profileId || world.projectId) === projectId && !world.deleted && !world.copying && !world.error && world.present && world.ready);
+  const currentWorlds = worlds.filter(world => !world.deleted && !world.copying && !world.error && world.present && world.ready);
   const [source, setSource] = useState(initialSource || ""), [selectedWorld, setSelectedWorld] = useState(worldId || "");
   const [sourceRevision, setSourceRevision] = useState(0);
-  const [dimension, setDimension] = useState("overworld"), [map, setMap] = useState(null), [view, setView] = useState({ zoom: 1, x: 0, z: 0 });
+  const [dimension, setDimension] = useState(initialDimension), [map, setMap] = useState(null), [view, setView] = useState({ zoom: 1, x: 0, z: 0 });
   const [size, setSize] = useState([800, 400]), [selection, setSelection] = useState(null), [pointer, setPointer] = useState(null);
+  const fitCanvas = bounds => { const rect = canvas.current?.getBoundingClientRect(); return fit(bounds, rect?.width || size[0], rect?.height || size[1]); };
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [copied, setCopied] = useState(false), [progress,setProgress]=useState(null);
   const [relief,setRelief]=useState(true),[grid,setGrid]=useState(false);
+  const [tool, setTool] = useState(onSelect ? selectionMode : "pan");
+  const shownMarkers = markers.filter(item => item.position && ["overworld", "nether", "the_end"][item.dimension] === dimension && ["command", "container", "npc", "entity"].includes(item.kind)).slice(0, 500);
+  const memory = useRef(null);
+  memory.current = { source, dimension, view, selection };
+  useEffect(() => () => onRemember?.(memory.current), []);
+  const selectionData = () => ({ source, sourceWorldId: selectedWorld, kind: map?.format, dimension, selection });
   currentView.current = view;
   const visibleBounds = () => {
     const v = currentView.current, [width, height] = size, zoom = Math.max(.00001, v.zoom), margin = Math.max(64, Math.ceil(128 / zoom));
@@ -33,6 +40,7 @@ export function MapPreview({ worldId, initialSource, projectId, worlds = [], onC
     if (!value || value.requestId !== currentRequest.current) return;
     const merged = new Map((mapRef.current?.tiles || []).map(tile => [tile.x + "," + tile.z, tile]));
     const incoming = await Promise.all((value.tiles || []).map(async tile => { const image = new Image(); image.src = tile.image; await image.decode(); return { ...tile, image }; }));
+    if (value.requestId !== currentRequest.current) return;
     for (const tile of incoming) {
       const key = tile.x + "," + tile.z, old = merged.get(key);
       if (!old) { merged.set(key, tile); continue; }
@@ -40,11 +48,13 @@ export function MapPreview({ worldId, initialSource, projectId, worlds = [], onC
       const g = c.getContext("2d"); g.drawImage(old.image, 0, 0); g.drawImage(tile.image, 0, 0); merged.set(key, { ...tile, image: c });
     }
     const tiles = [...merged.values()], bounds = tiles.length ? { minX: Math.min(...tiles.map(tile => tile.x)), maxX: Math.max(...tiles.map(tile => tile.x + tile.size - 1)), minZ: Math.min(...tiles.map(tile => tile.z)), maxZ: Math.max(...tiles.map(tile => tile.z + tile.size - 1)) } : null;
-    const next = { ...(mapRef.current || {}), ...value, bounds: value.chunkIds ? bounds : value.bounds || bounds, tiles };
+    const knownBounds = [mapRef.current?.bounds, value.bounds].filter(Boolean);
+    const contentBounds = knownBounds.length ? { minX: Math.min(...knownBounds.map(b => b.minX)), maxX: Math.max(...knownBounds.map(b => b.maxX)), minZ: Math.min(...knownBounds.map(b => b.minZ)), maxZ: Math.max(...knownBounds.map(b => b.maxZ)) } : bounds;
+    const next = { ...(mapRef.current || {}), ...value, bounds: contentBounds, tiles };
     for (const id of value.chunkIds || []) loadedChunks.current.add(id);
     next.chunksRead = Math.max(value.chunksRead || 0, loadedChunks.current.size);
     mapRef.current = next; setMap(next);
-    if (!viewInitialized.current && next.bounds && canvas.current && value.complete) { viewInitialized.current = true; setView(fit(next.bounds, ...size)); }
+    if (!viewInitialized.current && next.bounds && canvas.current && value.complete) { viewInitialized.current = true; setView(fitCanvas(next.bounds)); }
   };
   const queueMap = value => { mapUpdate.current = mapUpdate.current.then(() => applyMap(value)).catch(() => {}); return mapUpdate.current; };
   const render = async () => {
@@ -61,7 +71,7 @@ export function MapPreview({ worldId, initialSource, projectId, worlds = [], onC
     try {
       const result = await call("map-preview.render", { requestId,worldId: selectedWorld, source, dimension, centerX:x,centerZ:z,bounds,chunks,relief });
       if(id!==request.current)return;
-      if (!viewInitialized.current && result.bounds) { viewInitialized.current = true; setView(fit(result.bounds, ...size)); }
+      if (!viewInitialized.current && result.bounds) { viewInitialized.current = true; setView(fitCanvas(result.bounds)); }
       await queueMap({ ...result, requestId });
     } catch (e) { if (id === request.current && e.message!=="地图加载已取消") setError(e.message); }
     finally { if (currentRequest.current === requestId) {setBusy(false);setProgress(null);currentRequest.current="";if(pendingLoad.current)setTimeout(render,0);} }
@@ -83,7 +93,9 @@ export function MapPreview({ worldId, initialSource, projectId, worlds = [], onC
     const previous = currentRequest.current;
     request.current++;
     currentRequest.current = "";
-    loadedChunks.current.clear(); mapRef.current = null; viewInitialized.current = false; setMap(null); setView({ zoom: 1, x: 0, z: 0 }); setBusy(false); setProgress(null);
+    const previousView = remembered?.source === source && remembered.dimension === dimension ? remembered : null;
+    const target = focus && focus.dimension === dimension ? { zoom: 4, x: focus.position[0], z: focus.position[2] } : previousView?.view;
+    loadedChunks.current.clear(); mapRef.current = null; viewInitialized.current = !!target; setMap(null); setSelection(previousView?.selection || null); setView(target || { zoom: 1, x: 0, z: 0 }); currentView.current = target || { zoom: 1, x: 0, z: 0 }; setBusy(false); setProgress(null);
     const start = async () => {
       if (previous) await call("map-preview.cancel", { requestId: previous }).catch(() => {});
       if (alive && (worldId || initialSource || source || selectedWorld)) render();
@@ -143,26 +155,34 @@ export function MapPreview({ worldId, initialSource, projectId, worlds = [], onC
         const py = height / 2 + (z - view.z) * unit; g.beginPath(); g.moveTo(0, py); g.lineTo(width, py); g.stroke();
       }
     }
+    for (const item of shownMarkers) {
+      const x = width / 2 + (item.position[0] - view.x) * unit, y = height / 2 + (item.position[2] - view.z) * unit;
+      g.fillStyle = item.kind === "npc" ? "#d9aaff" : item.kind === "command" ? "#ffc36b" : "#71d5d0";
+      g.beginPath(); g.arc(x, y, 4, 0, Math.PI * 2); g.fill();
+    }
     if (selection) {
       const x = width / 2 + (selection.minX - view.x) * unit, y = height / 2 + (selection.minZ - view.z) * unit;
-      const w = (selection.maxX - selection.minX + 1) * unit, h = (selection.maxZ - selection.minZ + 1) * unit;
+      const w = (selectionMode === "point" && footprint ? footprint[0] : selection.maxX - selection.minX + 1) * unit, h = (selectionMode === "point" && footprint ? footprint[1] : selection.maxZ - selection.minZ + 1) * unit;
       g.fillStyle = "rgba(255,210,80,.2)"; g.fillRect(x, y, w, h);
       g.strokeStyle = "#ffd250"; g.lineWidth = 2; g.strokeRect(x, y, w, h);
     }
-  }, [map, view, selection, size, grid]);
+  }, [map, view, selection, size, grid, footprint, selectionMode, markers]);
   const worldAt = e => {
     const r = canvas.current.getBoundingClientRect(), v = currentView.current;
     return { x: Math.floor(v.x + (e.clientX - r.left - r.width / 2) / v.zoom), z: Math.floor(v.z + (e.clientY - r.top - r.height / 2) / v.zoom) };
   };
   const begin = e => {
-    if (!view || e.button !== 0) return;
-    drag.current = { screen: { x: e.clientX, y: e.clientY }, view: { ...view }, point: worldAt(e), select: e.shiftKey };
+    if (!view || e.button !== 0 || !map || error || busy) return;
+    const point = worldAt(e);
+    if (tool === "point") setSelection({ minX: point.x, maxX: point.x, minZ: point.z, maxZ: point.z });
+    drag.current = { screen: { x: e.clientX, y: e.clientY }, view: { ...view }, point, select: tool === "area" || e.shiftKey, pointOnly: tool === "point" };
     canvas.current.setPointerCapture(e.pointerId); setCopied(false);
   };
   const move = e => {
     if (!view) return;
     const point = worldAt(e); setPointer(point);
     const d = drag.current; if (!d) return;
+    if (d.pointOnly) return;
     if (d.select) setSelection({ minX: Math.min(d.point.x, point.x), maxX: Math.max(d.point.x, point.x), minZ: Math.min(d.point.z, point.z), maxZ: Math.max(d.point.z, point.z) });
     else setView({ ...d.view, x: d.view.x - (e.clientX - d.screen.x) / d.view.zoom, z: d.view.z - (e.clientY - d.screen.y) / d.view.zoom });
   };
@@ -170,19 +190,22 @@ export function MapPreview({ worldId, initialSource, projectId, worlds = [], onC
   const pick = async kind => {
     try {
       const value = await call("map-preview.pick", { kind });
-      if (value) { setSource(value); setSelectedWorld(""); setSourceRevision(v => v + 1); viewInitialized.current=false; mapRef.current=null; loadedChunks.current.clear(); setMap(null); setView({ zoom: 1, x: 0, z: 0 }); setSelection(null); setError(""); setCopied(false); }
+      if (value) { onSource?.({ source: value, worldId: "", dimension }); setSource(value); setSelectedWorld(""); setSourceRevision(v => v + 1); viewInitialized.current=false; mapRef.current=null; loadedChunks.current.clear(); setMap(null); setView({ zoom: 1, x: 0, z: 0 }); setSelection(null); setError(""); setCopied(false); }
     } catch (e) { setError(e.message); }
   };
   const copySelection = async () => {
     try { await call("map-preview.copy", { text: selection.minX + "," + selection.minZ + " → " + selection.maxX + "," + selection.maxZ }); setCopied(true); }
     catch (e) { setError(e.message); }
   };
-  return <Modal wide title="地图预览" description="只读俯视像素地图。拖动浏览；按住 Shift 拖动框选区域。北方朝上，东方朝右。" onClose={onClose} footer={<Button onClick={onClose}>关闭</Button>}>
+  return <Modal inline={inline} wide title={onSelect ? selectionMode === "point" ? "在地图上选择目标落点" : "在地图上框选来源区域" : "地图预览"} description="查看已保存的地形；框选决定 X/Z，Y 高度在导入向导中设置。" onClose={onClose} footer={<><Button onClick={onClose}>{onSelect ? "取消选取" : "关闭"}</Button>{onSelect && <Button primary disabled={!selection || busy || !!error || !map?.complete} onClick={() => onSelect(selectionData())}>{selectionMode === "point" ? "使用此落点" : "使用此选区"}</Button>}{onTerrain && <Button primary onClick={() => onTerrain({ targetWorldId: selectedWorld || worldId || "" })}>地形与建筑导入</Button>}</>}>
     <div className="map-preview">
       <div className="map-preview-toolbar">
-        <Field label="选择当前存档"><Select value={selectedWorld} disabled={busy || !currentWorlds.length} onChange={value => { const world = currentWorlds.find(item => item.id === value); if (!world) return; setSelectedWorld(value); setSource(world.path); viewInitialized.current=false; mapRef.current=null; loadedChunks.current.clear(); setMap(null); setView({ zoom: 1, x: 0, z: 0 }); setSelection(null); setError(""); }} options={currentWorlds.map(world => ({ value: world.id, label: world.name }))} placeholder={currentWorlds.length ? "请选择存档" : "当前项目没有可用存档"} /></Field>
-        <Select aria-label="选择外部地图" value="" placeholder="选择外部地图" disabled={busy} onChange={pick} options={[{ value: "folder", label: "文件夹" }, { value: "archive", label: "ZIP / MCWORLD" }]} />
+        {!lockedSource && <>
+        <Field label="选择当前存档"><Select value={selectedWorld} disabled={lockedSource || busy || !currentWorlds.length} onChange={value => { const world = currentWorlds.find(item => item.id === value); if (!world) return; onSource?.({ source: world.path, worldId: world.id, dimension }); setSelectedWorld(value); setSource(world.path); viewInitialized.current=false; mapRef.current=null; loadedChunks.current.clear(); setMap(null); setView({ zoom: 1, x: 0, z: 0 }); setSelection(null); setError(""); }} options={currentWorlds.map(world => ({ value: world.id, label: world.name }))} placeholder={currentWorlds.length ? "请选择存档" : "没有可用存档"} /></Field>
+        <Select aria-label="选择外部地图" value="" placeholder="选择外部地图" disabled={lockedSource || busy} onChange={pick} options={[{ value: "folder", label: "文件夹" }, { value: "archive", label: "ZIP / MCWORLD" }]} />
+        </>}
         <Field label="维度"><Select value={dimension} disabled={busy} onChange={v => { setDimension(v); viewInitialized.current=false; mapRef.current=null; loadedChunks.current.clear(); setMap(null); setView({ zoom: 1, x: 0, z: 0 }); setSelection(null); }} options={[{ value: "overworld", label: "主世界" }, { value: "nether", label: "下界" }, { value: "the_end", label: "末地" }]} /></Field>
+        <Field label="地图操作"><Select value={tool} onChange={setTool} options={[{ value: "pan", label: "拖动浏览" }, { value: selectionMode, label: selectionMode === "point" ? "点击选落点" : "拖动框选区域" }]} /></Field>
         {busy&&<Button onClick={cancel}>取消加载</Button>}
         <Button disabled={!map?.bounds || busy} onClick={() => { setView(fit(map.bounds, ...size)); scheduleLoad(); }}>适应画布</Button>
         <Button disabled={!map?.bounds||busy} onClick={()=>{setView(v=>({...v,zoom:1}));scheduleLoad();}}>1:1</Button>
@@ -196,12 +219,17 @@ export function MapPreview({ worldId, initialSource, projectId, worlds = [], onC
         <label><input type="checkbox" checked={relief} onChange={e=>{setRelief(e.target.checked);loadedChunks.current.clear();setTimeout(()=>renderRef.current?.(),0);}} disabled={busy} />地形明暗与水深</label>
         <small>进入预览后按当前视野异步加载已生成区块；拖动或缩放地图会继续加载附近区块，已显示内容会保留，不生成未探索的游戏地形。</small>
       </div></details>
-      <canvas ref={canvas} aria-label="地图画布" className="map-preview-canvas" onPointerDown={begin} onPointerMove={move} onPointerUp={end} onPointerCancel={end} />
+      <canvas ref={canvas} aria-label="地图画布" className="map-preview-canvas" onPointerDown={begin} onPointerMove={move} onPointerUp={end} onPointerCancel={end} onDoubleClick={event => {
+        const rect = canvas.current.getBoundingClientRect(), x = event.clientX - rect.left, y = event.clientY - rect.top;
+        const object = shownMarkers.find(item => Math.hypot(size[0] / 2 + (item.position[0] - view.x) * view.zoom - x, size[1] / 2 + (item.position[2] - view.z) * view.zoom - y) < 9);
+        if (object) onObject?.(object.id);
+      }} />
+      {!!shownMarkers.length && <Select aria-label="地图数据对象" value="" placeholder={`已标记 ${shownMarkers.length} 个对象（最多 500）`} options={shownMarkers.map(item => ({ value: item.id, label: `${item.name} · ${item.position.join(", ")}` }))} onChange={id => onObject?.(id)} />}
       <div className="map-preview-status">
         <span>{busy ? (progress?.stage||"准备地图")+(progress?.total?` ${progress.completed}/${progress.total}`:progress?.completed?` · 已检查 ${progress.completed} 条`:"") : map ? map.bounds ? "范围 X " + map.bounds.minX + "～" + map.bounds.maxX + "，Z " + map.bounds.minZ + "～" + map.bounds.maxZ : "该维度没有可预览的已生成区块" : "选择地图后生成预览"}</span>
         {view && <span>缩放 {view.zoom.toFixed(3)} px/格</span>}{pointer && <span>光标 X {pointer.x}，Z {pointer.z}</span>}
       </div>
-      <div className="map-preview-status map-preview-selection">{selection ? <><span>选区 X {selection.minX}～{selection.maxX}，Z {selection.minZ}～{selection.maxZ}</span><Button onClick={copySelection}>复制坐标</Button>{copied && <span role="status">已复制坐标</span>}</> : <span>按住 Shift 拖动框选；框选坐标包含两个角点。</span>}</div>
+      <div className="map-preview-status map-preview-selection">{selection ? <><span>选区 X {selection.minX}～{selection.maxX}，Z {selection.minZ}～{selection.maxZ}</span><Button onClick={copySelection}>复制坐标</Button>{onTerrain && <Button disabled={busy || !!error || !map?.complete || (map?.format === "java" && /\.(zip|mcworld)$/i.test(source))} onClick={() => onTerrain({ targetWorldId: worldId || "", sourceSelection: selectionData() })}>以此选区为来源</Button>}{copied && <span role="status">已复制坐标</span>}</> : <span>{selectionMode === "point" ? "选择“点击选落点”，点击地图设置目标原点；黄色范围表示导入占地。" : "选择“拖动框选区域”，或按住 Shift 拖动；范围包含两个角点。"}</span>}</div>
       <ErrorBox>{error}</ErrorBox>
     </div>
   </Modal>;

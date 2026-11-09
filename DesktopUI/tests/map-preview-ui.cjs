@@ -79,7 +79,7 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
     });
     await page.getByRole("heading", { name: "存档", exact: true }).waitFor();
     console.log("map UI: home ready");
-    const panel = page.locator("dialog").filter({ has: page.getByRole("heading", { name: "地图预览", exact: true }) });
+    const panel = page.locator(".workspace-surface").filter({ has: page.getByRole("heading", { name: "地图预览", exact: true }) });
     const canvas = panel.locator("canvas");
     const button = name => panel.getByRole("button", { name, exact: true });
     const flush = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -139,10 +139,15 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
     await capture("map-preview-bedrock-light");
     checks.push("managed Bedrock card opens through real IPC; known surface landmark");
 
+    assert.equal(await panel.getByRole("combobox", { name: "选择当前存档", exact: true }).count(), 0, "world workspace pins its source");
+    await page.getByRole("button", { name: "返回存档列表", exact: true }).click();
+    await page.getByRole("button", { name: "打开外部存档", exact: true }).click();
+    await selectWorld("地图预览验收"); await generate(/基岩 · 9 个区块/);
+
     const localPicker = panel.getByRole("combobox", { name: "选择当前存档", exact: true });
     assert.equal(await localPicker.innerText(), "地图预览验收");
     await localPicker.click();
-    for (const name of ["未生成存档", "复制未完成", "已回收存档", "其他项目存档"]) {
+    for (const name of ["未生成存档", "复制未完成", "已回收存档"]) {
       assert.equal(await page.getByRole("option", { name, exact: true }).count(), 0);
     }
     await page.getByRole("option", { name: "同项目存档", exact: true }).click();
@@ -155,7 +160,7 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
     assert.equal(await panel.locator(".map-preview-source").innerText(), mcworld, "cancelling keeps the current source");
     await selectWorld("地图预览验收"); await generate(/基岩 · 9 个区块/);
     assert.equal(await panel.locator(".map-preview-source").innerText(), worlds.location(world.id));
-    checks.push("current project dropdown excludes unavailable/foreign worlds; managed/external switching; MCWORLD and cancel");
+    checks.push("world context pins source; external viewer lists available worlds across profiles; MCWORLD and cancel");
 
     // 从存档卡片打开后更换来源，不能继续渲染原 worldId。
     await choose(source); await generate(/Java · 9 个区块/);
@@ -168,9 +173,11 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.wheel(0, -100);
     await page.waitForFunction(before=>Number(document.querySelector(".map-preview-status")?.textContent.match(/缩放 ([\d.]+)/)?.[1])>before*1.1,unit);
+    await page.mouse.wheel(0, -100);
+    await page.waitForFunction(before=>Number(document.querySelector(".map-preview-status")?.textContent.match(/缩放 ([\d.]+)/)?.[1])>before*1.4,unit);
     await flush();
     const zoomed = await landmark();
-    assert(zoomed.count > first.count * 1.1, "wheel zoom increases actual landmark pixel area despite integer edge rounding");
+    assert(zoomed.count > first.count * 1.1, "wheel zoom increases actual landmark pixel area despite integer edge rounding: " + JSON.stringify({ first, zoomed, unit, box }));
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down(); await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2 + 25, { steps: 4 }); await page.mouse.up(); await flush();
     const panned = await landmark();
@@ -204,7 +211,7 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(900, 650));
     await flush();
     assert(await panel.evaluate(el => el.scrollWidth <= el.clientWidth + 1), "small window has no horizontal clipping");
-    assert(await panel.locator(".modal-body").evaluate(el => el.scrollHeight <= el.clientHeight + 1), "controls fit in the smallest supported window");
+    assert(await canvas.evaluate(el => el.getBoundingClientRect().height >= 140), "small workspace preserves usable map canvas");
     await button("适应画布").click();
     await capture("map-preview-small-dark");
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1240, 820));
@@ -256,11 +263,9 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
     await button("关闭").click();
     await page.getByRole("article", { name: "存档 其他项目存档", exact: true }).getByRole("button", { name: "地图预览", exact: true }).click();
     await generate(/基岩 · 9 个区块/);
-    await panel.getByRole("combobox", { name: "选择当前存档", exact: true }).click();
-    assert.equal(await page.getByRole("option", { name: "同项目存档", exact: true }).count(), 0);
-    await page.getByRole("option", { name: "其他项目存档", exact: true }).click();
+    assert.equal(await panel.getByRole("combobox", { name: "选择当前存档", exact: true }).count(), 0);
     await button("关闭").click();
-    checks.push("opening a card uses that world's project without filtering the global world library");
+    checks.push("opening another world pins its own source without filtering the global library");
     assert.deepEqual(errors, [], "renderer must have no errors or passive wheel warnings");
     await fs.writeFile(path.join(testResultsRoot, "map-preview-ui.json"), JSON.stringify({ passed: true, checks, shots }, null, 2) + "\n", "utf8");
     console.log("PASS map preview UI: " + checks.join("; "));

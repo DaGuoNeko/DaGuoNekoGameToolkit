@@ -93,6 +93,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Packaged client acceptance failed' }
           node tests/map-preview-ui.cjs
           if ($LASTEXITCODE -ne 0) { throw 'Packaged map preview acceptance failed' }
+          node tests/workspaces-ui.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged workspace and world data acceptance failed' }
+          node tests/performance-ui.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged resource refresh acceptance failed' }
       - name: Publish complete release
         env:
           GH_TOKEN: ${{ github.token }}

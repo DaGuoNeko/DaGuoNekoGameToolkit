@@ -74,6 +74,7 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
         method,
         args,
       });
+    await require("./fixtures/navigation.cjs").navigate(page, "控制台");
     await page
       .getByRole("button", { name: "启动联机客户端", exact: true })
       .click();
@@ -141,9 +142,10 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
       .getByRole("dialog")
       .getByRole("button", { name: "取消", exact: true })
       .click();
+    await require("./fixtures/navigation.cjs").navigate(page, "存档");
     await page
       .getByRole("article", { name: "存档 World B", exact: true })
-      .getByRole("button", { name: "打开控制台", exact: true })
+      .getByRole("button", { name: "打开存档", exact: true })
       .click();
     await page
       .getByRole("button", { name: "加入此存档测试", exact: true })
@@ -159,7 +161,7 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
       stopped.session.autoJoin = { phase: "failed", worldName: "Failed target", message: "fixture join failure" };
       sessions.publish();
     });
-    await page.locator(".sidebar").getByRole("button", { name: "运行日志", exact: true }).click();
+    await require("./fixtures/navigation.cjs").navigate(page, "运行日志");
     const failed = page.getByText(/目标：Failed target · 加入失败/);
     await failed.waitFor();
     assert.match(await failed.locator("..").getAttribute("title"), /fixture join failure/);

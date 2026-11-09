@@ -105,6 +105,10 @@ const tools = [
     true,
   ),
   tool("list_worlds", "列出存档及其绑定配置，只读，不修改存档。", {}, [], true),
+  tool("scan_world_data", "离线只读扫描已登记存档的已保存对象与业务数据；不启动游戏，不写数据库。最长 120 秒，结果含覆盖和失败信息。使用 requestId 查询或取消；返回后用 read_world_data 分页查看。", { worldId: text(), requestId: text(80), scope: { enum: ["all", "gameplay", "world", "entities"] } }, ["worldId", "requestId"], true),
+  tool("read_world_data", "分页查询已有扫描快照。默认只返回对象摘要；关系未找到不代表不存在。", { requestId: text(80), view: { enum: ["objects", "relations"] }, kind: text(32), query: { type: "string", maxLength: 256 }, offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: 100 }, includeData: { type: "boolean" } }, ["requestId"], true),
+  tool("world_data_scan_state", "查询或取消指定只读扫描任务，取消不影响其他扫描或游戏会话。", { requestId: text(80), cancel: { type: "boolean" } }, ["requestId"], true),
+  tool("compare_world_data", "按稳定身份比较两份已有只读扫描快照；partial 表示扫描不完整，不能断言对象已删除。", { left: text(80), right: text(80) }, ["left", "right"], true),
   tool(
     "launch_client",
     "启动到主菜单，之后手动联机。本地自动多人测试优先使用 launch_joined_client；仅当需要停留菜单/手动加入时使用本工具。mode=blank 无模组；debug 仅调试模组；profile 使用 profileId 配置。调试能力需进入世界后就绪。先取 instanceId；同一次启动重试必须复用 requestId，不能因超时换新 ID。",

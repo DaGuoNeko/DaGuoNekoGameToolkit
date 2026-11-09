@@ -73,16 +73,17 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
     page.on("pageerror", (e) => errors.push(e.message));
     await page
       .getByRole("article", { name: "存档 功能测试存档", exact: true })
-      .getByRole("button", { name: "功能配置", exact: true })
+      .getByRole("button", { name: "打开存档", exact: true })
       .click();
+    await page.getByRole("navigation", { name: "存档工作区" }).getByRole("button", { name: "设置", exact: true }).click();
     await page
-      .getByRole("heading", { name: "存档控制台", exact: true })
+      .getByRole("heading", { name: "自定义与启动操作", exact: true })
       .waitFor();
     assert.equal(
       await page
         .getByRole("button", { name: "给予物品", exact: true })
-        .isDisabled(),
-      true,
+        .count(),
+      0,
     );
     await page.getByRole("button", { name: "添加功能", exact: true }).click();
     await page.getByLabel("按钮名称", { exact: true }).fill("进服设为白天");
@@ -112,11 +113,13 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
     // Reopen verifies storage across application lifetimes, before any game is started.
     page = await launch();
     page.on("pageerror", (e) => errors.push(e.message));
-    await page.getByRole("button", { name: "功能配置", exact: true }).click();
+    await page.getByRole("button", { name: "打开存档", exact: true }).click();
+    await page.getByRole("navigation", { name: "存档工作区" }).getByRole("button", { name: "设置", exact: true }).click();
     await page
       .getByRole("article", { name: "功能 领取钻石", exact: true })
       .waitFor();
     await page.getByRole("button", { name: "启动此存档", exact: true }).click();
+    await page.getByRole("button", { name: "查看会话控制台", exact: true }).click();
     await page.getByText("本次启动的自动操作已完成", { exact: true }).waitFor();
     const launchState = await page.evaluate(() =>
       window.toolkit.call("launch.state"),
@@ -153,14 +156,11 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
     await page.getByRole("dialog").waitFor({ state: "hidden" });
     assert.equal((await records())[2].command, '/say 中文 "测试"');
     // Keep the dashboard navigable and ensure mounting it again never replays auto actions.
-    await page.getByRole("button", { name: "查看日志", exact: true }).click();
+    await require("./fixtures/navigation.cjs").navigate(page, "运行日志");
     await page
       .getByRole("heading", { name: "运行日志", exact: true })
       .waitFor();
-    await page
-      .locator(".sidebar")
-      .getByRole("button", { name: "存档", exact: true })
-      .click();
+    await require("./fixtures/navigation.cjs").navigate(page, "控制台");
     await page.getByText("本次启动的自动操作已完成", { exact: true }).waitFor();
     assert.equal((await records()).length, 3);
     await page.getByRole("button", { name: "执行指令", exact: true }).click();
@@ -284,13 +284,14 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
       .getByRole("dialog")
       .getByRole("button", { name: "确认", exact: true })
       .click();
-    await page.getByText("未运行", { exact: true }).waitFor();
+    await page.getByText("已结束", { exact: true }).waitFor();
     assert.equal(
       await page
         .getByRole("button", { name: "给予物品", exact: true })
         .isDisabled(),
       true,
     );
+    await require("./fixtures/navigation.cjs").navigate(page, "存档");
     await page
       .getByRole("button", { name: "返回存档列表", exact: true })
       .click();

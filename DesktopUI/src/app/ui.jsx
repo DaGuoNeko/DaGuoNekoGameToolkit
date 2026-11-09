@@ -828,6 +828,7 @@ export function Modal({
   footer,
   onClose,
   wide = false,
+  inline = false,
   busy = false,
   initialFocus,
   onFiles,
@@ -836,17 +837,20 @@ export function Modal({
 }) {
   const ref = useRef(null);
   useEffect(() => {
+    if (inline) return;
     const previous = document.activeElement;
     ref.current.showModal();
     if (initialFocus) ref.current.querySelector(initialFocus)?.focus();
     return () => {
       previous?.focus();
     };
-  }, []);
+  }, [inline]);
+  const Frame = inline ? "section" : "dialog";
   return (
-    <dialog
+    <Frame
       ref={ref}
-      className={`modal ${wide ? "wide" : ""}`}
+      aria-label={inline ? title : undefined}
+      className={inline ? "workspace-surface" : `modal ${wide ? "wide" : ""}`}
       data-busy={busy}
       onCancel={(e) => {
         e.preventDefault();
@@ -860,7 +864,7 @@ export function Modal({
         </div>
         <Button
           icon="close"
-          aria-label="关闭弹窗"
+          aria-label={inline ? "返回工作区" : "关闭弹窗"}
           onClick={onClose}
           disabled={busy}
         />
@@ -879,10 +883,29 @@ export function Modal({
         <div className="modal-body">{children}</div>
       )}
       {footer && <div className="modal-footer">{footer}</div>}
-    </dialog>
+    </Frame>
   );
 }
 const imageCache = new Map();
+let imageCacheBytes = 0;
+function cachedImage(key, read) {
+  if (imageCache.has(key)) {
+    const entry = imageCache.get(key); imageCache.delete(key); imageCache.set(key, entry); return entry.promise;
+  }
+  const entry = { bytes: 0, promise: null };
+  entry.promise = read().then(value => {
+    if (imageCache.get(key) === entry) {
+      entry.bytes = value.length * 2; imageCacheBytes += entry.bytes;
+      while (imageCache.size > 32 || imageCacheBytes > 32 * 1024 * 1024) {
+        const oldest = imageCache.keys().next().value; imageCacheBytes -= imageCache.get(oldest).bytes; imageCache.delete(oldest);
+      }
+    }
+    return value;
+  }).catch(() => { if (imageCache.get(key) === entry) imageCache.delete(key); return ""; });
+  imageCache.set(key, entry);
+  while (imageCache.size > 32) { const oldest = imageCache.keys().next().value; imageCacheBytes -= imageCache.get(oldest).bytes; imageCache.delete(oldest); }
+  return entry.promise;
+}
 export function LocalImage({
   path,
   thumbnail = false,
@@ -895,12 +918,7 @@ export function LocalImage({
     setSource("");
     if (!path) return;
     const key = path + thumbnail;
-    if (!imageCache.has(key))
-      imageCache.set(
-        key,
-        window.toolkit.call("image.read", { path, thumbnail }).catch(() => ""),
-      );
-    imageCache.get(key).then((value) => {
+    cachedImage(key, () => window.toolkit.call("image.read", { path, thumbnail })).then((value) => {
       if (alive) setSource(value);
     });
     return () => {

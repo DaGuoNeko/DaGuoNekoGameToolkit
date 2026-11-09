@@ -22,7 +22,7 @@ const issueText = {
 };
 const ver = value => Array.isArray(value) ? value.join(".") : value || "未指定";
 
-export function WorldPacks({ world, onClose, onChanged, onImport, onContent, running }) {
+export function WorldPacks({ world, onClose, onChanged, onImport, onContent, running, inline = false }) {
   const [health, setHealth] = useState(null), [selected, setSelected] = useState(null);
   const [name, setName] = useState(""), [version, setVersion] = useState(""), [enabled, setEnabled] = useState(true);
   const [confirm, setConfirm] = useState(null), [busy, setBusy] = useState(false);
@@ -67,7 +67,7 @@ export function WorldPacks({ world, onClose, onChanged, onImport, onContent, run
     detail: "为" + (pack?.packName || "存档内全部包（包含未启用包）") + "生成新的包和模块 UUID，并同步存档清单及存档内依赖。保持启用顺序，不新增启用包。存档外引用与脚本中的自定义 UUID 不会自动改写。" });
   const filtered = (health?.packs || []).filter(p => (!kind || p.kind === kind) &&
     [p.name, p.packName, p.packId].some(s => String(s).toLowerCase().includes(query.toLowerCase())));
-  return <Modal wide title={confirm?.title || (selected ? "编辑模组：" + selected.packName : "存档模组：" + world.name)}
+  return <Modal inline={inline && !confirm && !selected} wide title={confirm?.title || (selected ? "编辑模组：" + selected.packName : "存档模组：" + world.name)}
     busy={busy} onClose={() => !busy && onClose()}
     footer={confirm ? <>
       <Button disabled={busy} onClick={() => setConfirm(null)}>取消</Button>

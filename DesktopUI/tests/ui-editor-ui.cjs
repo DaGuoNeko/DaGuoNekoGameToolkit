@@ -72,10 +72,7 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
     );
     await page.getByRole("heading", { name: "存档", exact: true }).waitFor();
     const nav = async (name) => {
-      await page
-        .locator(".sidebar")
-        .getByRole("button", { name, exact: true })
-        .click();
+      await require("./fixtures/navigation.cjs").navigate(page, name);
       await page.waitForFunction(
         () => !document.documentElement.dataset.pageAnimating,
       );

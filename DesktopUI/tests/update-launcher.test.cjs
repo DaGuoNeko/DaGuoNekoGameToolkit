@@ -18,7 +18,8 @@ test(
     t.after(async () => {
       assert.equal(path.dirname(root), path.resolve(os.tmpdir()));
       assert(path.basename(root).startsWith("dgn-launcher-lifetime-"));
-      await fs.rm(root, { recursive: true, force: true });
+      // Windows 在退出回执后仍可能短暂占用夹具 EXE，仅重试本测试目录的清理。
+      await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     });
     for (const directory of ["native", "automation", "update"])
       await fs.mkdir(path.join(root, directory));

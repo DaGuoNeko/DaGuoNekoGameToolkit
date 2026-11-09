@@ -1,6 +1,9 @@
 const { spawnSync } = require("node:child_process");
 const { artifactRoot } = require("./fixtures/artifacts.cjs");
 for (const file of [
+  "tests/performance-ui.cjs",
+  "tests/navigation-polish-ui.cjs",
+  "tests/workspaces-ui.cjs",
   "tests/update-network.cjs",
   "tests/update-ui.cjs",
   "tests/tracy-ui.cjs",

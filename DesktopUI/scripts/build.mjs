@@ -96,6 +96,16 @@ await writeFile(
   JSON.stringify(updateConfig, null, 2) + "\n",
   "utf8",
 );
+await build({
+  entryPoints: ["electron/domains/worlds/world-data-worker.cjs"],
+  bundle: true, outfile: "runtime/automation/world-data-worker.cjs", platform: "node",
+  mainFields: ["module", "main"], target: "node22",
+});
+await build({
+  entryPoints: ["electron/domains/worlds/world-data-compute-worker.cjs"],
+  bundle: true, outfile: "runtime/automation/world-data-compute-worker.cjs", platform: "node",
+  mainFields: ["module", "main"], target: "node22",
+});
 await copyFile("electron/ore-window.ps1", "runtime/automation/ore-window.ps1");
 await copyFile("electron/automation-window.ps1", "runtime/automation/automation-window.ps1");
 await copyFile(

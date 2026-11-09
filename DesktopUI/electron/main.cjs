@@ -29,6 +29,10 @@ const { ArchitectureImport } = require("./domains/worlds/architecture-import.cjs
 let architectureImport;
 const { MapPreviewJobs } = require("./domains/worlds/map-preview-jobs.cjs");
 let mapPreviewJobs;
+let worldDataJobs;
+const worldDataResults = new Map();
+const { WorldDataStore } = require("./domains/worlds/world-data-store.cjs");
+let worldDataStore;
 const { GameTitles } = require("./domains/game/game-titles.cjs");
 let gameTitles;
 const { Profiles } = require("./domains/profiles/profiles.cjs");
@@ -671,10 +675,16 @@ async function dispatch(method, args, source = win) {
       return worldActions.cancel(args.sessionId);
     case "architecture.state":
       return architectureImport.state();
-    case "architecture.prepare":
-      await fileSelections.require(args.source,["directory","archive"]);
+    case "architecture.prepare": {
+      if (args.sourceWorldId) {
+        const world = worlds.find(await worlds.read(), null, args.sourceWorldId);
+        const info = await worlds.inspect(world);
+        if (info.deleted || !info.ready || !info.present) throw Error("来源存档不可用，请重新选择");
+        args = { ...args, source: info.path, kind: "bedrock" };
+      } else await fileSelections.require(args.source,["directory","archive"]);
       if(args.kind==="java") await fileSelections.require(args.chunkerJar,"chunker");
       return architectureImport.call("prepare", args);
+    }
     case "architecture.start-source":
       return architectureImport.call("startSource", args);
     case "architecture.save-source":
@@ -878,6 +888,67 @@ async function dispatch(method, args, source = win) {
       await fileSelections.allow(selected,stat.isDirectory()?"directory":"archive");
       return selected;
     }
+    case "world-data.scan": {
+      if (worldDataResults.has(args.requestId)) throw Error("扫描请求标识已使用，请生成新 requestId；已有结果可继续查询");
+      const task = activityCenter.start("world-data.scan", { title: "读取存档数据", projectId: args.profileId || null, source: "ui" });
+      const timer = setInterval(() => {
+        const progress = worldDataJobs.state(args.requestId);
+        if (progress) activityCenter.update(task.id, { completed: progress.completed, total: progress.total, message: progress.stage });
+      }, 300);
+      try {
+        const result = await worldDataJobs.render(args.requestId, { scope: args.scope || "all" }, async () => {
+          let location = args.source;
+          if (args.worldId) {
+            const record = worlds.find(await worlds.read(), null, args.worldId), info = await worlds.inspect(record);
+            if (info.deleted || !info.ready || !info.present) throw Error("存档尚未生成或已移除");
+            location = info.path;
+          }
+          if (typeof location !== "string" || !path.isAbsolute(location)) throw Error("请选择存档来源");
+          const identity = args.worldId ? undefined : await fileSelections.require(location, ["directory", "archive"]);
+          return { source: location, identity };
+        });
+        await worldDataStore.request("put", { requestId: args.requestId, snapshot: result });
+        worldDataResults.set(args.requestId, { source: result.source });
+        while (worldDataResults.size > 4) worldDataResults.delete(worldDataResults.keys().next().value);
+        activityCenter.finish(task.id, "success");
+        if (!result.complete) activityCenter.event({ method: "world-data.scan", level: "warning", source: "ui", message: `世界数据仅获得部分结果：${result.statistics.failed} 处失败${result.truncated ? "，已达到读取上限" : ""}` });
+        return { ...result, requestId: args.requestId };
+      } catch (error) {
+        activityCenter.finish(task.id, /取消/.test(error.message) ? "cancelled" : "failed", error.message);
+        throw error;
+      } finally { clearInterval(timer); }
+    }
+    case "world-data.state": return worldDataJobs.state(args.requestId);
+    case "world-data.query": {
+      const result = worldDataResults.get(args.requestId);
+      if (!result) throw Error("数据快照已过期，请重新扫描");
+      return worldDataStore.request("query", args);
+    }
+    case "world-data.cancel": return worldDataJobs.cancel(args.requestId);
+    case "world-data.compare": {
+      const left = worldDataResults.get(args.left), right = worldDataResults.get(args.right);
+      if (!left || !right) throw Error("比较快照已过期，请重新扫描来源");
+      return worldDataStore.request("compare", args);
+    }
+    case "world-data.export": {
+      const result = worldDataResults.get(args.requestId);
+      if (!result) throw Error("数据快照已过期，请重新扫描");
+      const other = args.compareWith && worldDataResults.get(args.compareWith);
+      if (args.compareWith && (!other || args.format !== "json")) throw Error("比较快照不可用或导出格式无效");
+      const text = await worldDataStore.request("export", args);
+      const selected = await dialog.showSaveDialog(win, { title: "导出只读存档数据", defaultPath: "world-data." + args.format, filters: [{ name: args.format.toUpperCase(), extensions: [args.format] }] });
+      if (selected.canceled || !selected.filePath) return false;
+      const destination = path.resolve(selected.filePath), parent = await fs.realpath(path.dirname(destination));
+      if (parent.toLowerCase() !== path.dirname(destination).toLowerCase()) throw Error("导出目录不能是链接");
+      for (const snapshot of worldDataResults.values()) {
+        const sourcePath = path.resolve(snapshot.source).toLowerCase();
+        if (destination.toLowerCase() === sourcePath || destination.toLowerCase().startsWith(sourcePath + path.sep)) throw Error("请导出到来源存档之外的位置");
+      }
+      const existing = await fs.lstat(destination).catch(e => { if (e.code === "ENOENT") return null; throw e; });
+      if (existing?.isSymbolicLink() || existing && !existing.isFile()) throw Error("导出目标必须是普通文件");
+      await fs.writeFile(destination, text, "utf8");
+      return true;
+    }
     case "map-preview.render": {
       const browserWindow = source;
       return mapPreviewJobs.render(args.requestId,{format:args.format||"auto",dimension:args.dimension||"overworld",bounds:args.bounds,chunks:args.chunks,relief:args.relief??true},async()=>{
@@ -1064,7 +1135,9 @@ else {
         app.isPackaged ? process.resourcesPath : app.getAppPath(),
         "runtime",
       );
-      mapPreviewJobs=new MapPreviewJobs(dataRoot,path.join(runtimeRoot,"automation/map-preview-worker.cjs"), { onError: reportBackgroundError });
+      mapPreviewJobs=new MapPreviewJobs(dataRoot,path.join(runtimeRoot,"automation/map-preview-worker.cjs"), { onError: reportBackgroundError, cachePreview: true });
+      worldDataJobs=new MapPreviewJobs(dataRoot,path.join(runtimeRoot,"automation/world-data-worker.cjs"), { onError: reportBackgroundError, label: "世界数据", method: "world-data.scan" });
+      worldDataStore=new WorldDataStore(path.join(runtimeRoot,"automation/world-data-compute-worker.cjs"), { onError: reportBackgroundError });
       debuggerService = new DebugController(store, runtimeRoot, { onError: reportBackgroundError });
       tracyProfiler = new TracyProfiler(dataRoot, runtimeRoot, debuggerService, { onError: reportBackgroundError });
       debuggerService.nativeViewerGuard = async (session, port) => {
@@ -1242,6 +1315,14 @@ else {
           runtime: runtimeRoot,
           captureWindow: (snapshot, worker, bridge) => captureWindow(runtimeRoot, worker, bridge, snapshot),
            architecture: architectureImport,
+          worldData: async (operation, args) => {
+            if (operation === "scan") {
+              const snapshot = await dispatch("world-data.scan", args);
+              const { objects, relations, ...summary } = snapshot;
+              return { ...summary, objectCount: objects.length, relationCount: relations.length };
+            }
+            return dispatch("world-data." + operation, args);
+          },
            onError: reportBackgroundError,
           onDataChanged: (value) => {
             if (win && !win.isDestroyed()) win.webContents.send("automation-data-changed", value);
@@ -1494,6 +1575,8 @@ else {
         const steps = [
           ["mcp.shutdown", () => automation?.setEnabled(false), false],
           ["map-preview.shutdown", () => mapPreviewJobs?.dispose(), false],
+          ["world-data.shutdown", () => worldDataJobs?.dispose(), false],
+          ["world-data.compute.shutdown", () => worldDataStore?.dispose(), false],
           ["file-selection.shutdown", () => fileSelections.dispose(), false],
           ["architecture.shutdown", () => architectureImport?.dispose(), false],
           ["world-actions.shutdown", () => worldActions?.dispose(), false],

@@ -2,7 +2,6 @@ import React, { useEffect, useState } from "react";
 import { sharedSources } from "../../../shared/source-sharing.cjs";
 import { ReloadActions } from "../debug/debugger.jsx";
 import { BIOMES, SHAPES, biomeSummary } from "../../../shared/biome-model.cjs";
-import { ArchitectureImport } from "./architecture-import.jsx";
 import {
   Button,
   Intro,
@@ -331,12 +330,16 @@ export function WorldDashboard({
   onStart,
   onQuickTest,
   onPacks,
+  onMapPreview,
   onJoinClient,
   onSettings,
   onLogs,
   onStop,
   onSwitchWorld,
+  onEditProfile,
   busy,
+  mode = "all",
+  sessionId,
 }) {
   const [config, setConfig] = useState(null),
     [runtime, setRuntime] = useState({ history: [] }),
@@ -344,10 +347,9 @@ export function WorldDashboard({
     [working, setWorking] = useState(false),
     [editing, setEditing] = useState(null),
     [dialogError, setDialogError] = useState(""),
-    [remove, setRemove] = useState(null),
-    [architectureOpen, setArchitectureOpen] = useState(false);
+    [remove, setRemove] = useState(null);
   const session = runtimeState.sessions?.findLast(
-    (s) => s.worldId === world.id,
+    (s) => s.worldId === world.id && (!sessionId || s.id === sessionId),
   );
   const profile = profiles.find((p) => p.id === world.profileId);
   useEffect(() => {
@@ -454,14 +456,18 @@ export function WorldDashboard({
     });
   return (
     <div className="world-dashboard">
+      {mode === "settings" && <div><h2>自定义与启动操作</h2><p className="muted">保存影响下次启动；即时执行请进入会话控制台。</p></div>}
+      {(mode === "all" || mode === "overview") && <>
+      {mode === "all" &&
       <Intro
-        title="存档控制台"
+        title={mode === "overview" ? "存档概览" : mode === "settings" ? "自定义与启动操作" : "存档控制台"}
         subtitle="管理当前存档，执行即时操作，设置自己的常用功能。"
       >
         <Button icon="arrow" onClick={onBack}>
           返回存档列表
         </Button>
       </Intro>
+      }
       {runtimeState.sessions?.some(
         (s) => s.running && s.worldId !== world.id && s.worldId,
       ) && (
@@ -487,7 +493,7 @@ export function WorldDashboard({
         </div>
         <div className="world-summary-copy">
           <span className="muted">存档信息</span>
-          <h2>{world.name}</h2>
+          <h2>{mode === "overview" ? "运行概况" : world.name}</h2>
           <p>
             {session?.running
               ? session.profileName
@@ -505,6 +511,7 @@ export function WorldDashboard({
               ]
             }
           </p>
+          {mode === "overview" && profile && onEditProfile && <Button icon="launch-profile" title={"编辑绑定配置：" + profile.name} onClick={onEditProfile} disabled={busy}>编辑绑定启动配置</Button>}
           <small className="muted">
             {session?.running
               ? `${session.storageMode === "isolated" ? "独立主机" : "兼容主机"} · 房主 ${session.userName || "—"} · 启动器 PID ${session.pid}`
@@ -535,7 +542,7 @@ export function WorldDashboard({
                 </Button>
               </>
             ) : (
-              <Button
+              mode === "overview" ? null : <Button
                 primary
                 title={!profile ? "请先选择启动配置" : undefined}
                 disabled={
@@ -558,8 +565,8 @@ export function WorldDashboard({
                 加入此存档测试
               </Button>
             )}
-            <Button disabled={busy} icon="import" onClick={() => setArchitectureOpen(true)}>
-              地形与建筑导入
+            <Button disabled={busy} icon="image" onClick={onMapPreview}>
+              地图预览
             </Button>
             <Button disabled={busy || !!session?.running} onClick={onQuickTest}>
               快速测试
@@ -575,6 +582,7 @@ export function WorldDashboard({
           </div>
         </div>
       </section>
+      </>}
       {!profile && !session?.running && (
         <p className="world-hint">
           原启动配置已不存在，请点击“选择启动配置”重新绑定后启动。
@@ -582,7 +590,7 @@ export function WorldDashboard({
       )}
       <ErrorBox>{error}</ErrorBox>
       {working && <p className="muted" role="status">正在处理存档功能…</p>}
-      {session && (
+      {session && mode !== "settings" && mode !== "overview" && (
         <ReloadActions
           context={runtime.reloadTarget || {}}
           ready={!!ready && !blocked}
@@ -609,6 +617,8 @@ export function WorldDashboard({
             </ul>
           </div>
         )}
+      {mode !== "overview" && <>
+      {mode !== "settings" && <>
       <div className="action-section-title">
         <h2>即时功能</h2>
         <span className="muted">
@@ -653,6 +663,7 @@ export function WorldDashboard({
           设置群系
         </Button>
       </div>
+      </>}
       <div className="action-section-title">
         <div>
           <h2>自定义功能</h2>
@@ -737,7 +748,7 @@ export function WorldDashboard({
             <div className="action-card-footer">
               <Button
                 primary
-                disabled={blocked || !a.enabled}
+                disabled={mode === "settings" || blocked || !a.enabled}
                 onClick={() => perform(() => run({ actionId: a.id }))}
               >
                 执行
@@ -859,12 +870,7 @@ export function WorldDashboard({
           <ErrorBox>{error}</ErrorBox>
         </Modal>
       )}
-      {architectureOpen && (
-        <ArchitectureImport
-          worldId={world.id}
-          onClose={() => setArchitectureOpen(false)}
-        />
-      )}
+      </>}
     </div>
   );
 }

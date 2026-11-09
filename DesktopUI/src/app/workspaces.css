@@ -1,0 +1,31 @@
+.workspace-tabs { display:flex; gap:6px; flex-wrap:wrap; border-bottom:1px solid var(--line); padding:8px 20px; flex-shrink:0; }
+.workspace-tabs button { background:transparent; color:var(--muted); border:0; border-radius:7px; padding:9px 12px; cursor:pointer; font:inherit; }
+.workspace-tabs button.active { color:var(--text); background:var(--surface); box-shadow:inset 0 -2px var(--accent); }
+.workspace-tabs button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.workspace-surface { display:flex; flex-direction:column; min-width:0; }
+.workspace-surface > .modal-body { padding:14px 0; overflow:visible; }
+.workspace-surface > .modal-header { padding:12px 0; }
+.workspace-surface > .modal-footer { padding:10px 0; }
+.workspace-surface .map-preview { height:max(360px, calc(100vh - 330px)); }
+.world-context { display:flex; align-items:center; gap:14px; justify-content:space-between; margin-bottom:10px; }
+.world-context h1 { font-size:23px; margin:0; }
+.world-context > div:first-child { min-width:0; }
+.world-location { display:block; color:var(--muted); max-width:620px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.world-context p { color:var(--muted); margin:5px 0 0; overflow-wrap:anywhere; }
+.world-context-actions, .workspace-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+.world-name-button { font:inherit; color:inherit; text-align:left; border:0; background:none; cursor:pointer; padding:0; }
+.world-card-primary-actions, .world-card-tools { display:flex; flex-wrap:wrap; gap:6px; width:100%; align-items:center; }
+.world-card-primary-actions > .button { flex:1; }
+.world-card-tools > .button.danger { margin-left:auto; }
+.world-workspace-nav { position:sticky; top:0; z-index:3; display:flex; align-items:center; gap:10px; min-height:42px; padding:4px 0; margin-bottom:16px; background:var(--bg); border-bottom:1px solid var(--line); color:var(--muted); }
+.world-workspace-nav .world-exit { border-color:transparent; background:transparent; box-shadow:none; padding:6px 8px 6px 4px; color:var(--text); }
+.world-workspace-location { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
+.world-summary-copy > .button { display:flex; width:max-content; margin-bottom:6px; }
+.runtime-context { display:flex; gap:12px; align-items:center; padding:8px 20px; background:var(--surface); border-bottom:1px solid var(--line); }
+.runtime-context .select-control { flex:1; max-width:600px; }
+.runtime-context p { margin:0; font-size:12px; color:var(--muted); }
+.runtime-console { display:grid; gap:20px; }
+.tracy-main .debug-page { display:flex; flex-direction:column; height:100%; min-height:0; padding:12px; gap:8px; }
+.tracy-main .debug-page > div:last-child { min-height:0; flex:1; overflow:auto; }
+.tracy-main .debug-page > div:last-child > .tracy-page { height:100%; }
+@media (max-width:1000px) { .workspace-tabs { padding:6px 10px; } .workspace-tabs button { padding:7px 9px; } .world-context { align-items:flex-start; flex-direction:column; } .runtime-context { flex-wrap:wrap; } }

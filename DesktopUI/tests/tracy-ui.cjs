@@ -18,7 +18,7 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
       errors = [];
     page.setDefaultTimeout(20000);
     page.on("pageerror", (e) => errors.push(e.message));
-    await page.getByRole("button", { name: "Tracy 性能", exact: true }).click();
+    await require("./fixtures/navigation.cjs").navigate(page, "Tracy 性能");
     await page.getByRole("heading", { name: "Tracy 性能分析" }).waitFor();
     assert(
       await page.getByRole("button", { name: "连接所选游戏" }).isDisabled(),
@@ -93,9 +93,7 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
         (await page.evaluate(() => window.toolkit.call("tracy.state"))).pid,
         profilerPid,
       );
-      await page
-        .getByRole("button", { name: "Tracy 性能", exact: true })
-        .click();
+      await require("./fixtures/navigation.cjs").navigate(page, "Tracy 性能");
       await page
         .getByRole("button", { name: "独立窗口", exact: true })
         .waitFor();

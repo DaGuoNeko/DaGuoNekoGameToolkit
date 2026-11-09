@@ -123,6 +123,18 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
     assert.notEqual(a.sessionId, b.sessionId);
     assert.notEqual(a.mcdkPort, b.mcdkPort);
     assert(clients.every((c) => c.capabilities.code));
+    for (const target of [a, b]) {
+      await require("./fixtures/navigation.cjs").navigate(page, "运行日志");
+      const picker = page.getByRole("combobox", { name: "当前运行会话", exact: true });
+      await picker.click();
+      await page.getByRole("option").filter({ hasText: target.sessionId === a.sessionId ? "Alpha" : "Beta" }).click();
+      await require("./fixtures/navigation.cjs").navigate(page, "游戏调试");
+      await page.waitForFunction(async id => {
+        const runtime = await window.toolkit.call("launch.state"), debug = await window.toolkit.call("debug.state"), selected = await window.toolkit.call("inspector.state");
+        const bridge = debug.sessions.find(s => s.id === selected.selected);
+        return runtime.session?.id === id && bridge?.registrationId === runtime.session.bridgeRegistrationId && bridge?.mcdkPid === runtime.session.pid;
+      }, target.sessionId);
+    }
     const rejectedJoin = await client.callTool({
       name: "launch_joined_client",
       arguments: {
@@ -166,6 +178,7 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
       },
     });
     assert(stale.isError);
+    await require("./fixtures/navigation.cjs").navigate(page, "设置");
     await page
       .getByRole("button", { name: "关闭 AI MCP", exact: true })
       .click();

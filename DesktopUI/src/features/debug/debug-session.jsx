@@ -30,6 +30,7 @@ export function DebugSessionProvider({ children }) {
     [error, setError] = useState(""),
     [refreshing, setRefreshing] = useState(false),
     [inspectorDirty, setInspectorDirty] = useState(false);
+  const [selectionLocked, setSelectionLocked] = useState(false);
   const [workspace, setWorkspace] = useState({
     version: -1,
     ready: false,
@@ -77,6 +78,7 @@ export function DebugSessionProvider({ children }) {
           Object.keys(state.drafts || {}).length || state.pendingMutation,
       ),
     );
+    setSelectionLocked([...caches.current.values()].some(state => state.pendingMutation));
     for (const listener of listeners.current.get(key) || []) listener();
   }, []);
   const flushCaches = useCallback(async () => {
@@ -204,6 +206,7 @@ export function DebugSessionProvider({ children }) {
     };
   }, [receive, receiveWindow, putCache]);
   function setSelected(value) {
+    if (selectedRef.current === value || [...caches.current.values()].some(state => state.pendingMutation)) return;
     const previous = selectedRef.current;
     selectedRef.current = value;
     setSelectedState(value);
@@ -257,9 +260,7 @@ export function DebugSessionProvider({ children }) {
     }
   }
   const session =
-    snapshot.sessions.find((s) => s.id === selected) ||
-    snapshot.sessions.find((s) => s.connected) ||
-    snapshot.sessions[0];
+    selected ? snapshot.sessions.find((s) => s.id === selected) : undefined;
   const ready =
     !!session?.connected &&
     session.state === "game_ready" &&
@@ -277,6 +278,7 @@ export function DebugSessionProvider({ children }) {
         ready,
         context,
         selected,
+        selectionLocked,
         setSelected,
         refresh,
         refreshing,

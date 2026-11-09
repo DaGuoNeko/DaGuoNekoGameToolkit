@@ -526,7 +526,7 @@ test("authenticated loopback bridge + real SDK stdio client supports offline too
   ).localMultiplayer;
   assert.equal(guidance.scope, "local_host_and_clients");
   assert.ok(guidance.steps.includes("launch_joined_client"));
-  assert.equal((await client.listTools()).tools.length, 42);
+  assert.equal((await client.listTools()).tools.length, 46);
   assert.equal(
     json(await client.callTool({ name: "toolbox_status", arguments: {} }))
       .online,
@@ -547,7 +547,7 @@ test("authenticated loopback bridge + real SDK stdio client supports offline too
       .online,
     false,
   );
-  assert.equal((await client.listTools()).tools.length, 42);
+  assert.equal((await client.listTools()).tools.length, 46);
 });
 test("MCDK proxy performs real HTTP initialize/list/call and preserves image content", async (t) => {
   const http = require("node:http");

@@ -50,10 +50,7 @@ const { Profiles } = require("../electron/domains/profiles/profiles.cjs");
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
     const nav = async (label) => {
-      await page
-        .locator(".sidebar")
-        .getByRole("button", { name: label, exact: true })
-        .click();
+      await require("./fixtures/navigation.cjs").navigate(page, label);
       await page.waitForFunction(
         () => !document.documentElement.dataset.pageAnimating,
       );

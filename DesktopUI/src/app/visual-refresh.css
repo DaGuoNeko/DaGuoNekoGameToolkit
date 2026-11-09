@@ -235,17 +235,21 @@ h3 {
 }
 
 .app-bar-status {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  margin-left: auto;
-  padding: 6px 10px;
-  border: 1px solid var(--line);
-  border-radius: 99px;
-  background: color-mix(in srgb, var(--surface) 78%, transparent);
+  gap: 6px;
   font-size: 11px;
-  color: var(--text);
+  color: var(--muted);
+  white-space: nowrap;
 }
+
+.app-bar-tools { display: flex; align-items: center; gap: 12px; margin-left: auto; }
+.app-bar-shortcuts { display: flex; gap: 2px; padding-left: 10px; border-left: 1px solid var(--line); }
+/* 标题栏仍可拖窗，交互控件必须显式退出原生拖拽区域。 */
+.app-bar button { -webkit-app-region: no-drag; }
+.app-bar .app-bar-shortcut { width: 30px; min-height: 30px; padding: 6px; border-color: transparent; background: transparent; box-shadow: none; color: var(--muted); }
+.app-bar .app-bar-shortcut:hover:not(:disabled), .app-bar .app-bar-shortcut[aria-current="page"] { background: var(--hover); color: var(--text); border-color: transparent; }
+.app-bar .app-bar-shortcut svg { width: 17px; height: 17px; }
 
 .page-container {
   max-width: 1360px;

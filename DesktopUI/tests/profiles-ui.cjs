@@ -85,10 +85,7 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
       });
     }, game);
     const nav = async (name) => {
-      await page
-        .locator(".sidebar")
-        .getByRole("button", { name, exact: true })
-        .click();
+      await require("./fixtures/navigation.cjs").navigate(page, name);
       await page.waitForFunction(
         () => !document.documentElement.dataset.pageAnimating,
       );
@@ -284,7 +281,7 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
       globalThis.fixturePick = value;
     }, globalGame);
     await page
-      .getByRole("button", { name: "选择全局游戏程序", exact: true })
+      .getByRole("button", { name: "选择游戏程序", exact: true })
       .click();
     await page.waitForFunction(
       async (value) =>
@@ -524,10 +521,7 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
       .filter({ hasText: "WORLD_READY 世界 A" })
       .waitFor();
     const startMenu = async (label) => {
-      await nav("存档");
-      await page
-        .getByRole("button", { name: "返回存档列表", exact: true })
-        .click();
+      await nav("控制台");
       await page
         .getByRole("button", { name: "启动空白客户端", exact: true })
         .click();
@@ -617,7 +611,7 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
       originalOptions.replace(
         "dev_connection_quality:0",
         "dev_connection_quality:1",
-      ),
+      ) + "gfx_fullscreen:0\r\n",
     );
     const optionBackups = await fs.readdir(
       path.join(dataRoot, "game-options-backups"),
@@ -786,6 +780,7 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
         s.id,
       );
     await nav("存档");
+    await page.getByRole("button", { name: "返回存档列表", exact: true }).click();
     await card.getByRole("button", { name: "删除存档", exact: true }).click();
     await page
       .getByRole("dialog")

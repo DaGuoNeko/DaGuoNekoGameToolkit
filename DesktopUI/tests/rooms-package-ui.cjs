@@ -32,10 +32,7 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
         }),
       profiles[0].id,
     );
-    await page
-      .locator(".sidebar")
-      .getByRole("button", { name: "联机房间", exact: true })
-      .click();
+    await require("./fixtures/navigation.cjs").navigate(page, "联机房间");
     await page
       .getByRole("heading", { name: "联机房间", exact: true })
       .waitFor();
@@ -136,10 +133,7 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
     });
     page = await app.firstWindow();
     page.setDefaultTimeout(20000);
-    await page
-      .locator(".sidebar")
-      .getByRole("button", { name: "联机房间", exact: true })
-      .click();
+    await require("./fixtures/navigation.cjs").navigate(page, "联机房间");
     await page.waitForFunction(() =>
       document.querySelector("textarea")?.value.startsWith("DGNROOM1:"),
     );
@@ -160,10 +154,7 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
       .click();
     await page.evaluate(() => window.toolkit.call("rooms.draft"));
     await page.reload();
-    await page
-      .locator(".sidebar")
-      .getByRole("button", { name: "联机房间", exact: true })
-      .click();
+    await require("./fixtures/navigation.cjs").navigate(page, "联机房间");
     await page.getByLabel("完整邀请文本").waitFor();
     assert.equal(await page.getByLabel("完整邀请文本").inputValue(), "");
     assert.equal(await page.getByLabel("联机玩家名").inputValue(), "");

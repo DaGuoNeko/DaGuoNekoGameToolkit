@@ -40,6 +40,7 @@ class AutomationRouter {
     inspectWindow: windowProbe = inspectWindow,
     captureWindow,
     architecture,
+    worldData,
     proxy = withMcdk,
     onError = () => {},
   }) {
@@ -57,6 +58,7 @@ class AutomationRouter {
       inspectWindow: windowProbe,
       captureWindow,
       architecture,
+      worldData,
       proxy,
       onError,
     });
@@ -448,6 +450,14 @@ class AutomationRouter {
             error: w.error || null,
           })),
         });
+      }
+      case "scan_world_data":
+      case "read_world_data":
+      case "world_data_scan_state":
+      case "compare_world_data": {
+        if (!this.worldData) throw Error("当前实例不支持离线世界数据读取");
+        const operation = name === "scan_world_data" ? "scan" : name === "read_world_data" ? "query" : name === "compare_world_data" ? "compare" : args.cancel ? "cancel" : "state";
+        return result(await this.worldData(operation, args));
       }
       case "launch_joined_client":
         return this.once(name, args, async () => {

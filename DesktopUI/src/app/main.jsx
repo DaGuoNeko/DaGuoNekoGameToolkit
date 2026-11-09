@@ -16,7 +16,8 @@ import {
 } from "./ui.jsx";
 import { WindowControls } from "./window-controls.jsx";
 import { usePageNavigation } from "./page-navigation.jsx";
-import { mergeRuntime } from "../../shared/runtime-state.cjs";
+import { debugTargetFor, launchTargetFor } from "../../shared/runtime-state.cjs";
+import { receiveRuntime, useRuntimeState } from "./runtime-view.jsx";
 import { LogsPage } from "../features/logs/logs.jsx";
 import { ConfigExtras, GameDiscovery } from "../features/settings/config-extras.jsx";
 import { DebugPage } from "../features/debug/debugger.jsx";
@@ -33,22 +34,25 @@ import { GameOptionsPage } from "../features/settings/game-options.jsx";
 import { UiEditorPage } from "../features/editor/ui-editor.jsx";
 import { AutomationSettings } from "../features/settings/automation-settings.jsx";
 import { UpdatePanel } from "../features/settings/update-panel.jsx";
-import { TracyPage } from "../features/performance/tracy-profiler.jsx";
 import { RoomsPage } from "../features/rooms/rooms.jsx";
 import { SettingsWorkspace, SettingsGroup } from "../features/settings/settings-workspace.jsx";
 import { ActivityPage } from "../features/activity/activity-page.jsx";
+import { workspaces, workspaceFor, WorkspaceTabs } from "./workspaces.jsx";
+import { RuntimeConsole } from "../features/debug/runtime-console.jsx";
+import { createActivityInvalidator, sameRecords } from "../../shared/resource-refresh.cjs";
 
 import "./styles.css";
 import "./launcher.css";
 import "./visual-refresh.css";
 const api = (method, args = {}) => window.toolkit.call(method, args);
 const nav = [
+  { id: "runtime", label: "会话控制台", icon: "gamepad" },
   { id: "launch", label: "存档", icon: "archive" },
   { id: "rooms", label: "联机房间", icon: "gamepad" },
   { id: "config", label: "启动配置", icon: "launch-profile" },
-  { id: "mods", label: "模组库", icon: "cube" },
+  { id: "mods", label: "模组与内容", icon: "cube" },
   { id: "logs", label: "运行日志", icon: "terminal" },
-  { id: "activity", label: "项目日志", icon: "activity" },
+  { id: "activity", label: "任务与记录", icon: "activity" },
   { id: "debug", label: "游戏调试", icon: "bug" },
   { id: "ui-debug", label: "UI 调试器", icon: "inspect" },
   { id: "ui-editor", label: "UI 编辑器", icon: "layout-edit" },
@@ -57,23 +61,7 @@ const nav = [
   { id: "settings", label: "设置", icon: "gear" },
   { id: "about", label: "关于", icon: "info" },
 ];
-const navGroups = [
-  {
-    id: "workspace",
-    label: "工作台",
-    items: ["launch", "rooms", "config", "mods"],
-  },
-  { id: "observe", label: "观察", items: ["logs", "activity"] },
-  {
-    id: "develop",
-    label: "开发",
-    items: ["debug", "ui-debug", "ui-editor", "tracy"],
-  },
-  { id: "system", label: "系统", items: ["game-options", "settings", "about"] },
-].map((group) => ({
-  ...group,
-  items: group.items.map((id) => nav.find((item) => item.id === id)),
-}));
+const navGroups = ["资源", "运行", "工具箱"].map(label => ({ id: label, label, items: workspaces.filter(item => item.group === label) }));
 const fields = [
   "included_mod_dirs",
   "game_executable_path",
@@ -92,6 +80,9 @@ function App() {
   const [worldImportDraft, setWorldImportDraft] = useState(null);
   const [modWorkspaceRequest, setModWorkspaceRequest] = useState(null);
   const [profileCreateRequest, setProfileCreateRequest] = useState(null);
+  const [profileOpenRequest, setProfileOpenRequest] = useState(null);
+  const [profileOrigin, setProfileOrigin] = useState(null);
+  const [worldOpenRequest, setWorldOpenRequest] = useState(null);
   const [roomDraft, setRoomDraft] = useState({
     endpoint: "",
     localPort: "",
@@ -111,7 +102,7 @@ function App() {
     !!gameOptionsDraft &&
     JSON.stringify(gameOptionsDraft.values) !==
       JSON.stringify(gameOptionsDraft.saved);
-  const { inspectorDirty } = useDebugSession();
+  const { inspectorDirty, selectionLocked, selected: selectedSession, setSelected: selectDebugSession, session: debugSession, snapshot: debugSnapshot } = useDebugSession();
   const [debugDraft, setDebugDraft] = useState({
     code: "_result = 1 + 1",
     records: [],
@@ -121,19 +112,17 @@ function App() {
     [snapshot, setSnapshot] = useState(null),
     [form, setForm] = useState(null),
     [raw, setRaw] = useState("");
-  const [page, go] = usePageNavigation(
+  const [page, navigate] = usePageNavigation(
     "launch",
-    nav.map((p) => p.id),
+    workspaces.flatMap(workspace => workspace.pages.map(([id]) => id)),
   );
+  const [lastPages, setLastPages] = useState({});
+  const go = next => { setLastPages(old => ({ ...old, [workspaceFor(next).id]: next })); navigate(next); };
+  const openWorld = (worldId, tab = "overview") => { setWorldOpenRequest({ worldId, tab, id: crypto.randomUUID() }); go("launch"); };
   const [advanced, setAdvanced] = useState(false),
     [runtime, setRuntime] = useState(""),
     [version, setVersion] = useState("");
-  const [runtimeState, setRuntimeState] = useState({
-    session: null,
-    logs: [],
-    epoch: 0,
-    revision: -1,
-  });
+  const runtimeState = useRuntimeState();
   const session = runtimeState.session;
   const [settingsWarning, setSettingsWarning] = useState("");
   const [busy, setBusy] = useState(""),
@@ -161,8 +150,20 @@ function App() {
     runtimeState.stopping;
   const report = (err) => setError(err.message || String(err));
   function receive(value) {
-    setRuntimeState((old) => mergeRuntime(old, value));
+    receiveRuntime(value);
   }
+  const selectedBridge = debugTargetFor(runtimeState.session, debugSnapshot.sessions);
+  useEffect(() => {
+    if (runtimeState.session?.id) selectDebugSession(selectedBridge?.id || "launch:" + runtimeState.session.id);
+  }, [runtimeState.session?.id, selectedBridge?.id, selectionLocked]);
+  useEffect(() => {
+    const bridge = debugSnapshot.sessions.find(s => s.id === selectedSession);
+    const target = launchTargetFor(bridge, runtimeState.sessions || []);
+    if (!target || target.id === runtimeState.session?.id) return;
+    let live = true;
+    api("launch.select", { sessionId: target.id }).then(value => { if (live) receive(value); }).catch(report);
+    return () => { live = false; };
+  }, [selectedSession]);
   function applySnapshot(value) {
     setSnapshot(value);
     setForm(value ? structuredClone(value.config) : null);
@@ -210,10 +211,11 @@ function App() {
         if (latest.snapshot === current.snapshot && latest.raw === current.raw && latest.form === current.form) applySnapshot(value);
       }).catch(report);
     });
+    const invalidatesResources = createActivityInvalidator();
     const offActivity = window.toolkit.onActivity((value) => {
       // 错误事件不刷新配置，避免刷新失败再次写日志形成循环。
       if (value.events?.[0]?.level === "error") return;
-      api("profiles.list").then(setProjects).catch(report);
+      if (invalidatesResources(value)) api("profiles.list").then(list => setProjects(current => sameRecords(current, list))).catch(report);
     });
     const offState = window.toolkit.onSession(receive);
     const offLog = window.toolkit.onLogs(receive);
@@ -478,6 +480,7 @@ function App() {
       </div>
     );
   const title = nav.find((item) => item.id === page).label;
+  const workspace = workspaceFor(page);
   const runningSessions = runtimeState.sessions?.filter((item) => item.running).length || 0;
   const activityPending = runtimeState.starting || runtimeState.stopping;
   const activityLabel = runtimeState.starting ? "正在启动…"
@@ -530,12 +533,12 @@ function App() {
                   key={item.id}
                   title={item.label}
                   aria-label={item.label}
-                  aria-current={page === item.id ? "page" : undefined}
-                  className={`nav-item ${page === item.id ? "active" : ""}`}
-                  onClick={() => go(item.id)}
+                  aria-current={workspace.id === item.id ? "page" : undefined}
+                  className={`nav-item ${workspace.id === item.id ? "active" : ""}`}
+                  onClick={() => go(lastPages[item.id] || item.id)}
                 >
                   <Icon name={item.icon} />
-                  {!settings.SidebarCollapsed && <span>{item.id === "mods" ? "模组与内容" : item.label}</span>}
+                  {!settings.SidebarCollapsed && <span>{item.label}</span>}
                 </button>
               ))}
             </div>
@@ -554,13 +557,26 @@ function App() {
         <header className="app-bar">
           <div className="app-bar-title">
             <span className="eyebrow">大果喵游戏工具箱</span>
-            <span className="breadcrumb"><strong>{title}</strong></span>
+            <span className="breadcrumb">{workspace.label}{title !== workspace.label && <> / <strong>{title}</strong></>}</span>
           </div>
-          <div className="app-bar-status" data-state={activityPending ? "pending" : "ready"} aria-live="polite">
-            <span className="status-dot" aria-hidden="true" />
-            <span>{activityLabel}</span>
+          <div className="app-bar-tools">
+            <span className="app-bar-status" data-state={activityPending ? "pending" : "ready"} role="status">
+              <span className="status-dot" aria-hidden="true" />
+              <span>{activityLabel}</span>
+            </span>
+            <div className="app-bar-shortcuts" role="group" aria-label="全局快捷入口">
+              <Button icon="gamepad" compact className="app-bar-shortcut" title="打开会话控制台" aria-current={page === "runtime" ? "page" : undefined} onClick={() => go("runtime")}>会话</Button>
+              <Button icon="activity" compact className="app-bar-shortcut" title="查看任务与记录" aria-current={page === "activity" ? "page" : undefined} onClick={() => go("activity")}>任务与记录</Button>
+            </div>
           </div>
         </header>
+        {workspace.pages.length > 1 && <WorkspaceTabs tabs={workspace.pages} value={page} onChange={go} />}
+        {workspace.id === "logs" && <div className="runtime-context">
+          <Select aria-label="当前运行会话" value={runtimeState.session?.id || ""} disabled={selectionLocked}
+            options={(runtimeState.sessions || []).map(s => ({ value: s.id, label: `${s.worldName || s.profileName || "菜单客户端"} · ${s.userName || "玩家"} · ${s.running ? "运行中" : "已结束"}` }))}
+            placeholder="选择运行会话" onChange={id => api("launch.select", { sessionId: id }).then(receive).catch(report)} />
+          <p>{debugSession ? `${debugSession.connected ? "调试已连接" : "调试未连接"} · 操作只作用于所选会话` : "所选会话不可用，请明确选择目标"}</p>
+        </div>}
         <main
           key={page}
           className={
@@ -584,6 +600,13 @@ function App() {
             )}
             {page === "launch" && (
               <WorldHome
+                openRequest={worldOpenRequest}
+                onOpenRequestHandled={() => setWorldOpenRequest(null)}
+                onEditProfile={world => selectProject(world.profileId, () => {
+                  setProfileOrigin({ worldId: world.id, profileId: world.profileId, name: world.name });
+                  setProfileOpenRequest({ profileId: world.profileId, id: crypto.randomUUID() });
+                  go("config");
+                })}
                 projectId={snapshot?.project.id}
                 profiles={projects}
                 runtimeState={runtimeState}
@@ -603,6 +626,7 @@ function App() {
                 onStartJoined={launchJoined}
                 onLogs={async (sessionId) => {
                   try {
+                    if (selectionLocked) throw Error("请等待当前属性写入完成后切换会话");
                     receive(await api("launch.select", { sessionId }));
                     go("logs");
                   } catch (e) {
@@ -610,15 +634,22 @@ function App() {
                   }
                 }}
                 onStop={stop}
+                onRuntime={async id => { try { if (selectionLocked) throw Error("请等待当前属性写入完成后切换会话"); if (typeof id === "string") receive(await api("launch.select", { sessionId: id })); go("runtime"); } catch (e) { report(e); } }}
+                onActivity={() => go("activity")}
                 onBrowseContent={(request) => { setModWorkspaceRequest(request); go("mods"); }}
               />
             )}
-            {page === "tracy" && <TracyPage />}
+            {page === "tracy" && <DebugPage key="performance" performance projectId={snapshot?.project.id} draft={debugDraft} setDraft={setDebugDraft} />}
+            {page === "runtime" && <RuntimeConsole state={runtimeState} busy={!!busy} onBlank={startBlank} onJoined={launchJoined} onStop={stop} onOpenWorld={openWorld} onWorlds={() => go("launch")} />}
             {page === "rooms" && (
               <RoomsPage draft={roomDraft} onDraft={setRoomDraft} />
             )}
             {page === "config" && (
               <ProfilesPage
+                openRequest={profileOpenRequest}
+                onOpenRequestHandled={() => setProfileOpenRequest(null)}
+                originWorldName={profileOrigin?.name}
+                onReturnToWorld={profileOrigin && profileOrigin.profileId === snapshot?.project.id ? () => { openWorld(profileOrigin.worldId); setProfileOrigin(null); } : undefined}
                 createRequest={profileCreateRequest}
                 onCreateRequestHandled={() => setProfileCreateRequest(null)}
                 onNewProfile={(profile) =>
@@ -673,7 +704,6 @@ function App() {
             )}
             {page === "logs" && (
               <LogsPage
-                state={runtimeState}
                 receive={receive}
                 stop={stop}
                 busy={!!busy}
@@ -681,9 +711,10 @@ function App() {
               />
             )}
             {page === "activity" && <ActivityPage projects={projects} />}
-            {page === "mods" && <ModWorkspacePage request={modWorkspaceRequest} onRemoved={removedMod} />}
+            {page === "mods" && <ModWorkspacePage request={modWorkspaceRequest} onClearScope={() => setModWorkspaceRequest(null)} onBack={() => go("launch")} onEditor={() => go("ui-editor")} onRemoved={removedMod} />}
             {page === "debug" && (
               <DebugPage
+                key="code"
                 projectId={snapshot?.project.id}
                 draft={debugDraft}
                 setDraft={setDebugDraft}

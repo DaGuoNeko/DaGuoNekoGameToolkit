@@ -9,6 +9,26 @@ const MAX_ASSETS = 30000;
 const MAX_JSON_BYTES = 4 * 1024 * 1024;
 const MAX_PREVIEW_BYTES = 1024 * 1024;
 const MAX_PARSE_IDENTIFIERS = 80;
+const fileCache = new Map();
+let cachedSourceBytes = 0;
+const fileStamp = stat => [stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs].join(":");
+async function cachedRead(file, stat, load) {
+  const previous = fileCache.get(file), stamp = fileStamp(stat);
+  if (previous?.stamp === stamp) {
+    fileCache.delete(file); fileCache.set(file, previous);
+    return typeof previous.value === "object" ? structuredClone(previous.value) : previous.value;
+  }
+  if (previous) { cachedSourceBytes -= previous.bytes; fileCache.delete(file); }
+  const value = await load();
+  const after = await lstatSafe(file);
+  if (!after || after.isSymbolicLink() || fileStamp(after) !== stamp) throw Error("内容文件在读取时变化，请重新扫描：" + file);
+  const replaced = fileCache.get(file); if (replaced) cachedSourceBytes -= replaced.bytes;
+  fileCache.set(file, { stamp, value, bytes: stat.size }); cachedSourceBytes += stat.size;
+  while (fileCache.size > 256 || cachedSourceBytes > 8 * 1024 * 1024) {
+    const key = fileCache.keys().next().value; cachedSourceBytes -= fileCache.get(key).bytes; fileCache.delete(key);
+  }
+  return typeof value === "object" ? structuredClone(value) : value;
+}
 const PACK_DIRS = new Set(["behavior_packs", "resource_packs"]);
 const SKIP_DIRS = new Set([".git", ".toolbox-packs", "db", "region", "DIM-1", "DIM1"]);
 const ASSET_TYPES = ["item", "block", "entity", "model", "animation", "texture", "particle", "script", "ui", "language", "data", "other"];
@@ -37,11 +57,12 @@ async function readJson(file) {
   const stat = await lstatSafe(file);
   if (!stat) return null;
   if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MAX_JSON_BYTES) throw Error("内容 JSON 无效或超过读取上限：" + file);
-  const text = await fs.readFile(file, "utf8");
-  const errors = [];
-  const data = jsonc.parse(text.replace(/^\uFEFF/, ""), errors, { allowTrailingComma: true });
-  if (errors.length || !data || typeof data !== "object") throw Error("内容 JSON 无法解析：" + file);
-  return data;
+  return cachedRead(file, stat, async () => {
+    const text = await fs.readFile(file, "utf8"), errors = [];
+    const data = jsonc.parse(text.replace(/^\uFEFF/, ""), errors, { allowTrailingComma: true });
+    if (errors.length || !data || typeof data !== "object") throw Error("内容 JSON 无法解析：" + file);
+    return data;
+  });
 }
 
 function manifestInfo(data, file) {
@@ -72,7 +93,7 @@ function fileType(relative, parsed) {
   if (file.includes("geometry") || file.endsWith(".geo.json") || file.includes("/models/")) return "model";
   if (file.includes("particle")) return "particle";
   if (file.includes("item_texture") || file.includes("terrain_texture")) return "data";
-  if (file.includes("/items/") || file.includes("netease_items")) return "item";
+  if (/(^|\/)items\//.test(file) || file.includes("netease_items")) return "item";
   if (file.includes("/blocks/") || file.includes("netease_blocks")) return "block";
   if (file.includes("client_entity") || file.includes("/entities/") || file.includes("/entity/")) return "entity";
   if (file.includes("/scripts/") || ext === ".py" || ext === ".js") return "script";
@@ -206,7 +227,7 @@ async function imageData(file) {
   const ext = path.extname(file).toLowerCase();
   const mime = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp" }[ext];
   if (!mime) return null;
-  return `data:${mime};base64,${(await fs.readFile(file)).toString("base64")}`;
+  return cachedRead(file, stat, async () => `data:${mime};base64,${(await fs.readFile(file)).toString("base64")}`);
 }
 
 async function resolveTexture(dir, refs) {

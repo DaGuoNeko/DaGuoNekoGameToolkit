@@ -14,8 +14,9 @@ import "./worlds.css";
 import { WorldDashboard } from "./world-actions.jsx";
 import { QuickTestDialog } from "./quick-test.jsx";
 import { LocalJoinDialog } from "./local-join.jsx";
-import { MapPreview } from "./map-preview.jsx";
-import { WorldPacks } from "./world-packs.jsx";
+import { WorldWorkspace } from "./world-workspace.jsx";
+import { useWorkspaceState } from "../../app/workspaces.jsx";
+import { createActivityInvalidator } from "../../../shared/resource-refresh.cjs";
 import {
   AUTO_IMPORT_PROFILE,
   AUTO_IMPORT_LABEL,
@@ -54,21 +55,26 @@ export function WorldHome({
   onLogs,
   onStop,
   onBrowseContent,
+  onRuntime,
+  onActivity,
+  openRequest,
+  onOpenRequestHandled,
+  onEditProfile,
 }) {
-  const activeHost = runtimeState.sessions?.findLast(
-    (s) => s.running && s.worldId,
-  );
-  const [focusId, setFocusId] = useState(activeHost?.worldId || "");
+  const [focusId, setFocusId] = useWorkspaceState("world-focus", "");
+  const [initialTab, setInitialTab] = useState("overview");
+  const [workspaceRequest, setWorkspaceRequest] = useState(null);
+  const openWorkspace = (world, tab = "overview") => { setFocusId(world.id); setWorkspaceRequest({ tab, id: crypto.randomUUID() }); };
+  const [external, setExternal] = useWorkspaceState("world-external-open", false);
   const [quickWorld, setQuickWorld] = useState(null);
   const [joinTarget, setJoinTarget] = useState(null);
   const [worlds, setWorlds] = useState([]),
+    [loaded, setLoaded] = useState(false),
     [error, setError] = useState(""),
     [working, setWorking] = useState(false),
     [dialog, setDialog] = useState(null),
-    [trash, setTrash] = useState(false),
-     [query, setQuery] = useState(""),
-     [mapWorld, setMapWorld] = useState(null);
-  const [packWorld, setPackWorld] = useState(null);
+    [trash, setTrash] = useWorkspaceState("world-trash", false),
+     [query, setQuery] = useWorkspaceState("world-query", "");
   const [name, setName] = useState(""),
     [profileId, setProfileId] = useState(""),
     [options, setOptions] = useState(defaults),
@@ -76,6 +82,14 @@ export function WorldHome({
     [importMode, setImportMode] = useState("linked"),
     [sourceDirectory, setSourceDirectory] = useState(true),
     [playerName, setPlayerName] = useState("");
+  useEffect(() => {
+    if (!openRequest || !loaded) return;
+    const target = worlds.find(world => world.id === openRequest.worldId && !world.deleted);
+    setExternal(false);
+    if (target) openWorkspace(target, openRequest.tab || "overview");
+    else { setFocusId(""); setError("关联存档已移除或不可用，请从存档库重新选择。"); }
+    onOpenRequestHandled?.();
+  }, [openRequest?.id, loaded]);
   useEffect(() => {
     if (importDraft) {
       setFocusId("");
@@ -101,15 +115,16 @@ export function WorldHome({
     const t = ++ticket.current;
     try {
       const v = await call("worlds.list", { includePackChecks: true });
-      if (t === ticket.current) setWorlds(v.worlds);
+      if (t === ticket.current) { setWorlds(v.worlds); setLoaded(true); }
     } catch (e) {
-      setError(e.message);
+      setError(e.message); setLoaded(true);
     }
   };
   useEffect(() => {
     refresh();
     const offAutomation = window.toolkit.onAutomationData(() => refresh());
-    const offActivity = window.toolkit.onActivity(() => refresh());
+    const invalidatesResources = createActivityInvalidator();
+    const offActivity = window.toolkit.onActivity(value => { if (invalidatesResources(value)) refresh(); });
     return () => {
       offAutomation();
       offActivity();
@@ -124,6 +139,7 @@ export function WorldHome({
     setDialog({
       kind,
       w,
+      returnFocusId: focusId,
       targets:
         kind === "purge"
           ? [w]
@@ -203,6 +219,7 @@ export function WorldHome({
           name,
           options,
         });
+      if (kind === "edit") setFocusId(action.returnFocusId || "");
       if (kind === "import") {
         await call("worlds.import", {
           profileId,
@@ -239,12 +256,7 @@ export function WorldHome({
       w.name.toLowerCase().includes(query.toLowerCase()),
   );
   const focused = worlds.find((w) => w.id === focusId && !w.deleted);
-  const packsDialog = packWorld && <WorldPacks world={packWorld}
-    running={!!runtimeState.starting || !!runtimeState.stopping || !!runtimeState.sessions?.some(s => s.running)}
-    onChanged={refresh}
-    onImport={() => { setPackWorld(null); setFocusId(""); open("import"); }}
-    onContent={pack => { setPackWorld(null); onBrowseContent?.({ worldId: packWorld.id, packId: pack.packId, packName: pack.packName, worldName: packWorld.name }); }}
-    onClose={() => { setPackWorld(null); refresh(); }} />;
+  const focusedSession = runtimeState.sessions?.find(s => s.running && s.worldId === focused?.id);
   const joinDialog = joinTarget && (
     <LocalJoinDialog
       initialHostId={joinTarget.hostSessionId}
@@ -267,10 +279,17 @@ export function WorldHome({
       }}
     />
   );
+  if (external) return <WorldWorkspace worlds={worlds} initialTab="map" onBack={() => setExternal(false)} onActivity={onActivity} />;
+  if (focusId && !loaded) return <Empty title="正在读取存档工作区">正在恢复上次浏览位置。</Empty>;
   if (focused)
     return (
       <>
+        <WorldWorkspace key={focused.id} world={focused} worlds={worlds} request={workspaceRequest} initialTab={initialTab} running={!!runtimeState.starting || !!runtimeState.stopping || !!runtimeState.sessions?.some(s => s.running)} onChanged={refresh} onActivity={onActivity}
+          primaryAction={<Button primary disabled={busy || !focusedSession && (!profiles.some(p => p.id === focused.profileId) || !!focused.error || focused.copying)} onClick={() => focusedSession ? onRuntime(focusedSession.id) : onStart(focused.profileId, focused.id)}>{focusedSession ? "查看会话控制台" : "启动此存档"}</Button>}
+          actions={<WorldDashboard mode="settings" world={focused} profiles={profiles} runtimeState={runtimeState} busy={busy} onBack={() => openWorkspace(focused)} onStart={onStart} onStop={onStop} onSettings={() => { setFocusId(""); open("edit", focused); }} onLogs={onLogs} onPacks={() => openWorkspace(focused, "packs")} onMapPreview={() => openWorkspace(focused, "map")} onQuickTest={() => setQuickWorld(focused)} onJoinClient={hostSessionId => setJoinTarget({ hostSessionId })} />}
+          onBack={() => setFocusId("")} onImport={() => { setFocusId(""); open("import"); }} onSettings={() => { setFocusId(""); open("edit", focused); }} overview={
         <WorldDashboard
+          mode="overview"
           key={focused.id}
           world={focused}
           profiles={profiles}
@@ -279,18 +298,20 @@ export function WorldHome({
           onBack={() => setFocusId("")}
           onStart={onStart}
           onQuickTest={() => setQuickWorld(focused)}
-          onPacks={() => setPackWorld(focused)}
+          onPacks={() => openWorkspace(focused, "packs")}
+          onMapPreview={() => openWorkspace(focused, "map")}
           onJoinClient={hostSessionId => setJoinTarget({ hostSessionId })}
           onLogs={onLogs}
           onStop={onStop}
+          onEditProfile={() => onEditProfile?.(focused)}
           onSwitchWorld={setFocusId}
           onSettings={() => {
             setFocusId("");
             open("edit", focused);
           }}
         />
+        } />
         {quickDialog}
-        {packsDialog}
         {joinDialog}
       </>
     );
@@ -305,13 +326,10 @@ export function WorldHome({
     >
       <Intro
         title="存档"
-        subtitle="每个存档选择自己的启动配置。可拖入文件夹或 ZIP 导入副本，原文件保留；导入前请退出游戏。"
+        subtitle="管理已登记世界，或只读查看外部存档。导入时可选择原目录或独立副本；复制和原目录模式的数据影响不同。"
       >
-        <Button primary disabled={busy} onClick={() => setJoinTarget({ hostSessionId: "" })}>
-          启动联机客户端
-        </Button>
-        <Button disabled={busy} onClick={() => open("menu")}>
-          启动空白客户端
+        <Button primary disabled={busy || running} onClick={() => open("import")}>
+          导入旧存档
         </Button>
         <Button
           disabled={busy || !profiles.length}
@@ -319,11 +337,9 @@ export function WorldHome({
         >
           新建存档
         </Button>
-        <Button disabled={busy || running} onClick={() => open("import")}>
-          导入旧存档
-        </Button>
-         <Button disabled={busy} onClick={() => setMapWorld({})}>地图预览</Button>
+         <Button disabled={busy} onClick={() => setExternal(true)}>打开外部存档</Button>
         <Button
+          icon="folder" compact
           onClick={() =>
             call("worlds.folder").catch((e) => setError(e.message))
           }
@@ -413,7 +429,7 @@ export function WorldHome({
                 </span>
               </div>
               <div className="world-card-content">
-                <h3>{w.name}</h3>
+                <h3><button className="world-name-button" disabled={w.copying || w.deleted} onClick={() => { setInitialTab("overview"); setFocusId(w.id); }}>{w.name}</button></h3>
                 <p>启动配置：{config?.name || "请重新选择配置"}</p>
                 {!config && !w.deleted && (
                   <p className="muted">
@@ -453,7 +469,7 @@ export function WorldHome({
                       {w.packIssues.length} 个包与导入时清单不一致。启动前请查看详情并重新导入一致副本，或仅在确认代码来源一致时同步清单版本。
                     </p>
                     <Button
-                      onClick={() => setPackWorld(w)}
+                      onClick={() => openWorkspace(w, "packs")}
                       disabled={busy || working}
                     >
                       查看并处理
@@ -484,7 +500,7 @@ export function WorldHome({
                       </Button>
                     </>
                   ) : (
-                    <>
+                    <div className="world-card-primary-actions">
                       <Button
                         primary
                         title={
@@ -512,40 +528,18 @@ export function WorldHome({
                         启动此存档
                       </Button>
                       <Button
-                        disabled={
-                          busy || working || active || !!w.error || w.copying
-                        }
-                        onClick={() => setQuickWorld(w)}
-                      >
-                        快速测试
-                      </Button>
-                      <Button
-                        disabled={busy || working || !!w.error || w.copying}
+                        disabled={busy || working || w.copying}
                         onClick={() => setFocusId(w.id)}
                       >
-                        {active ? "打开控制台" : "功能配置"}
+                        打开存档
                       </Button>
-                      <Button
-                        icon="settings" compact
-                        disabled={busy || working}
-                        onClick={() => open("edit", w)}
-                      >
-                        {config ? "存档设置" : "选择启动配置"}
-                      </Button>
-                      <Button
-                        icon="trash" compact
-                        danger
-                        disabled={busy || active || working || !!w.error}
-                        title={active ? "请先保存并退出该存档" : undefined}
-                        onClick={() => open("delete", w)}
-                      >
-                        {w.linkedPath ? "移除存档" : "删除存档"}
-                      </Button>
-                    </>
+                      <Button disabled={busy || working || active || !!w.error || w.copying} onClick={() => setQuickWorld(w)}>快速测试</Button>
+                    </div>
                   )}
+                  <div className="world-card-tools">
                   <Button
                     icon="tools"
-                    onClick={() => setPackWorld(w)}
+                    onClick={() => openWorkspace(w, "packs")}
                     disabled={working || w.deleted || w.copying || !w.path}
                   >
                     存档模组
@@ -563,10 +557,29 @@ export function WorldHome({
                    <Button
                      icon="image" compact
                      disabled={working || !!w.error || w.copying}
-                     onClick={() => setMapWorld(w)}
+                     onClick={() => openWorkspace(w, "map")}
                    >
                      地图预览
                    </Button>
+                  {!w.deleted && <>
+                      <Button
+                        icon="settings" compact
+                        disabled={busy || working}
+                        onClick={() => open("edit", w)}
+                      >
+                        {config ? "存档设置" : "选择启动配置"}
+                      </Button>
+                      <Button
+                        icon="trash" compact
+                        danger
+                        disabled={busy || active || working || !!w.error}
+                        title={active ? "请先保存并退出该存档" : undefined}
+                        onClick={() => open("delete", w)}
+                      >
+                        {w.linkedPath ? "移除存档" : "删除存档"}
+                      </Button>
+                  </>}
+                  </div>
                 </div>
               </div>
             </article>
@@ -602,10 +615,10 @@ export function WorldHome({
               empty: "清空回收站？",
             }[dialog.kind]
           }
-          onClose={() => !working && setDialog(null)}
+          onClose={() => { if (!working) { setFocusId(dialog.returnFocusId || ""); setDialog(null); } }}
           footer={
             <>
-              <Button disabled={working} onClick={() => setDialog(null)}>
+              <Button disabled={working} onClick={() => { setFocusId(dialog.returnFocusId || ""); setDialog(null); }}>
                 取消
               </Button>
               <Button
@@ -892,8 +905,6 @@ export function WorldHome({
           </fieldset>
         </Modal>
       )}
-      {mapWorld && <MapPreview worldId={mapWorld.id} initialSource={mapWorld.path} projectId={mapWorld.profileId || mapWorld.projectId || projectId} worlds={worlds} onClose={() => setMapWorld(null)} />}
-      {packsDialog}
       {quickDialog}
       {joinDialog}
     </FileDropZone>

@@ -33,10 +33,7 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
       ),
     );
     async function nav(name) {
-      await page
-        .locator(".sidebar")
-        .getByRole("button", { name, exact: true })
-        .click();
+      await require("./fixtures/navigation.cjs").navigate(page, name);
       await page.waitForFunction(
         () => !document.documentElement.dataset.pageAnimating,
       );

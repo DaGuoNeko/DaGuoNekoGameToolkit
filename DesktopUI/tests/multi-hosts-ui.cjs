@@ -178,13 +178,15 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
     const run = async (name) => {
       await switches.getByRole("button", { name, exact: true }).click();
       await page
-        .locator(".world-summary")
+        .locator(".world-context")
         .getByRole("heading", { name, exact: true })
         .waitFor();
+      await page.getByRole("button", { name: "查看会话控制台", exact: true }).click();
       await page.getByRole("button", { name: "执行指令", exact: true }).click();
       await page.getByLabel("游戏指令", { exact: true }).fill("/say " + name);
       await page.getByRole("button", { name: "立即执行", exact: true }).click();
       await page.getByRole("dialog").waitFor({ state: "hidden" });
+      await require("./fixtures/navigation.cjs").navigate(page, "存档");
     };
     await run("World A");
     await run("World B");
@@ -202,10 +204,17 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
       records.map((x) => x.command),
       ["/say World A", "/say World B"],
     );
+    await switches.getByRole("button", { name: "World A", exact: true }).click();
+    await page.locator(".world-context").getByRole("heading", { name: "World A", exact: true }).waitFor();
+    await require("./fixtures/navigation.cjs").navigate(page, "控制台");
+    await page.getByRole("heading", { name: "World B", exact: true }).waitFor();
+    await page.getByRole("button", { name: "打开关联存档", exact: true }).click();
+    await page.locator(".world-context").getByRole("heading", { name: "World B", exact: true }).waitFor();
     if (process.env.DGN_TEST_RELOAD_SOURCES) {
       await switches
         .getByRole("button", { name: "World A", exact: true })
         .click();
+      await page.getByRole("button", { name: "查看会话控制台", exact: true }).click();
       const next = path.join(root, "worktree");
       await fs.mkdir(next);
       const original = await profiles.read(p.project.id);
@@ -271,6 +280,7 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
         await new Promise((resolve) => setTimeout(resolve, 250));
       }
       assert(completed, "Target restart did not finish with the new source");
+      await require("./fixtures/navigation.cjs").navigate(page, "存档");
       await page.getByText("调试已就绪", { exact: true }).waitFor();
       const after = await page.evaluate(() =>
           window.toolkit.call("launch.state"),
@@ -344,7 +354,7 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
     await page.getByText("未运行", { exact: true }).waitFor();
     // Ending B must not switch the controls under the user's pointer to A.
     await page
-      .locator(".world-summary")
+      .locator(".world-context")
       .getByRole("heading", { name: "World B", exact: true })
       .waitFor();
     const remaining = await page.evaluate(() =>
@@ -432,7 +442,7 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
     );
     await page.getByRole("tab", { name: "存档", exact: true }).click();
     await card("World A")
-      .getByRole("button", { name: "打开控制台", exact: true })
+      .getByRole("button", { name: "打开存档", exact: true })
       .click();
     await page.getByRole("button", { name: "停止会话", exact: true }).click();
     await page

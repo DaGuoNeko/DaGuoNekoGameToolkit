@@ -102,10 +102,7 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
     };
     page.on("pageerror", (e) => errors.push(e.message));
     page.setDefaultTimeout(20000);
-    await page
-      .locator(".sidebar")
-      .getByRole("button", { name: "运行日志", exact: true })
-      .click();
+    await require("./fixtures/navigation.cjs").navigate(page, "运行日志");
     const input = page.getByRole("textbox", { name: "搜索日志", exact: true });
     await input.waitFor();
     assert.equal(

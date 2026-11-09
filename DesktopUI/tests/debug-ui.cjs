@@ -94,11 +94,8 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
     page.on("pageerror", (e) => errors.push(e.message));
     const nav = async (name) => {
       const navigationStarted = Date.now();
-      await page
-        .locator(".sidebar")
-        .getByRole("button", { name, exact: true })
-        .click();
-      await page.getByRole("heading", { name, exact: true }).waitFor();
+      await require("./fixtures/navigation.cjs").navigate(page, name);
+      await page.getByRole("heading", { name: name === "性能" ? "性能分析" : name, exact: true }).waitFor();
       await page.waitForFunction(
         () => !document.documentElement.dataset.pageAnimating,
       );
@@ -671,7 +668,7 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
     );
     await closePopout(popup2);
     await page.getByText("label329 · Label", { exact: true }).waitFor();
-    await nav("游戏调试");
+    await nav("性能");
     for (const tab of ["Python 性能", "Python 内存"]) {
       await page.getByRole("tab", { name: tab, exact: true }).click();
       await page.getByLabel("采样时长（秒）", { exact: true }).fill("1");

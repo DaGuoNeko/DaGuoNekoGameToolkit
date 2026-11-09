@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Button,
   Intro,
@@ -12,6 +12,7 @@ import {
 } from "../../app/ui.jsx";
 import { modRows, setModOption } from "../../../shared/mod-selection.cjs";
 import "./mod-library.css";
+import { useWorkspaceState } from "../../app/workspaces.jsx";
 const call = (method, args = {}) => window.toolkit.call(method, args);
 export function ModLibraryPage({ onRemoved }) {
   return (
@@ -31,34 +32,45 @@ const contentTypes = [
   ["ui", "界面"], ["data", "数据"],
 ];
 
-export function ModWorkspacePage({ onRemoved, request }) {
+export function ModWorkspacePage({ onRemoved, request, onClearScope, onBack, onEditor }) {
   // 保留原模组库作为默认页，旧配置和已有操作仍可直接进入；内容浏览作为同一工作区的增强视图。
-  const [tab, setTab] = useState(request ? "content" : "library");
+  const [tab, setTab] = useWorkspaceState("mod-tab", request ? "content" : "library");
   useEffect(() => { if (request) setTab("content"); }, [request]);
   return <div className="mod-workspace-page">
-    <Intro title="模组与内容" subtitle="从目录管理升级到内容工作台：先看模组提供了什么，再决定如何启用、验证和编辑。" />
+    <Intro title="模组与内容" subtitle="浏览模组定义与来源文件；世界里已经保存的实例在存档的世界数据中查看。">
+      {request && <><Button onClick={onBack}>返回来源存档</Button><Button onClick={onClearScope}>切换全局模组库</Button></>}
+      {onEditor && <Button onClick={onEditor}>UI 编辑器</Button>}
+    </Intro>
     <div className="mod-workspace-tabs" role="tablist" aria-label="模组工作区">
       <button className={tab === "content" ? "active" : ""} role="tab" aria-selected={tab === "content"} onClick={() => setTab("content")}>内容浏览</button>
       <button className={tab === "library" ? "active" : ""} role="tab" aria-selected={tab === "library"} onClick={() => setTab("library")}>模组目录</button>
     </div>
-    {tab === "content" ? <ContentBrowserV2 request={request} onManage={() => setTab("library")} /> : <ModCatalog onRemoved={onRemoved} />}
+    {tab === "content" ? <ContentBrowserV2 key={`${request?.worldId || "global"}:${request?.packId || "all"}`} request={request} onManage={() => setTab("library")} /> : <ModCatalog onRemoved={onRemoved} />}
   </div>;
 }
 
-function ContentBrowserV2({ onManage, request }) {
-  const [data, setData] = useState(null), [busy, setBusy] = useState(false), [error, setError] = useState(""), [query, setQuery] = useState(""), [type, setType] = useState(""), [source, setSource] = useState(""), [packId, setPackId] = useState(request?.packId || ""), [selected, setSelected] = useState(null), [showIssues, setShowIssues] = useState(false);
+export function ContentBrowserV2({ onManage, request }) {
+  const scope = `content:${request?.worldId || "global"}:${request?.packId || "all"}`;
+  const [data, setData] = useState(null), [busy, setBusy] = useState(false), [error, setError] = useState(""), [query, setQuery] = useWorkspaceState(scope + ":query", ""), [type, setType] = useWorkspaceState(scope + ":type", ""), [source, setSource] = useWorkspaceState(scope + ":source", ""), [packId, setPackId] = useWorkspaceState(scope + ":pack", request?.packId || ""), [selected, setSelected] = useWorkspaceState(scope + ":selected", null), [showIssues, setShowIssues] = useState(false);
   const scan = async () => { setBusy(true); setError(""); try { setData(await call("content.scan", request?.worldId ? { worldId: request.worldId } : {})); } catch (e) { setError(e.message); } finally { setBusy(false); } };
-  useEffect(() => { setPackId(request?.packId || ""); setSelected(null); setData(null); scan(); }, [request?.worldId, request?.packId]);
-  const summary = data?.summary || {}, semanticSourceIds = new Set((data?.entries || []).map(entry => entry.sourceAssetId));
-  const rows = [...(data?.entries || []), ...(data?.assets || []).filter(asset => !semanticSourceIds.has(asset.id) || !["item", "block", "entity", "model", "animation"].includes(asset.type))];
-  const needle = query.trim().toLowerCase(), assets = rows.filter(asset => (!type || asset.type === type) && (!source || asset.sourceId === source) && (!packId || asset.packId === packId) && (!needle || `${asset.label} ${asset.displayName || ""} ${asset.identifier || ""} ${asset.relative} ${(asset.identifiers || []).join(" ")}`.toLowerCase().includes(needle)));
+  useEffect(() => { scan(); }, [request?.worldId, request?.packId]);
+  const summary = data?.summary || {};
+  const { rows, searchText, packCounts } = useMemo(() => {
+    const entries = data?.entries || [], semanticSourceIds = new Set(entries.map(entry => entry.sourceAssetId));
+    const rows = [...entries, ...(data?.assets || []).filter(asset => !semanticSourceIds.has(asset.id) || !["item", "block", "entity", "model", "animation"].includes(asset.type))];
+    const packCounts = new Map(); for (const entry of entries) packCounts.set(entry.packId, (packCounts.get(entry.packId) || 0) + 1);
+    return { rows, packCounts, searchText: rows.map(asset => `${asset.label} ${asset.displayName || ""} ${asset.identifier || ""} ${asset.relative} ${(asset.identifiers || []).join(" ")}`.toLowerCase()) };
+  }, [data]);
+  const needle = query.trim().toLowerCase();
+  const assets = useMemo(() => rows.filter((asset, index) => (!type || asset.type === type) && (!source || asset.sourceId === source) && (!packId || asset.packId === packId) && (!needle || searchText[index].includes(needle))), [rows, searchText, type, source, packId, needle]);
   const sourceRows = data?.sources || [], packRows = data?.packs || [], selectedPack = packRows.find(pack => pack.id === (selected?.packId || packId));
   const typeLabel = key => contentTypes.find(item => item[0] === key)?.[1] || key;
   const clear = () => { setQuery(""); setType(""); setSource(""); setPackId(""); };
   const issueLabel = issue => issue.code === "duplicate-identifier" ? "标识符重复" : issue.code === "invalid-json" ? "JSON 无法解析" : issue.code === "source-missing" ? "来源不可用" : "扫描提示";
   useEffect(() => {
     if (!assets.length) { setSelected(null); return; }
-    if (!selected || !assets.some(asset => asset.id === selected.id)) setSelected(assets[0]);
+    const match = assets.find(asset => asset.id === selected?.id) || assets[0];
+    if (selected !== match) setSelected(match);
   }, [data, type, source, packId, query]);
   return <section className="content-workbench content-workbench-v2">
     <header className="content-workbench-header"><div><span className="content-eyebrow">CONTENT WORKBENCH</span><h2>{request?.worldName || "模组内容浏览"}</h2><p>{request?.packName ? `正在查看 ${request.packName} 的内容` : "按内容浏览模组，文件只是来源证据。"}</p></div><div className="content-workbench-actions"><Button primary disabled={busy} onClick={scan}>{busy ? "扫描中…" : "重新扫描"}</Button><Button disabled={busy} onClick={onManage}>模组目录</Button></div></header>
@@ -67,7 +79,7 @@ function ContentBrowserV2({ onManage, request }) {
     <div className="content-filter-bar"><input aria-label="搜索内容" placeholder="搜索显示名称、标识符或文件…" value={query} onChange={e => setQuery(e.target.value)} /><select aria-label="内容来源" value={source} onChange={e => setSource(e.target.value)}><option value="">全部来源</option>{sourceRows.map(row => <option value={row.id} key={row.id}>{row.name}</option>)}</select>{(query || source || type || packId) && <button className="content-clear-filter" onClick={clear}>清除筛选</button>}<span className="content-result-count">{assets.length} 项</span></div>
     <div className="content-type-tabs" role="tablist" aria-label="内容类型"><button className={!type ? "active" : ""} onClick={() => setType("")}>全部</button>{contentTypes.slice(0, 8).map(([key, label]) => <button key={key} className={type === key ? "active" : ""} onClick={() => setType(type === key ? "" : key)}>{label}<small>{summary.counts?.[key] || 0}</small></button>)}</div>
     {request?.worldId && <div className="content-context-line"><strong>{request.worldName || "当前存档"}</strong><span>{request.packName ? `来自存档模组：${request.packName}` : "来自存档模组列表"}</span>{packId && <button onClick={() => setPackId("")}>查看全部包</button>}</div>}
-    <div className="content-scope-bar"><div className="content-scope-current"><span>当前范围</span><strong>{packId ? (selectedPack?.name || request?.packName || "当前包") : "全部包"}</strong><small>{assets.length} 项内容</small></div><details className="content-scope-menu"><summary>按包筛选</summary><div className="content-scope-list"><button className={!packId ? "active" : ""} onClick={() => setPackId("")}><span>全部包</span><small>{rows.length}</small></button>{packRows.map(pack => <button className={packId === pack.id ? "active" : ""} key={pack.id} onClick={() => setPackId(packId === pack.id ? "" : pack.id)}><span>{pack.name}<em>{pack.kind === "behavior" ? "行为" : "资源"} · v{pack.version?.join(".") || "—"}</em></span><small>{(data?.entries || []).filter(entry => entry.packId === pack.id).length}</small></button>)}</div></details></div>
+    <div className="content-scope-bar"><div className="content-scope-current"><span>当前范围</span><strong>{packId ? (selectedPack?.name || request?.packName || "当前包") : "全部包"}</strong><small>{assets.length} 项内容</small></div><details className="content-scope-menu"><summary>按包筛选</summary><div className="content-scope-list"><button className={!packId ? "active" : ""} onClick={() => setPackId("")}><span>全部包</span><small>{rows.length}</small></button>{packRows.map(pack => <button className={packId === pack.id ? "active" : ""} key={pack.id} onClick={() => setPackId(packId === pack.id ? "" : pack.id)}><span>{pack.name}<em>{pack.kind === "behavior" ? "行为" : "资源"} · v{pack.version?.join(".") || "—"}</em></span><small>{packCounts.get(pack.id) || 0}</small></button>)}</div></details></div>
     <div className="content-workbench-grid content-workbench-grid-v2">
       <main className="content-results"><div className="content-results-heading"><div><strong>{packId ? (selectedPack?.name || "当前包") : "全部内容"}</strong><span>{assets.length} 项匹配</span></div>{data?.generatedAt && <time>{new Date(data.generatedAt).toLocaleTimeString()}</time>}</div>{assets.length ? <div className="content-result-list">{assets.slice(0, 500).map(asset => <button className={`content-result-row ${asset.status} ${selected?.id === asset.id ? "selected" : ""}`} key={asset.id} onClick={() => setSelected(asset)}>{asset.texture?.preview || asset.preview ? <img src={asset.texture?.preview || asset.preview} alt="" /> : <span className={`content-asset-icon type-${asset.type}`}>{typeLabel(asset.type).slice(0, 1)}</span>}<span className="content-result-copy"><strong>{asset.displayName || asset.label}</strong><small>{typeLabel(asset.type)}{asset.identifier ? ` · ${asset.identifier}` : ""}</small><em>{asset.packName} · {asset.relative}</em></span>{asset.status !== "ok" && <b>{asset.status === "warning" ? "重复" : "错误"}</b>}<span className="content-row-arrow">›</span></button>)}</div> : <div className="content-no-results"><strong>没有匹配内容</strong><p>试试清除筛选，或搜索一个物品标识符。</p><button onClick={clear}>清除筛选</button></div>}{assets.length > 500 && <p className="content-list-limit">当前仅展示前 500 项，请继续缩小筛选范围。</p>}</main>
       <aside className="content-detail-panel">{selected ? <ContentDetailV2 asset={selected} typeLabel={typeLabel} /> : <div className="content-detail-empty"><span>⌁</span><strong>选择一项内容</strong><p>名称、属性、贴图、模型结构和来源会显示在这里。</p></div>}</aside>

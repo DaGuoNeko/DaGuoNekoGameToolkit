@@ -6,6 +6,7 @@ const nbt = require("prismarine-nbt");
 const { Database } = require("@jsprismarine/leveldb");
 const { openWorldZip } = require("./world-zip.cjs");
 const { readWorldInfo } = require("./world-info.cjs");
+const { inspectSelection, verifySelection } = require("../../file-selection.cjs");
 
 const { colorFor, visible, WATER, shadeCells, tileImages } = require("./map-colors.cjs");
 const { NearestChunks } = require("./map-nearest.cjs");
@@ -198,21 +199,28 @@ async function javaCells(root, dimension, maxChunks = Infinity, center = [0,0], 
   return { cells, truncated:!!nearest?.truncated, chunksRead, skipped };
 }
 
-async function bedrockCells(root, dimension, maxChunks = Infinity, center = [0,0], onProgress = ()=>{}, bounds = null, onChunk = async()=>{}, requested = null) {
+async function bedrockCells(root, dimension, maxChunks = Infinity, center = [0,0], onProgress = ()=>{}, bounds = null, onChunk = async()=>{}, requested = null, cache = null, stamp = "") {
   const db = await Database.open(path.join(root, "db"), { readOnly: true });
   const limit = Number.isFinite(maxChunks) ? maxChunks : Infinity;
   const nearest = Number.isFinite(limit) ? new NearestChunks(limit,center) : null, all = new Map(), cells=[];
   let skipped = 0, entriesRead = 0;
   try {
-    for (const key of db.keys()) {
+    const reused = cache?.index?.stamp === stamp;
+    let indexed = [];
+    if(reused)onProgress("复用基岩索引",cache.index.keys.length,cache.index.keys.length);
+    const keys = reused ? cache.index.keys.map(hex=>Buffer.from(hex,"hex")) : db.keys();
+    for (const key of keys) {
       if (++entriesRead > 5000000) throw Error("基岩索引超过 500 万条记录，请使用较小的存档副本");
-      if (entriesRead % 256 === 0) {onProgress("索引基岩数据",entriesRead,null);await new Promise(resolve => setImmediate(resolve));}
-      const info=bedrockChunkKey(key); if(!info || info.dimension!==dimension) continue;
+      if (entriesRead % 256 === 0) {if(!reused)onProgress("索引基岩数据",entriesRead,null);await new Promise(resolve => setImmediate(resolve));}
+      const info=bedrockChunkKey(key);
+      if(!reused&&cache&&info&&indexed) { if(indexed.length<200000)indexed.push(key.toString("hex")); else indexed=null; }
+      if(!info || info.dimension!==dimension) continue;
       if (!intersectsBounds(info.x,info.z,bounds) || requested && !requested.has(info.x + "," + info.z)) continue;
       const id=info.x+","+info.z;
       const retained=nearest ? nearest.add(id,info.x*16,info.z*16,()=>({keys:[]})) : (all.get(id) || (all.set(id,{x:info.x*16,z:info.z*16,id,keys:[]}),all.get(id)));
       if(retained)retained.keys.push({key,info});
     }
+    if(cache&&!reused)cache.index=indexed?{stamp,keys:indexed}:null;
     const selected=nearest ? nearest.sorted() : [...all.values()];
     let completed=0;
     for(const chunk of selected) {
@@ -294,7 +302,7 @@ async function sourceStamp(root, format, dimension, onProgress, requested = null
   }
   return JSON.stringify(rows.sort((a,b) => (a[0]+a[1]).localeCompare(b[0]+b[1])));
 }
-async function renderWorld({ source, format = "auto", dimension = "overworld", maxChunks = Infinity, centerX = 0, centerZ = 0, relief = true, bounds = null, chunks = null, dataRoot, onProgress = ()=>{}, onBatch = null }) {
+async function renderWorld({ source, format = "auto", dimension = "overworld", maxChunks = Infinity, centerX = 0, centerZ = 0, relief = true, bounds = null, chunks = null, dataRoot, onProgress = ()=>{}, onBatch = null, cache = null }) {
   if (typeof source !== "string" || !path.isAbsolute(source)) throw Error("地图来源必须是绝对路径");
   if (!["auto","java","bedrock"].includes(format) || !["overworld","nether","the_end"].includes(dimension))
     throw Error("地图格式或维度无效");
@@ -303,13 +311,31 @@ async function renderWorld({ source, format = "auto", dimension = "overworld", m
   bounds = normalizeBounds(bounds);
   chunks = normalizeChunks(chunks);
   let root = path.resolve(source), temporary = false;
+  let sourceIdentity;
   try {
+    if(cache) {
+      await safeDirectory(cache.directory);
+      sourceIdentity=await inspectSelection(root);
+      const key=JSON.stringify(sourceIdentity);
+      if(cache.state.source!==key) {
+        if(cache.state.archiveRoot) {
+          const previous=path.resolve(cache.state.archiveRoot);
+          if(path.dirname(previous)!==path.resolve(cache.directory))throw Error("地图缓存路径无效");
+          await safeDirectory(previous); await fs.rm(previous,{recursive:true,force:true});
+        }
+        cache.state={source:key};
+      }
+    }
     if (/\.(zip|mcworld)$/i.test(root)) {
-      onProgress("解压存档",0,null);
-      const cache = path.join(dataRoot, "map-previews");
-      await fs.mkdir(cache, { recursive: true }); await safeDirectory(cache);
-      root = path.join(cache, crypto.randomUUID()); temporary = true;
-      await extractArchive(source, root);
+      if(cache?.state.archiveRoot) { root=cache.state.archiveRoot; await safeDirectory(root); onProgress("复用已解压存档",1,1); }
+      else {
+        onProgress("解压存档",0,null);
+        const directory=cache?.directory||path.join(dataRoot,"map-previews");
+        await fs.mkdir(directory,{recursive:true});await safeDirectory(directory);
+        root=path.join(directory,crypto.randomUUID()); temporary=!cache;
+        await extractArchive(source,root);
+        if(cache)cache.state.archiveRoot=root;
+      }
     }
     await safeDirectory(root);
     const detected = levelFormat(await readFile(path.join(root, "level.dat"), 8 * 1024 ** 2));
@@ -324,12 +350,13 @@ async function renderWorld({ source, format = "auto", dimension = "overworld", m
         pending = []; pendingChunks = [];
       }
     };
-    const captured = detected === "bedrock" ? await bedrockCells(root, dimension, maxChunks,[centerX,centerZ],onProgress,bounds,onChunk,chunks) : await javaCells(root, dimension, maxChunks,[centerX,centerZ],onProgress,bounds,onChunk,chunks);
+    const captured = detected === "bedrock" ? await bedrockCells(root, dimension, maxChunks,[centerX,centerZ],onProgress,bounds,onChunk,chunks,cache?.state,before) : await javaCells(root, dimension, maxChunks,[centerX,centerZ],onProgress,bounds,onChunk,chunks);
     if (onBatch && pendingChunks.length) {
       shadeCells(pending, relief, true);
       await onBatch({ format: detected, dimension, centerX, centerZ, chunksRead: streamedChunks, skipped: captured.skipped, chunkIds: pendingChunks.map(v => v.id), ...tileImages(pending) });
     }
     if (before !== await sourceStamp(root, detected,dimension,onProgress,chunks)) throw Error("地图在预览期间发生变化，请保存退出游戏后重新预览");
+    if(sourceIdentity)await verifySelection(sourceIdentity);
     if (!captured.cells.length && captured.skipped) throw Error("地图区块损坏或格式不支持，未生成预览");
     onProgress("计算地形明暗",0,null);
     const rendered=shadeCells(captured.cells,relief,true);
@@ -343,4 +370,4 @@ async function renderWorld({ source, format = "auto", dimension = "overworld", m
   }
 }
 
-module.exports = { renderWorld, colorFor, javaCells, bedrockCells };
+module.exports = { renderWorld, colorFor, javaCells, bedrockCells, safeDirectory, readFile, extractArchive, levelFormat, parseAnvilChunk };

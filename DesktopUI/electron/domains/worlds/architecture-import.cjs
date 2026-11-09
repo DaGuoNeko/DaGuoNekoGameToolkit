@@ -139,12 +139,14 @@ class ArchitectureImport {
     if (!["java", "bedrock"].includes(input.kind)) throw Error("来源类型无效");
     const name = String(input.name || "地形导入").trim();
     if (!name || name.length > 60 || /[\x00-\x1f]/.test(name)) throw Error("任务名称无效");
+    const planning = input.planning ? model.normalizePlan(input.planning) : null;
     const target = this.worlds.find(await this.worlds.read(), null, input.targetWorldId);
     if (!target.profileId) throw Error("目标存档需要绑定启动配置");
     if (this.sessions.workers.some(w => w.session?.running && [target.id, this.task?.sourceWorldId].includes(w.session.worldId)))
-      throw Error("请先保存并停止目标存档和上次来源会话，再准备新任务");
+      throw Error("规划已就绪；准备来源副本前，请先保存并停止目标存档和上次来源会话。之后由向导启动来源读取，并备份、启动目标写入。");
     const externalDataRoot = input.externalDataRoot ? await this.externalRoot(input.externalDataRoot) : null;
     this.task = { version: 2, id: crypto.randomUUID(), name, kind: input.kind, source: input.source, chunkerJar: input.chunkerJar || "", targetWorldId: target.id, targetName: target.name, stage: "preparing", createdAt: new Date().toISOString(), attempted: 0, ...(externalDataRoot ? { externalDataRoot } : {}) };
+    this.task.planning = planning;
     await fs.mkdir(this.directory(), { recursive: true });
     return this.begin("preparing", async () => {
       let source = input.source;
@@ -159,7 +161,12 @@ class ArchitectureImport {
       }
       this.check();
       const library = this.externalLibrary();
-      const world = await library.importWorld(target.profileId, name + "（地形来源副本）", source, "copy");
+      if (input.sourceWorldId && library !== this.worlds) {
+        const snapshot = path.join(this.directory(), "bedrock-source");
+        await copySnapshot(source, snapshot, () => this.check());
+        source = snapshot;
+      }
+      const world = await library.importWorld(target.profileId, name + "（地形来源副本）", source, "copy", library === this.worlds ? input.sourceWorldId : undefined);
       this.task.sourceWorldId = world.id;
       this.task.sourceProfileId = world.profileId;
       this.task.message = "来源副本已准备好，原地图保持不变";

@@ -30,10 +30,7 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await page
-      .locator(".sidebar")
-      .getByRole("button", { name: "联机房间", exact: true })
-      .click();
+    await require("./fixtures/navigation.cjs").navigate(page, "联机房间");
     await page
       .getByRole("heading", { name: "联机房间", exact: true })
       .waitFor();
