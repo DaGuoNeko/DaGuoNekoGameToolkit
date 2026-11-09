@@ -1,0 +1,114 @@
+const test = require("node:test"), assert = require("node:assert/strict"), fs = require("node:fs/promises"), path = require("node:path");
+const nbt = require("prismarine-nbt"), { Database } = require("@jsprismarine/leveldb");
+const { artifactPath } = require("./fixtures/artifacts.cjs");
+const { worldDataFixture, worldScript } = require("./fixtures/world-data.cjs");
+const { parseNbtRecord } = require("../electron/domains/worlds/world-data-codec.cjs");
+const { patchRecord } = require("../electron/domains/worlds/world-data-edit-codec.cjs");
+const { scanWorldData } = require("../electron/domains/worlds/world-data.cjs");
+const { WorldDataEdits } = require("../electron/domains/worlds/world-data-edit.cjs");
+const { readPolicy, assertLaunchVersion } = require("../electron/domains/worlds/world-version-policy.cjs");
+const runtime = path.resolve("runtime");
+async function fixture(name) {
+  const root = artifactPath(name), source = path.join(root, "world"); await worldDataFixture(source);
+  const service = new WorldDataEdits(path.join(root, "data"), runtime, { guard: async () => {}, reserve: async () => ({ stop: async () => {} }) });
+  const scan = () => scanWorldData({ source, dataRoot: path.join(root, "read") });
+  const target = (snapshot, kind) => { const row = snapshot.objects.find(row => row.kind === kind); return { ...row, source, format: snapshot.format, editable: snapshot.editable }; };
+  return { source, service, scan, target };
+}
+test("NBT patch preserves neighboring records, exact integer types and unknown bytes", () => {
+  const first = nbt.writeUncompressed(nbt.comp({ Command: nbt.string("old"), number: nbt.short(12), long: nbt.long([2147483647, -1]), bytes: nbt.byteArray([1, -1, 0]) }), "little");
+  const second = nbt.writeUncompressed(nbt.comp({ id: nbt.string("Chest") }), "little"), raw = Buffer.concat([first, second]);
+  const changed = patchRecord(raw, "/Command", "中文指令");
+  const parsed = parseNbtRecord(changed.bytes);
+  assert.equal(parsed.value.Command, "中文指令"); assert.equal(parsed.types["/number"], "short");
+  assert.equal(parsed.value.long, "9223372036854775807"); assert.deepEqual(changed.bytes.subarray(parsed.size), second);
+  assert.throws(() => patchRecord(raw, "/number", 40000), /范围/);
+  assert.throws(() => patchRecord(raw, "/StorageVersion", 1), /受保护/);
+});
+test("MessagePack subtree edits keep binary strings, opaque extensions and reserved-looking keys", () => {
+  const raw = worldScript({ library: { "@key1": "keep", text: "old", list: [1, 2] }, neighbor: "keep" });
+  const value = { "@key1": "keep", text: "新的内容", list: [1, 2, 3] };
+  const changed = patchRecord(raw, "/scriptData/library", value, { worldScript: true });
+  const parsed = parseNbtRecord(changed.bytes, { worldScript: true });
+  assert.deepEqual(parsed.value.scriptData.library, value); assert.equal(parsed.value.scriptData.neighbor, "keep");
+  assert.equal(parsed.types["/scriptData/library/text"], "messagepack.binary");
+  const negative = patchRecord(raw, "/scriptData/library/list/0", -1, { worldScript: true });
+  assert.equal(parseNbtRecord(negative.bytes, { worldScript: true }).value.scriptData.library.list[0], -1);
+  assert.equal(changed.bytes.readUInt32LE(16), changed.bytes.length - 21);
+  const scalar = nbt.writeUncompressed(nbt.comp({ f: nbt.float(1) }), "little");
+  assert.equal(parseNbtRecord(patchRecord(scalar, "/f", 1.2).bytes).value.f, Math.fround(1.2));
+  const seed = worldScript({ container: { change: 1, keep: 9 } }), parsedSeed = parseNbtRecord(seed, { worldScript: true, capture: true });
+  const script = parsedSeed.scripts["/scriptData"], node = script.nodes["/scriptData/container/keep"], opaque = Buffer.from([0xd4, 7, 255]);
+  const payload = Buffer.concat([script.raw.subarray(0, node.start), opaque, script.raw.subarray(node.end)]), length = Buffer.alloc(4); length.writeUInt32LE(payload.length);
+  const original = Buffer.concat([seed.subarray(0, script.start), length, payload, seed.subarray(script.end)]);
+  const data = parseNbtRecord(original, { worldScript: true }).value.scriptData.container; data.change = 2;
+  const edited = patchRecord(original, "/scriptData/container", data, { worldScript: true });
+  const result = parseNbtRecord(edited.bytes, { worldScript: true, capture: true }).scripts["/scriptData"], kept = result.nodes["/scriptData/container/keep"];
+  assert.deepEqual(result.raw.subarray(kept.start, kept.end), opaque);
+  assert.throws(() => patchRecord(original, "/scriptData/container/keep", "replace", { worldScript: true }), /原样保留/);
+});
+test("save creates verified backup, fresh scan sees changes, restore refuses later edits", async () => {
+  const f = await fixture("save"), snapshot = await f.scan(), target = f.target(snapshot, "command");
+  const read = await f.service.read(target, "/Command"); assert(read.value.includes("miao:cmd"));
+  const plan = await f.service.prepare(target, [{ field: "/Command", value: "say updated" }]);
+  await assert.rejects(f.service.apply(plan.token, false), /确认/);
+  const result = await f.service.apply(plan.token, true);
+  assert.equal(f.target(await f.scan(), "command").value.Command, "say updated");
+  assert.equal(JSON.parse(await fs.readFile(path.join(result.backupDirectory, "journal.json"), "utf8")).state, "applied");
+  await assert.rejects(f.service.apply(plan.token, true), /预览/);
+  await f.service.restore(f.source, result.backupId, true);
+  assert.equal(f.target(await f.scan(), "command").value.Command, read.value);
+  const plan2 = await f.service.prepare(f.target(await f.scan(), "command"), [{ field: "/Command", value: "say first" }]);
+  const saved = await f.service.apply(plan2.token, true);
+  const plan3 = await f.service.prepare(f.target(await f.scan(), "command"), [{ field: "/Command", value: "say later" }]);
+  await f.service.apply(plan3.token, true);
+  await assert.rejects(f.service.restore(f.source, saved.backupId, true), /已变化/);
+});
+test("stale scans, changed preview targets, busy worlds and read-only sources cannot write", async () => {
+  const f = await fixture("guard"), snapshot = await f.scan(), target = f.target(snapshot, "library");
+  const plan = await f.service.prepare(target, [{ field: "/commands/0/cmd", value: "say test" }]);
+  f.service.guard = async () => { throw Error("world running"); };
+  await assert.rejects(f.service.apply(plan.token, true), /world running/);
+  f.service.guard = async () => {};
+  const a = await f.service.prepare(target, [{ field: "/commands/0/cmd", value: "say one" }]);
+  const b = await f.service.prepare(target, [{ field: "/commands/0/cmd", value: "say two" }]);
+  await f.service.apply(a.token, true);
+  await assert.rejects(f.service.apply(b.token, true), /已变化/);
+  await assert.rejects(f.service.read(target, "/commands"), /已变化/);
+  await assert.rejects(f.service.prepare({ ...target, editable: false }, [{ field: "/name", value: "no" }]), /仅支持查看/);
+  const db = await Database.open(path.join(f.source, "db"));
+  try {
+    const fresh = f.target(await f.scan(), "command"), locked = await f.service.prepare(fresh, [{ field: "/Command", value: "no" }]);
+    await assert.rejects(f.service.apply(locked.token, true), /lock|锁|占用|database/i);
+  } finally { await db.close(); }
+});
+test("compatibility markers and launch ranges are separate, reversible and enforced numerically", async () => {
+  const f = await fixture("versions"), snapshot = await f.scan(), target = f.target(snapshot, "world");
+  const plan = await f.service.prepare(target, [{ field: "/MinimumCompatibleClientVersion", value: [1, 18, 0, 0, 0] }, { field: "/lastOpenedWithVersion", value: [1, 20, 0, 0, 0] }]);
+  const saved = await f.service.apply(plan.token, true);
+  const read = f.target(await f.scan(), "world"); assert.deepEqual(read.value.MinimumCompatibleClientVersion, [1, 18, 0, 0, 0]);
+  await f.service.restore(f.source, saved.backupId, true);
+  assert.equal(f.target(await f.scan(), "world").value.MinimumCompatibleClientVersion, undefined);
+  const initial = await readPolicy(f.source), policy = { schema: 1, minimum: "3.9.0.1", maximum: "3.10.0.436581" };
+  const range = await f.service.preparePolicy(f.source, policy, initial), applied = await f.service.apply(range.token, true);
+  await assertLaunchVersion(f.source, "3.10.0.420447");
+  await assert.rejects(assertLaunchVersion(f.source, "3.10.0.448891"), /已停止启动/);
+  await assert.rejects(assertLaunchVersion(f.source, null), /无法可靠识别/);
+  await assert.rejects(f.service.preparePolicy(f.source, { ...policy, minimum: "4.0" }, policy), /不能高于/);
+  await f.service.restore(f.source, applied.backupId, true); assert.deepEqual(await readPolicy(f.source), initial);
+});
+test("Sessions rejects out-of-range and unidentified builds before isolation preparation", async t => {
+  const { WorkspaceStore } = require("../electron/services.cjs"), { Profiles } = require("../electron/domains/profiles/profiles.cjs");
+  const { WorldLibrary } = require("../electron/domains/worlds/worlds.cjs"), { Sessions } = require("../electron/sessions.cjs");
+  const root = artifactPath("launch-policy"), store = new WorkspaceStore(path.join(root, "data")); await store.load();
+  const profiles = new Profiles(store); await profiles.initialize();
+  const worlds = new WorldLibrary(store, path.join(root, "worlds")), profileId = store.value.projects[0].id;
+  const world = await worlds.create(profileId, { name: "Version fixture" }); await worldDataFixture(worlds.location(world.id));
+  await fs.writeFile(path.join(worlds.location(world.id), ".daguoneko-versions.json"), JSON.stringify({ schema: 1, minimum: "3.10.0.420447", maximum: "3.10.0.436581" }), "utf8");
+  const game = path.join(root, "fixture.exe"); await fs.writeFile(game, "synthetic"); await store.updateSettings({ GamePath: game });
+  let actualVersion, prepared = 0;
+  const manager = new Sessions(store, path.join(runtime, "mcdk.exe"), { profiles, worlds, engineInfo: async () => ({ digest: "fixture", version: actualVersion }), isolation: { assess: async () => ({}), prepare: async () => { prepared++; throw Error("should not prepare"); } } });
+  t.after(() => manager.shutdown());
+  for (actualVersion of ["3.10.0.448891", "3.9.0.1", null]) await assert.rejects(manager.start(profileId, world.id), /范围|无法可靠识别/);
+  assert.equal(prepared, 0); assert.equal(manager.starting, false);
+});

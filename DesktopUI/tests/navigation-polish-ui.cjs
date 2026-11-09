@@ -60,7 +60,7 @@ const { bedrockMap } = require("./fixtures/map-world.cjs");
     await nav("存档");
     await page.emulateMedia({ reducedMotion: "reduce" });
     const alternateCard = page.getByRole("article", { name: "存档 地形与建筑工作副本", exact: true });
-    await alternateCard.getByRole("button", { name: "打开存档", exact: true }).click();
+    await alternateCard.getByRole("button", { name: "打开存档控制台", exact: true }).click();
     await page.getByRole("button", { name: "编辑绑定启动配置", exact: true }).click();
     await page.getByRole("heading", { name: "建筑测试配置", exact: true }).waitFor();
     await page.getByLabel("玩家名称", { exact: true }).fill("UnsavedBuilder");
@@ -71,7 +71,7 @@ const { bedrockMap } = require("./fixtures/map-world.cjs");
     await page.getByRole("button", { name: "返回来源存档", exact: true }).click();
     await page.getByRole("button", { name: "返回存档列表", exact: true }).click();
     const card = page.getByRole("article", { name: "存档 星河测试世界", exact: true });
-    await card.getByRole("button", { name: "打开存档", exact: true }).click();
+    await card.getByRole("button", { name: "打开存档控制台", exact: true }).click();
     await page.getByRole("button", { name: "编辑绑定启动配置", exact: true }).click();
     await page.getByRole("dialog").getByRole("button", { name: "取消", exact: true }).click();
     await page.getByRole("heading", { name: "星河测试世界", exact: true }).waitFor();
@@ -83,10 +83,55 @@ const { bedrockMap } = require("./fixtures/map-world.cjs");
     await page.getByRole("button", { name: "返回存档列表", exact: true }).click();
     assert.equal(await card.locator("details").count(), 0, "actions must not expand the card");
     const before = await card.boundingBox();
-    for (const label of ["快速测试", "存档设置", "删除存档", "地图预览", "存档模组", "打开目录"])
+    for (const label of ["快速测试", "打开存档控制台", "删除存档", "打开目录"])
       assert(await card.getByRole("button", { name: label, exact: true }).isVisible(), label);
-    await card.getByRole("button", { name: "存档设置", exact: true }).click();
-    await page.getByRole("dialog").getByRole("button", { name: "取消", exact: true }).click();
+    for (const label of ["打开存档", "存档设置", "选择启动配置", "地图预览", "存档模组"])
+      assert.equal(await card.getByRole("button", { name: label, exact: true }).count(), 0, label + " must use the console entry");
+    assert.equal(await card.getByRole("button", { name: "打开存档控制台", exact: true }).count(), 1);
+    await card.getByRole("button", { name: "打开存档控制台", exact: true }).focus();
+    await page.keyboard.press("Enter");
+    const tabs = page.getByRole("navigation", { name: "存档工作区" });
+    await page.getByRole("heading", { name: "运行概况", exact: true }).waitFor();
+    assert.equal(await tabs.getByRole("button", { name: "概览", exact: true }).getAttribute("aria-current"), "page");
+    for (const name of ["地图", "模组", "设置"]) assert(await tabs.getByRole("button", { name, exact: true }).isVisible());
+    await page.getByRole("button", { name: "存档设置", exact: true }).click();
+    await page.getByRole("button", { name: "编辑存档设置", exact: true }).click();
+    const settings = page.getByRole("dialog");
+    await settings.waitFor();
+    assert.equal(await page.locator(".world-workspace").count(), 1, "settings must keep the console mounted");
+    assert.equal(await page.locator(".world-grid").count(), 0, "settings must not return to the library");
+    for (const label of ["使用启动配置", "游戏模式", "世界类型"])
+      assert(await settings.getByRole("combobox", { name: label, exact: true }).isVisible(), label);
+    for (const label of ["存档名称", "世界种子", "允许作弊", "死亡不掉落", "天气变化", "昼夜循环"])
+      assert(await settings.getByLabel(label, { exact: true }).isVisible(), label);
+    assert(await settings.getByRole("combobox", { name: "世界类型", exact: true }).isDisabled());
+    assert(await settings.getByLabel("世界种子", { exact: true }).isDisabled());
+    await settings.locator("summary").filter({ hasText: "实验性世界选项" }).click();
+    for (const label of ["自定义生物群系", "创作者功能", "实验性摄像机", "GameTest", "延迟渲染技术预览"])
+      assert(await settings.getByLabel(label, { exact: true }).isVisible(), label);
+    await settings.getByLabel("存档名称", { exact: true }).fill("取消的名称");
+    await settings.getByRole("button", { name: "取消", exact: true }).click();
+    assert.equal(await tabs.getByRole("button", { name: "设置", exact: true }).getAttribute("aria-current"), "page");
+    await page.getByRole("button", { name: "编辑存档设置", exact: true }).click();
+    assert.equal(await settings.getByLabel("存档名称", { exact: true }).inputValue(), "星河测试世界");
+    await settings.getByRole("combobox", { name: "使用启动配置", exact: true }).click();
+    await page.getByRole("option", { name: "建筑测试配置", exact: true }).click();
+    await settings.getByRole("combobox", { name: "游戏模式", exact: true }).click();
+    await page.getByRole("option", { name: "冒险", exact: true }).click();
+    await settings.getByLabel("死亡不掉落", { exact: true }).uncheck();
+    await settings.locator("summary").filter({ hasText: "实验性世界选项" }).click();
+    await settings.getByLabel("GameTest", { exact: true }).check();
+    await settings.getByRole("button", { name: "保存存档设置", exact: true }).click();
+    await settings.waitFor({ state: "hidden" });
+    await page.getByRole("status").filter({ hasText: "正在处理存档操作" }).waitFor({ state: "hidden" });
+    const saved = (await page.evaluate(() => window.toolkit.call("worlds.list"))).worlds.find(world => world.name === "星河测试世界");
+    assert.equal(saved.profileId, alternateProfile.project.id);
+    assert.equal(saved.options.game_mode, 2);
+    assert.equal(saved.options.keep_inventory, false);
+    assert.equal(saved.options.experiment_options.gametest, true);
+    assert.equal(await tabs.getByRole("button", { name: "设置", exact: true }).getAttribute("aria-current"), "page");
+    await page.getByRole("button", { name: "返回存档列表", exact: true }).click();
+    await card.waitFor();
     assert(Math.abs((await card.boundingBox()).height - before.height) < 1);
     const capture = async name => {
       const png = await app.evaluate(async ({ BrowserWindow }) => {
@@ -107,7 +152,9 @@ const { bedrockMap } = require("./fixtures/map-world.cjs");
         return button && getComputedStyle(button).color === getComputedStyle(document.body).color;
       });
       await capture("cards-" + theme);
-      await card.getByRole("button", { name: "打开存档", exact: true }).click();
+      await card.getByRole("button", { name: "打开存档控制台", exact: true }).click();
+      await page.getByRole("heading", { name: "运行概况", exact: true }).waitFor();
+      assert.equal(await tabs.getByRole("button", { name: "概览", exact: true }).getAttribute("aria-current"), "page");
       const exit = page.getByRole("button", { name: "返回存档列表", exact: true });
       const heading = page.getByRole("heading", { name: "星河测试世界", exact: true }); await heading.waitFor();
       assert((await exit.boundingBox()).y < (await heading.boundingBox()).y, "workspace exit precedes its content");

@@ -6,7 +6,7 @@
 
 ## 工具目录
 
-离线数据先调用 `scan_world_data(worldId, requestId, scope)`，scope 可为 all/gameplay/world/entities，默认 all；最长可能占用 120 秒，客户端应设置对应调用超时。结果只返回摘要与 requestId，随后用 `read_world_data` 按 view=objects/relations 分页（limit 最多 100），includeData 才返回原始字段。`world_data_scan_state` 可查询或取消明确 requestId，`compare_world_data(left,right)` 使用两份已完成快照；最近四份之外的快照需重扫，扫描 ID 不可复用。MCP 不接受任意未选择的外部路径；外部查看与文件导出使用 UI。比较和关系是静态结果，partial、未找到或无法判断不得表述为游戏运行失败。
+离线数据先调用 `scan_world_data(worldId, requestId, scope)`，scope 可为 all/gameplay/world/entities，默认 all；最长可能占用 120 秒，客户端应设置对应调用超时。结果返回摘要、模组条件 capabilities、可用分类 availableKinds、可选 ExtraData 状态与 requestId。随后用 `read_world_data` 分页（limit 最多 100）：view=objects 查询对象，指定 id 返回业务摘要，includeData 返回原始数据；view=relations 可按 id、direction=both/incoming/outgoing 和 status 查询引用；view=fields 配合 id、field（JSON Pointer，空字符串为根）逐层分页读取原始字段及类型，单值预览最多 8192 字符。`world_data_scan_state` 可查询或取消明确 requestId，`compare_world_data(left,right)` 使用两份已完成快照；最近四份之外的快照需重扫，扫描 ID 不可复用。MCP 不接受任意未选择的外部路径；外部查看与文件导出使用 UI。比较和关系是静态结果，partial、未找到或无法判断不得表述为游戏运行失败；模组配置已启用也不等于运行时已加载。
 
 当前工具目录以安装实例 `tools/list` 为准，包含客户端控制、配置/存档、固定拍摄、运行时地形探针和架构导入任务接口。更新源码后需要构建并重新启动对应工具箱实例，已有发行程序不会自动获得接口。按领域理解工具即可，不要依赖工具总数。
 

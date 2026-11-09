@@ -31,7 +31,6 @@ const { WorldLibrary } = require("../electron/domains/worlds/worlds.cjs");
     await page.getByRole("button", { name: "打开外部存档", exact: true }).click();
     await page.getByRole("navigation", { name: "存档工作区" }).getByRole("button", { name: "世界数据", exact: true }).click();
     await page.getByRole("button", { name: "选择外部文件夹", exact: true }).click();
-    await page.getByRole("button", { name: "扫描已保存数据", exact: true }).click();
     await page.getByText("受支持记录扫描完成", { exact: true }).waitFor({ timeout: 60000 });
     for (const [label, extension] of [["导出 JSON", "json"], ["导出当前类型 CSV", "csv"], ["导出关系图", "svg"]]) {
       const target = path.join(root, "export." + extension);
@@ -76,10 +75,8 @@ const { WorldLibrary } = require("../electron/domains/worlds/worlds.cjs");
     await nav("存档");
     await page.getByRole("heading", { name: "工作区示例", exact: true }).waitFor();
     await page.getByRole("navigation", { name: "存档工作区" }).getByRole("button", { name: "世界数据", exact: true }).click();
-    await page.getByRole("button", { name: "扫描已保存数据", exact: true }).click();
     await page.getByText("受支持记录扫描完成", { exact: true }).waitFor();
-    await page.getByRole("combobox", { name: "数据视图", exact: true }).click();
-    await page.getByRole("option", { name: "对象与字段", exact: true }).click();
+    await page.getByRole("tab", { name: "对象与字段", exact: true }).click();
     await page.locator(".data-layout").waitFor();
     await page.waitForFunction(() => !document.querySelector(":popover-open"));
     for (const [theme, width, height] of [["light", 1240, 820], ["dark", 900, 650]]) {

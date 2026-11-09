@@ -53,7 +53,7 @@ test("world scan is read-only, exposes business records, evidence and field comp
   const comparison = compareWorldData(left, right);
   assert(comparison.changes.some(row => row.identity === "quest:quest1" && row.fields.some(f => f.path === "/count" && f.before === 1 && f.after === 2)));
   assert(comparison.changes.some(row => row.identity.startsWith("container:") && row.fields.length));
-  assert(comparison.changes.some(row => row.identity.startsWith("entity:") && row.status === "changed" && row.fields.some(field => field.path === "/Pos")));
+  assert(comparison.changes.some(row => row.identity.startsWith("entity:") && row.status === "changed" && row.fields.some(field => field.path === "/Pos/0")));
   assert.equal(compareWorldData(left, { ...left, objects: [...left.objects].reverse() }).changes.length, 0);
   const csv = exportWorldData({ objects: [{ kind: "quest", name: "=BAD()", evidence: {}, value: {} }] }, "csv"); assert(csv.includes("'=BAD()"));
   const zip = path.join(root, "source.mcworld"); await zipMap(a, zip);

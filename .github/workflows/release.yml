@@ -85,6 +85,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Local host selection UI acceptance failed' }
           node tests/game-versions-ui.cjs
           if ($LASTEXITCODE -ne 0) { throw 'Game version selection UI acceptance failed' }
+          node tests/navigation-polish-ui.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'World console navigation acceptance failed' }
       - run: npm run package
       - name: Packaged client acceptance
         run: |
@@ -95,6 +97,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Packaged map preview acceptance failed' }
           node tests/workspaces-ui.cjs
           if ($LASTEXITCODE -ne 0) { throw 'Packaged workspace and world data acceptance failed' }
+          node tests/world-data-business-ui.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged world data editing acceptance failed' }
+          node tests/world-data-loading-ui.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged automatic loading acceptance failed' }
           node tests/performance-ui.cjs
           if ($LASTEXITCODE -ne 0) { throw 'Packaged resource refresh acceptance failed' }
       - name: Publish complete release

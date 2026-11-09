@@ -4,7 +4,7 @@ const { validate } = require("../electron/domains/automation/automation-tools.cj
 const { queryWorldData, exportWorldData, references, businessObjects } = require("../shared/world-data-model.cjs");
 test("business rules distinguish quest groups and objective records, and native NPC callbacks", () => {
   const questData = { quest_item: { allitem: { group: { _type_: "group" }, q: { _type_: "quest" } }, allobjitem: { o: { owner_quest_uid: "q" } } } };
-  const projected = businessObjects({ id: "root", value: { scriptData: { Quest_Engine_Data: questData } }, evidence: {} });
+  const projected = businessObjects({ id: "root", value: { scriptData: { Quest_Engine_Data: questData } }, evidence: {} }, { quest: { state: "enabled" } });
   assert(projected.some(row => row.kind === "questGroup")); assert(projected.some(row => row.identity === "objective:o"));
   const rows = [...projected, { id: "lib", kind: "library", identity: "library:entry", value: {} }, { id: "npc", kind: "npc", value: { scriptData: { NPC_IDENTITY: { inte_data: { stacmd: "cmd.miao:cmd 指令库 entry 0 @s" } } }, description: "cmd(not-a-call)" } }];
   const refs = references(rows);

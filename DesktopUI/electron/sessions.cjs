@@ -15,6 +15,7 @@ const { applyWindowSize } = require("./window-size.cjs");
 const { quickTestMods } = require("./domains/reload/quick-test.cjs");
 const { sourceSelection } = require("./domains/reload/reload-sources.cjs");
 const { inspectEngine } = require("./domains/client/engine-profiles.cjs");
+const { assertLaunchVersion } = require("./domains/worlds/world-version-policy.cjs");
 class Sessions extends EventEmitter {
   constructor(
     store,
@@ -435,6 +436,11 @@ class Sessions extends EventEmitter {
       let launchActions = [];
       let isolationAssessment;
       const engine = await this.engineInfo(config.game_executable_path);
+      const checkWorldVersion = async () => {
+        if (!worldId) return;
+        const info = await this.worlds.inspect(this.worlds.find(await this.worlds.read(), null, worldId));
+        if (info.present) await assertLaunchVersion(info.path, engine.version);
+      };
       if (
         automation?.expectedGameDigest &&
         automation.expectedGameDigest !== engine.digest
@@ -484,6 +490,7 @@ class Sessions extends EventEmitter {
           this.workers.some((w) => w.session?.running && w.session.worldId)
         )
           throw Error("无法同时启动此主存档：" + isolationAssessment.reason);
+        await checkWorldVersion();
         isolated = await this.isolation?.prepare(
           worldId,
           config,
@@ -654,6 +661,7 @@ class Sessions extends EventEmitter {
         worlds: ownedWorlds,
         detectRunning,
         beforeSpawn: async () => {
+          await checkWorldVersion();
           const windowSettings =
             this.store.value.settings.GameWindowSize || { fullscreen: false };
           const fullscreen =

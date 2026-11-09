@@ -1,89 +1,99 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Button, Empty, ErrorBox, Select } from "../../app/ui.jsx";
-import { labels } from "../../../shared/world-data-model.cjs";
+import React, { useEffect, useRef, useState } from "react";
+import { Button, Empty, ErrorBox, Icon, Modal, Select } from "../../app/ui.jsx";
+import { labels, kindOrder } from "../../../shared/world-data-model.cjs";
 import { useWorkspaceState } from "../../app/workspaces.jsx";
+import { Comparison, DataPager, ObjectDetail, Relations, useDataQuery } from "./world-data-views.jsx";
+import { ConfirmWrite, EditFieldDialog, VersionSettings } from "./world-data-edit.jsx";
+import { cancelWorldData, scanWorldData } from "./use-world-data.jsx";
 import "./world-data.css";
 const call = (name, args = {}) => window.toolkit.call(name, args);
-const states = { resolved: "已找到", "not-found": "当前范围未找到", ambiguous: "身份不唯一", unknown: "无法静态判断" };
-const changes = { added: "新增", removed: "删除", changed: "字段变化", ambiguous: "身份不唯一" };
+const scopes = { gameplay: "交互对象与业务数据", all: "全部受支持记录", world: "世界与玩家数据", entities: "实体与业务数据" };
+const capabilityStates = { enabled: "存档已启用", disabled: "未确认启用", unconfirmed: "缺少启用清单", ambiguous: "包身份不唯一", "version-mismatch": "启用版本不匹配" };
 
-export function WorldData({ source, worldId, data, onData, onSource, onLocate, selectedId, onSelected }) {
-  const [query, setQuery] = useWorkspaceState("world-data-query", ""), [kind, setKind] = useWorkspaceState("world-data-kind", "");
-  const [mode, setMode] = useWorkspaceState("world-data-mode", "objects");
-  const [scope, setScope] = useWorkspaceState("world-data-scope", "gameplay");
-  const [page, setPage] = useState(0), [error, setError] = useState(""), [notice, setNotice] = useState("");
-  const [busy, setBusy] = useState(false), [progress, setProgress] = useState(null), [comparison, setComparison] = useWorkspaceState("world-comparison:" + source, null);
+export function WorldData({ source, worldId, data, load, onData, onSource, onLocate, selectedId, onSelected }) {
+  const context = worldId || source;
+  const [query, setQuery] = useWorkspaceState("world-data-query:" + context, ""), [kind, setKind] = useWorkspaceState("world-data-kind:" + context, "");
+  const [mode, setMode] = useWorkspaceState("world-data-mode:" + context, "objects");
+  const { scope, setScope } = load;
+  const [offset, setOffset] = useState(0), [error, setError] = useState(""), [notice, setNotice] = useState("");
+  const [comparing, setComparing] = useState(false), [compareProgress, setCompareProgress] = useState(null), [comparison, setComparison] = useWorkspaceState("world-comparison:" + context, null);
+  const busy = load.busy || comparing, progress = load.busy ? load.progress : compareProgress;
+  const [editor, setEditor] = useState(null), [writePlan, setWritePlan] = useState(null), [restore, setRestore] = useState(false), [saving, setSaving] = useState(false);
+  const [backup, setBackup] = useWorkspaceState("world-data-backup:" + context, null), [history, setHistory] = useState([]), [detailOpen, setDetailOpen] = useState(false);
   const active = useRef(""), alive = useRef(true);
-  useEffect(() => { alive.current = true; return () => { alive.current = false; if (active.current) call("world-data.cancel", { requestId: active.current }).catch(() => {}); }; }, []);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; if (active.current) cancelWorldData(active.current); }; }, []);
   useEffect(() => {
-    if (!busy) return;
-    const timer = setInterval(() => call("world-data.state", { requestId: active.current }).then(value => { if (alive.current) setProgress(value); }).catch(() => {}), 350);
+    if (!comparing) return;
+    const timer = setInterval(() => call("world-data.state", { requestId: active.current }).then(value => { if (alive.current) setCompareProgress(value); }).catch(() => {}), 350);
     return () => clearInterval(timer);
-  }, [busy]);
-  useEffect(() => { setPage(0); }, [query, kind, data]);
-  const rows = useMemo(() => (data?.objects || []).map(row => ({ row, search: `${row.name} ${row.identity} ${JSON.stringify(row.value)}`.toLowerCase() })), [data]);
-  const filtered = useMemo(() => rows.filter(({ row, search }) => (!kind || row.kind === kind) && (!query || search.includes(query.toLowerCase()))).map(({ row }) => row), [rows, kind, query]);
-  const selected = data?.objects.find(row => row.id === selectedId) || filtered[0];
-  const selectedText = useMemo(() => selected ? JSON.stringify(selected.value, null, 2) : "", [selected]);
-  const selectedEvidence = useMemo(() => selected ? JSON.stringify({ ...selected.evidence, types: selected.types }, null, 2) : "", [selected]);
-  const relations = (data?.relations || []).filter(edge => !query || `${edge.target} ${edge.rule} ${edge.field}`.toLowerCase().includes(query.toLowerCase()));
-  const run = async (compareSource) => {
+  }, [comparing]);
+  useEffect(() => { if (data && comparison && comparison.leftRequestId !== data.requestId) setComparison(null); }, [data?.requestId]);
+  useEffect(() => { setOffset(0); }, [query, kind, data?.requestId]);
+  useEffect(() => { if (data && kind && !data.availableKinds?.includes(kind)) setKind(""); }, [data, kind]);
+  const result = useDataQuery(data?.requestId, { kind, query, offset, limit: 50 });
+  const targetId = selectedId || result.rows[0]?.id;
+  const detail = useDataQuery(data?.requestId && targetId ? data.requestId : null, { id: targetId || "", limit: 1 });
+  const selected = detail.rows[0];
+  useEffect(() => { if (data && selectedId && detail.requestId === data.requestId && detail.objectId === selectedId && !detail.loading && !detail.error && !detail.rows.length) onSelected(""); }, [data?.requestId, selectedId, detail.requestId, detail.objectId, detail.loading, detail.error, detail.rows]);
+  const search = value => { setQuery(value); onSelected(""); setOffset(0); setHistory([]); };
+  const category = value => { setKind(value); onSelected(""); setOffset(0); setHistory([]); };
+  const select = id => { if (selected) setHistory(previous => [...previous.slice(-19), { id: selected.id, kind, query, offset }]); onSelected(id); setKind(""); setQuery(""); setOffset(0); setMode("objects"); setDetailOpen(true); };
+  const back = () => { const previous = history.at(-1); if (!previous) return; setHistory(value => value.slice(0, -1)); onSelected(previous.id); setKind(previous.kind); setQuery(previous.query); setOffset(previous.offset); };
+  const run = async compareSource => {
+    if (!compareSource) {
+      setError(""); setNotice("");
+      const result = await load.reload();
+      if (result && alive.current) { setComparison(null); if (!editor) onSelected(""); setHistory([]); }
+      return result;
+    }
     if (active.current) return;
-    const id = crypto.randomUUID(); active.current = id; setBusy(true); setError(""); setNotice("");
+    const id = crypto.randomUUID(); active.current = id; setComparing(true); setError(""); setNotice("");
     try {
-      const result = await call("world-data.scan", { requestId: id, scope: compareSource ? data.scope : scope, ...(compareSource ? { source: compareSource } : worldId ? { worldId } : { source }) });
+      const result = await scanWorldData({ requestId: id, summaryOnly: true, scope: data.scope, source: compareSource }, () => alive.current && active.current === id);
       if (!alive.current) return;
-      if (compareSource) {
-        const diff = await call("world-data.compare", { left: data.requestId, right: result.requestId });
-        if (alive.current) { setComparison({ ...diff, rightRequestId: result.requestId }); setMode("compare"); }
-      } else { onData(result); setComparison(null); onSelected(""); }
+      const diff = await call("world-data.compare", { left: data.requestId, right: result.requestId });
+      if (alive.current) { setComparison({ ...diff, leftRequestId: data.requestId, rightRequestId: result.requestId }); setMode("compare"); }
     } catch (e) { if (alive.current) setError(e.message); }
-    finally { active.current = ""; if (alive.current) { setBusy(false); setProgress(null); } }
+    finally { active.current = ""; if (alive.current) { setComparing(false); setCompareProgress(null); } }
   };
   const choose = async (kind, compare = false) => {
-    try { const value = await call("map-preview.pick", { kind }); if (value) { if (compare) await run(value); else onSource({ source: value, worldId: "" }); } }
+    try { const value = await call("map-preview.pick", { kind }); if (value) { if (compare) await run(value); else if (value === source && !worldId) await run(); else onSource({ source: value, worldId: "" }); } }
     catch (e) { setError(e.message); }
   };
   const exportData = async (format, compareWith) => {
     try { if (await call("world-data.export", { requestId: data.requestId, format, kind, compareWith })) setNotice("数据已导出"); }
     catch (e) { setError(e.message); }
   };
+  const saved = async result => {
+    setEditor(null); setWritePlan(null); setBackup(result); onData(null);
+    const refreshed = await run(); setNotice(refreshed ? "已保存并重新读取。自动备份可用于撤销本次改动。" : "已保存并保留备份；重新读取失败，请重试扫描。");
+  };
+  const restoreLast = async () => {
+    setSaving(true); setError("");
+    try { await call("world-data.edit.restore", { requestId: data.requestId, backupId: backup.backupId, confirmed: true }); setBackup(null); setRestore(false); onData(null); const refreshed = await run(); setNotice(refreshed ? "已恢复本次修改前的记录，并重新读取。" : "已恢复备份；重新读取失败，请重试扫描。"); }
+    catch (error) { setRestore(false); await run(); setError(error.message); }
+    finally { setSaving(false); }
+  };
+  const kinds = kindOrder.filter(value => data?.availableKinds?.includes(value) && ((data.counts?.[value] || 0) > 0 || ["npc", "quest", "dialogue", "library", "attributes"].includes(value)));
   return <section className="world-data" aria-label="世界数据">
-    <div className="workspace-actions">
-      <Select aria-label="读取范围" disabled={busy} value={scope} onChange={setScope} options={[{ value: "gameplay", label: "交互对象与业务数据" }, { value: "all", label: "全部受支持记录" }, { value: "world", label: "世界与玩家数据" }, { value: "entities", label: "实体与业务数据" }]} />
-      <Button primary disabled={busy || (!source && !worldId)} onClick={() => run()}>扫描已保存数据</Button>
-      {!worldId && <><Button disabled={busy} onClick={() => choose("folder")}>选择外部文件夹</Button><Button disabled={busy} onClick={() => choose("archive")}>选择 ZIP / MCWORLD</Button></>}
-      {busy && <Button onClick={() => call("world-data.cancel", { requestId: active.current }).catch(e => setError(e.message))}>取消扫描</Button>}
-      <Button disabled={!data || busy} onClick={() => choose("folder", true)}>比较另一目录</Button>
-      <Button disabled={!data || busy} onClick={() => choose("archive", true)}>比较另一压缩包</Button>
-      <Button disabled={!data || busy} onClick={() => exportData("json")}>导出 JSON</Button>
-      <Button disabled={!data || busy} onClick={() => exportData("csv")}>导出当前类型 CSV</Button>
-      <Button disabled={!data || busy} onClick={() => exportData("svg")}>导出关系图</Button>
-      {comparison && <Button disabled={busy} onClick={() => exportData("json", comparison.rightRequestId)}>导出差异 JSON</Button>}
-    </div>
-    <ErrorBox>{error}</ErrorBox>{notice && <p role="status">{notice}</p>}
-    {busy && <p role="status">{progress?.stage || "准备读取"} · {progress?.completed ?? 0} <progress aria-label="扫描进度" /></p>}
-    {data && <><div className="data-coverage"><strong>{data.complete ? "受支持记录扫描完成" : "部分结果，请检查覆盖与错误"}</strong><span>{data.objects.length} 个对象 · {data.statistics.failed} 处读取失败{data.truncated ? " · 已达到读取上限" : ""} · 范围：{{ all: "全部受支持记录", gameplay: "交互对象与业务数据", world: "世界与玩家数据", entities: "实体与业务数据" }[data.scope]}</span><small>{new Date(data.generatedAt).toLocaleString()} · {data.source}</small><p>{data.coverage}</p></div>
-      <div className="data-toolbar"><input aria-label="搜索世界数据" value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索名称、坐标、标识符或字段内容…" /><Select aria-label="数据类型" value={kind} onChange={setKind} options={[{ value: "", label: "全部对象" }, ...Object.entries(labels).map(([value, label]) => ({ value, label }))]} />
-      <Select aria-label="数据视图" value={mode} onChange={setMode} options={[{ value: "objects", label: "对象与字段" }, { value: "relations", label: "关系检查" }, { value: "graph", label: "关系图" }, { value: "compare", label: "存档比较" }]} /></div>
-      {mode === "objects" && <div className="data-layout"><div className="data-results"><div className="data-list-summary">{filtered.length} 项 · 第 {page + 1} 页</div>{filtered.slice(page * 100, (page + 1) * 100).map(row => <button className={selected?.id === row.id ? "selected" : ""} key={row.id} onClick={() => onSelected(row.id)}><strong>{String(row.name)}</strong><small>{labels[row.kind]} · {row.position?.join(", ") || row.identity}</small></button>)}<div className="workspace-actions"><Button disabled={!page} onClick={() => setPage(page - 1)}>上一页</Button><Button disabled={(page + 1) * 100 >= filtered.length} onClick={() => setPage(page + 1)}>下一页</Button></div></div>
-      <aside className="data-detail">{selected ? <><h3>{String(selected.name)}</h3><p>{labels[selected.kind]} · {selected.rule}</p>{selected.position && <><p>维度 {selected.dimension ?? "未知"} · {selected.position.join(", ")}</p><Button disabled={![0, 1, 2].includes(selected.dimension)} onClick={() => onLocate(selected)}>在地图定位</Button></>}<details><summary>来源与原始类型</summary><pre>{selectedEvidence}</pre></details><h4>已保存字段</h4><pre>{selectedText}</pre></> : <Empty title="没有匹配对象">调整搜索或类型筛选。</Empty>}</aside></div>}
-      {mode === "relations" && <><p className="muted">“当前范围未找到”不等于目标不存在；外部物品定义及动态脚本不参与完整性结论。旧指令库接管关系需结合配置确认。</p><div className="data-table"><table><thead><tr><th>引用目标</th><th>结果</th><th>依据</th><th>来源</th></tr></thead><tbody>{relations.slice(0, 1000).map((edge, i) => <tr key={i}><td>{edge.target}</td><td>{states[edge.status]}</td><td>{edge.rule}<small>{edge.field}</small></td><td><Button onClick={() => { onSelected(edge.from); setMode("objects"); }}>查看来源</Button>{edge.to && <Button onClick={() => { onSelected(edge.to); setMode("objects"); }}>查看目标</Button>}</td></tr>)}</tbody></table></div>{relations.length > 1000 && <p>展示前 1000 条，请搜索缩小范围。</p>}</>}
-      {mode === "graph" && <RelationGraph objects={data.objects} edges={relations} onSelect={id => { onSelected(id); setMode("objects"); }} />}
-      {mode === "compare" && (comparison ? <><p>{comparison.left} → {comparison.right}</p><p>{comparison.changes.length} 处对象变化{comparison.partial ? " · 来源包含未解析或截断数据，不能据此断言删除" : ""}{comparison.truncated ? " · 差异列表已截断" : ""}</p>{comparison.changes.map(row => <DifferenceRow key={row.identity} row={row} />)}</> : <Empty title="选择另一份存档进行比较">使用上方比较按钮；按稳定对象身份比较已保存字段，来源保持只读。</Empty>)}
-      <details className="data-issues"><summary>解析规则与读取问题（{data.statistics.failed}）</summary><p>{data.rules.join("、")}</p>{data.issues.map((issue, i) => <p key={i}>{issue.key}：{issue.message}</p>)}</details>
-    </>}
-    {!data && <Empty title="查看世界中已保存的数据">扫描命令方块、实体、容器和世界业务数据。不会执行指令、启动游戏或修改存档。</Empty>}
+    <header className={`data-hero ${data ? "has-data" : ""}`}><div className="data-hero-title"><span className="data-hero-icon"><Icon name="inspect" /></span><div><h2>探索已保存的世界</h2><p>打开存档后自动加载，随时查看内容、关联与变化。</p></div><span className="data-badge">后台读取</span></div><div className="workspace-actions"><Select aria-label="读取范围" disabled={comparing || load.unavailable} value={scope} onChange={setScope} options={Object.entries(scopes).map(([value, label]) => ({ value, label }))} /><Button icon="inspect" disabled={busy || load.unavailable || (!source && !worldId)} onClick={() => run()}>重新扫描</Button>{busy && <Button onClick={() => load.busy ? load.cancel() : cancelWorldData(active.current)}>取消扫描</Button>}</div>
+      {!worldId && <div className="data-source-actions"><Button icon="folder" disabled={comparing} onClick={() => choose("folder")}>选择外部文件夹</Button><Button icon="archive" disabled={comparing} onClick={() => choose("archive")}>选择 ZIP / MCWORLD</Button></div>}
+    </header>
+    <ErrorBox>{error || load.error}</ErrorBox>{notice && <p role="status">{notice}</p>}{backup && <div className="data-backup-notice"><span>上次保存已自动备份</span><Button disabled={busy || saving || !data} onClick={() => setRestore(true)}>撤销上次保存</Button></div>}{busy && <div className="data-scan-progress" role="status"><progress aria-label="扫描进度" /><span><strong>扫描中，请等待</strong><small>{progress?.stage || "准备读取"} · {progress?.completed ?? 0}</small></span></div>}
+    {data ? <>
+      <div className="data-overview"><div><span>已读取对象</span><strong>{data.objectCount ?? 0}</strong></div><div><span>已识别引用</span><strong>{data.relationCount ?? 0}</strong></div><div><span>读取问题</span><strong className={data.statistics.failed ? "data-warning" : ""}>{data.statistics.failed}</strong></div><div className="data-overview-status"><strong>{data.complete ? "受支持记录扫描完成" : "部分结果，请检查覆盖与错误"}</strong><span>{new Date(data.generatedAt).toLocaleString()} · {scopes[data.scope]}</span></div></div>
+      <details className="data-coverage"><summary><span>{data.edition === "netease" ? "已识别网易扩展" : data.format === "java" ? "Java 存档" : "基岩存档"}</span><span>模组条件与扫描覆盖</span></summary><p>{data.coverage}</p><p>仅核对存档内的启用清单与包内容；额外启动模组未纳入本次判断，配置已启用不代表运行时已成功加载。</p><div className="data-capabilities">{Object.entries(data.capabilities || {}).map(([id, entry]) => <div key={id}><strong>{entry.name}</strong><span className={`data-badge ${entry.state === "enabled" ? "resolved" : ""}`}>{capabilityStates[entry.state]}</span>{entry.packs.map(pack => <small key={pack.id + pack.name}>{pack.name} · {pack.version?.join(".")}</small>)}</div>)}</div><p>{data.extraData ? "已读取网易 ExtraData；未知结构按原始字段展示。" : "本次未读取到网易 ExtraData，这是可选数据，不代表存档异常。"}</p>{data.truncated && <p className="data-warning">读取达到上限，当前仅显示部分结果。</p>}</details>
+      <nav className="data-view-tabs" role="tablist" aria-label="数据视图">{[["objects", "对象与字段"], ["relations", "关系检查"], ["graph", "关系图"], ["compare", "存档比较"], ["versions", "版本与兼容"]].map(([value, label]) => <button key={value} role="tab" aria-selected={mode === value} onClick={() => setMode(value)}>{label}</button>)}</nav>
+      {!["compare", "versions"].includes(mode) && <div className="data-toolbar"><input aria-label="搜索世界数据" value={query} onChange={e => search(e.target.value)} maxLength={256} placeholder="搜索当前分类中的名称、坐标或内容…" /><span className="data-hint">{data.editable ? "目录存档 · 支持备份后编辑" : "当前来源仅查看"}</span></div>}
+      {mode === "objects" && <div className={`data-browser ${detailOpen ? "detail-open" : ""}`}><nav className="data-categories" aria-label="数据分类"><small>内容分类</small><button aria-pressed={!kind} onClick={() => { category(""); setDetailOpen(false); }}>全部<span>{data.objectCount}</span></button>{kinds.map(value => <button key={value} aria-pressed={kind === value} onClick={() => { category(value); setDetailOpen(false); }}>{labels[value]}<span>{data.counts?.[value] || 0}</span></button>)}</nav><div className="data-layout"><div className="data-results"><div className="data-list-summary">{labels[kind] || "全部对象"} <span>{result.loading ? "读取中…" : `${result.total} 项`}</span></div><ErrorBox>{result.error}</ErrorBox>{result.rows.map(row => <button aria-pressed={selected?.id === row.id} className={selected?.id === row.id ? "selected" : ""} key={row.id} onClick={() => { onSelected(row.id); setDetailOpen(true); }}><span className="data-result-kind">{labels[row.kind]}</span><strong>{String(row.name)}</strong><small>{row.summary.description || row.identity}</small>{row.position && <small>{row.position.join(", ")}</small>}</button>)}{!result.loading && !result.rows.length && !result.error && <Empty title="没有匹配对象">相关模组可能尚未保存此类数据，也可调整筛选条件。</Empty>}<DataPager offset={offset} total={result.total} onChange={setOffset} /></div><aside className="data-detail"><div className="data-detail-navigation"><Button className="data-back-list" onClick={() => setDetailOpen(false)}>返回对象列表</Button>{history.length > 0 && <Button onClick={back}>返回上一个对象</Button>}</div><ErrorBox>{detail.error}</ErrorBox>{selectedId && detail.loading ? <p role="status">正在读取对象…</p> : <ObjectDetail key={selected?.id || "empty"} requestId={data.requestId} object={selected} onLocate={onLocate} onSelect={select} onEdit={data.editable && !busy ? field => setEditor({ object: selected, field }) : undefined} />}</aside></div></div>}
+      {["relations", "graph"].includes(mode) && <Relations key={mode + data.requestId} requestId={data.requestId} query={query} graph={mode === "graph"} onSelect={select} />}
+      {mode === "compare" && (comparison ? <Comparison key={comparison.rightRequestId} comparison={comparison} /> : <Empty title="选择另一份存档进行比较">在下方选择目录或压缩包，查看对象及字段变化。</Empty>)}
+      {mode === "versions" && <VersionSettings key={data.requestId} data={busy ? { ...data, editable: false } : data} onPreview={setWritePlan} />}
+      <div className="data-actions"><div><Button disabled={busy} onClick={() => choose("folder", true)}>比较另一目录</Button><Button disabled={busy} onClick={() => choose("archive", true)}>比较另一压缩包</Button></div><div><Button disabled={busy} onClick={() => exportData("json")}>导出 JSON</Button><Button disabled={busy} onClick={() => exportData("csv")}>导出当前类型 CSV</Button><Button disabled={busy} onClick={() => exportData("svg")}>导出关系图</Button>{comparison && <Button disabled={busy} onClick={() => exportData("json", comparison.rightRequestId)}>导出差异 JSON</Button>}</div></div>
+      <details className="data-issues"><summary>解析规则与读取问题（{data.statistics.failed}）</summary><p>{data.rules.join(" · ")}</p><p>跳过 {data.statistics.ignored} 个不在支持范围内的数据库键；这不表示全部世界状态已被解析。</p>{data.issues.map((issue, i) => <p key={i}><code>{issue.key}</code> · {issue.message}</p>)}</details>
+    </> : !busy && <Empty title={load.unavailable ? "存档尚未生成或暂不可用" : load.cancelled ? "扫描已取消" : load.error ? "暂时无法读取世界数据" : "选择要查看的存档"}>{load.unavailable ? "存档生成并保存后会自动读取。" : load.cancelled || load.error ? "点击重新扫描即可再次读取。" : "选择外部目录或压缩包后会自动加载已保存的数据。"}</Empty>}
+    {editor && data && <EditFieldDialog requestId={data.requestId} source={source} {...editor} onClose={() => setEditor(null)} onSaved={saved} onRefresh={() => run()} />}
+    {writePlan && data && <ConfirmWrite requestId={data.requestId} plan={writePlan} onClose={() => setWritePlan(null)} onSaved={saved} />}
+    {restore && <Modal title="恢复上次保存前的记录？" busy={saving} onClose={() => !saving && setRestore(false)} footer={<><Button disabled={saving} onClick={() => setRestore(false)}>取消</Button><Button primary disabled={saving} onClick={restoreLast}>确认恢复备份</Button></>}><p>仅恢复工具箱上次修改的记录。如果游戏或其他工具已改动该记录，恢复会被拒绝。</p></Modal>}
   </section>;
-}
-const DifferenceRow = React.memo(function DifferenceRow({ row }) {
-  const [open, setOpen] = useState(false);
-  const text = useMemo(() => open ? JSON.stringify(row, null, 2) : "", [row, open]);
-  return <details onToggle={event => setOpen(event.currentTarget.open)}><summary>{changes[row.status]} · {String(row.name)} · {row.identity}</summary>{open && <pre>{text}</pre>}</details>;
-});
-function RelationGraph({ objects, edges, onSelect }) {
-  const shown = edges.slice(0, 30), index = new Map(objects.map(row => [row.id, row]));
-  return <div className="data-graph"><p>显示筛选后的前 {shown.length} 条引用；实线表示已找到，虚线表示未解析或当前范围未找到。点击对象查看字段证据。</p>
-    <svg viewBox={`0 0 800 ${Math.max(90, shown.length * 70)}`} role="img" aria-label="存档对象关系图">{shown.map((edge, i) => <g key={i} transform={`translate(0, ${i * 70 + 10})`}><line x1="275" x2="525" y1="25" y2="25" stroke="currentColor" strokeDasharray={edge.to ? undefined : "5 5"} /><text x="400" y="16" textAnchor="middle">{states[edge.status]}</text><g role="button" tabIndex={0} aria-label="查看引用来源" onClick={() => onSelect(edge.from)} onKeyDown={e => { if (e.key === "Enter") onSelect(edge.from); }}><rect x="5" width="270" height="50" rx="6" /><text x="15" y="30">{String(index.get(edge.from)?.name || edge.from).slice(0, 22)}</text></g><g role={edge.to ? "button" : undefined} tabIndex={edge.to ? 0 : undefined} aria-label="查看引用目标" onClick={() => edge.to && onSelect(edge.to)} onKeyDown={e => { if (e.key === "Enter" && edge.to) onSelect(edge.to); }}><rect x="525" width="270" height="50" rx="6" /><text x="535" y="30">{edge.target.slice(0, 28)}</text></g></g>)}</svg>
-  </div>;
 }

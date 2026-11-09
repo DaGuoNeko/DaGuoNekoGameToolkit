@@ -89,12 +89,15 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
       true,
     );
     await card("Missing profile")
-      .getByRole("button", { name: "选择启动配置", exact: true })
+      .getByRole("button", { name: "打开存档控制台", exact: true })
       .click();
+    await page.getByRole("button", { name: "选择启动配置", exact: true }).click();
+    await page.getByRole("button", { name: "编辑存档设置", exact: true }).click();
     await page
       .getByRole("dialog")
       .getByRole("button", { name: "取消", exact: true })
       .click();
+    await page.getByRole("button", { name: "返回存档列表", exact: true }).click();
     const profilesBefore = await page.evaluate(() =>
       window.toolkit.call("profiles.list"),
     );
@@ -442,7 +445,7 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
     );
     await page.getByRole("tab", { name: "存档", exact: true }).click();
     await card("World A")
-      .getByRole("button", { name: "打开存档", exact: true })
+      .getByRole("button", { name: "打开存档控制台", exact: true })
       .click();
     await page.getByRole("button", { name: "停止会话", exact: true }).click();
     await page

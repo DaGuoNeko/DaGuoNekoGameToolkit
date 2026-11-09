@@ -33,6 +33,10 @@ let worldDataJobs;
 const worldDataResults = new Map();
 const { WorldDataStore } = require("./domains/worlds/world-data-store.cjs");
 let worldDataStore;
+const { WorldDataEdits } = require("./domains/worlds/world-data-edit.cjs");
+const { reserveIsolation } = require("./isolation-spawn.cjs");
+let worldDataEdits, worldDataWriteBusy = false, worldDataDirty = false;
+const worldDataDrafts = new Set();
 const { GameTitles } = require("./domains/game/game-titles.cjs");
 let gameTitles;
 const { Profiles } = require("./domains/profiles/profiles.cjs");
@@ -889,6 +893,7 @@ async function dispatch(method, args, source = win) {
       return selected;
     }
     case "world-data.scan": {
+      if (worldDataWriteBusy) throw Error("正在保存存档，请等待写入完成后再扫描");
       if (worldDataResults.has(args.requestId)) throw Error("扫描请求标识已使用，请生成新 requestId；已有结果可继续查询");
       const task = activityCenter.start("world-data.scan", { title: "读取存档数据", projectId: args.profileId || null, source: "ui" });
       const timer = setInterval(() => {
@@ -896,6 +901,7 @@ async function dispatch(method, args, source = win) {
         if (progress) activityCenter.update(task.id, { completed: progress.completed, total: progress.total, message: progress.stage });
       }, 300);
       try {
+        let cached;
         const result = await worldDataJobs.render(args.requestId, { scope: args.scope || "all" }, async () => {
           let location = args.source;
           if (args.worldId) {
@@ -905,20 +911,65 @@ async function dispatch(method, args, source = win) {
           }
           if (typeof location !== "string" || !path.isAbsolute(location)) throw Error("请选择存档来源");
           const identity = args.worldId ? undefined : await fileSelections.require(location, ["directory", "archive"]);
-          return { source: location, identity };
+          if (args.summaryOnly && worldDataResults.has(args.reuseRequestId)) {
+            cached = await worldDataStore.request("summary", { requestId: args.reuseRequestId }).catch(() => null);
+          }
+          return { source: location, identity, reuseFingerprint: cached?.source === location && cached.scope === (args.scope || "all") ? cached.fingerprint : undefined };
         });
+        if (result.reused && cached) {
+          activityCenter.finish(task.id, "success");
+          return { ...cached, requestId: args.reuseRequestId };
+        }
         await worldDataStore.request("put", { requestId: args.requestId, snapshot: result });
-        worldDataResults.set(args.requestId, { source: result.source });
+        worldDataResults.set(args.requestId, { source: result.source, worldId: args.worldId, editable: result.editable, versionPolicy: result.versionPolicy });
         while (worldDataResults.size > 4) worldDataResults.delete(worldDataResults.keys().next().value);
         activityCenter.finish(task.id, "success");
         if (!result.complete) activityCenter.event({ method: "world-data.scan", level: "warning", source: "ui", message: `世界数据仅获得部分结果：${result.statistics.failed} 处失败${result.truncated ? "，已达到读取上限" : ""}` });
-        return { ...result, requestId: args.requestId };
+        return { ...(args.summaryOnly ? require("../shared/world-data-model.cjs").summarizeSnapshot(result) : result), requestId: args.requestId };
       } catch (error) {
-        activityCenter.finish(task.id, /取消/.test(error.message) ? "cancelled" : "failed", error.message);
+        const cancelled = /取消/.test(error.message);
+        activityCenter.finish(task.id, cancelled ? "cancelled" : "failed", error.message);
+        if (cancelled) error.activityLogged = true;
         throw error;
       } finally { clearInterval(timer); }
     }
     case "world-data.state": return worldDataJobs.state(args.requestId);
+    case "world-data.dirty": {
+      if (typeof args.dirty !== "boolean" || typeof args.key !== "string" || args.key.length > 16384) throw Error("编辑状态无效");
+      if (args.dirty) worldDataDrafts.add(args.key); else worldDataDrafts.delete(args.key);
+      worldDataDirty = worldDataDrafts.size > 0; return true;
+    }
+    case "world-data.edit.read":
+    case "world-data.edit.prepare":
+    case "world-data.policy.prepare":
+    case "world-data.edit.apply":
+    case "world-data.edit.restore": {
+      const snapshot = worldDataResults.get(args.requestId);
+      if (!snapshot?.editable) throw Error("来源只读或快照已过期，请重新扫描可编辑的存档目录");
+      if (snapshot.worldId) {
+        const info = await worlds.inspect(worlds.find(await worlds.read(), null, snapshot.worldId));
+        if (!info.ready || info.deleted || info.path !== snapshot.source) throw Error("存档来源已变化");
+      } else await fileSelections.require(snapshot.source, "directory");
+      if (method === "world-data.edit.read" || method === "world-data.edit.prepare") {
+        const target = await worldDataStore.request("edit-target", args);
+        return method === "world-data.edit.read" ? worldDataEdits.read(target, args.field || "") : worldDataEdits.prepare(target, args.changes);
+      }
+      if (method === "world-data.policy.prepare") return worldDataEdits.preparePolicy(snapshot.source, args.value, snapshot.versionPolicy);
+      if (worldDataWriteBusy || worldDataJobs.active || mapPreviewJobs.active) throw Error("请等待当前扫描、地图读取或写入完成");
+      if (method === "world-data.edit.apply" && worldDataEdits.plans.get(args.token)?.target.source !== snapshot.source) throw Error("编辑预览与当前存档不匹配");
+      worldDataWriteBusy = true;
+      const task = activityCenter.start(method, { title: method.endsWith("restore") ? "恢复存档字段" : "备份并保存存档字段", source: "ui" });
+      try {
+        const result = await worlds.run(() => worlds.withWorldLock(snapshot.worldId || snapshot.source, () => method.endsWith("restore") ? worldDataEdits.restore(snapshot.source, args.backupId, args.confirmed) : worldDataEdits.apply(args.token, args.confirmed)));
+        activityCenter.finish(task.id, "success"); return result;
+      } catch (error) { activityCenter.finish(task.id, "failed", error.message); throw error; }
+      finally {
+        await worldDataStore.request("invalidate-source", { source: snapshot.source }).catch(() => {});
+        for (const [id, value] of worldDataResults) if (value.source === snapshot.source) worldDataResults.delete(id);
+        worldDataWriteBusy = false;
+        if (win && !win.isDestroyed()) win.webContents.send("automation-data-changed", { method: "worlds.data" });
+      }
+    }
     case "world-data.query": {
       const result = worldDataResults.get(args.requestId);
       if (!result) throw Error("数据快照已过期，请重新扫描");
@@ -1138,6 +1189,13 @@ else {
       mapPreviewJobs=new MapPreviewJobs(dataRoot,path.join(runtimeRoot,"automation/map-preview-worker.cjs"), { onError: reportBackgroundError, cachePreview: true });
       worldDataJobs=new MapPreviewJobs(dataRoot,path.join(runtimeRoot,"automation/world-data-worker.cjs"), { onError: reportBackgroundError, label: "世界数据", method: "world-data.scan" });
       worldDataStore=new WorldDataStore(path.join(runtimeRoot,"automation/world-data-compute-worker.cjs"), { onError: reportBackgroundError });
+      worldDataEdits = new WorldDataEdits(dataRoot, runtimeRoot, {
+        guard: async source => {
+          const ids = (await worlds.read()).worlds.filter(world => !world.deletedAt && path.resolve(world.linkedPath || worlds.location(world.id)).toLowerCase() === path.resolve(source).toLowerCase()).map(world => world.id);
+          await worlds.mutable(ids);
+        },
+        reserve: source => reserveIsolation(runtimeRoot, "Local\\DgnHost-" + require("node:crypto").createHash("sha256").update(path.resolve(source).toLowerCase()).digest("hex"), path.join(source, "db/LOCK")),
+      });
       debuggerService = new DebugController(store, runtimeRoot, { onError: reportBackgroundError });
       tracyProfiler = new TracyProfiler(dataRoot, runtimeRoot, debuggerService, { onError: reportBackgroundError });
       debuggerService.nativeViewerGuard = async (session, port) => {
@@ -1369,7 +1427,7 @@ else {
           if (launcher?.hasRunning || launcher?.starting || launcher?.stopping)
             return { ok: false, reason: "请先停止运行中的游戏会话" };
           if (rooms?.room) return { ok: false, reason: "请先关闭联机房间" };
-          if (dirty || inspectorWindow?.dirty)
+          if (dirty || worldDataDirty || worldDataWriteBusy || inspectorWindow?.dirty)
             return { ok: false, reason: "请先保存或关闭未保存的修改" };
           if (closing) return { ok: false, reason: "工具箱正在退出" };
           return { ok: true };
@@ -1534,12 +1592,13 @@ else {
       win.on("maximize", windowState);
       win.on("unmaximize", windowState);
       win.on("close", (event) => {
+        if (worldDataWriteBusy) { event.preventDefault(); return; }
         if (
           closing ||
           (!launcher.hasRunning &&
             !launcher.starting &&
             !rooms.room &&
-            !dirty &&
+            !dirty && !worldDataDirty && !worldDataWriteBusy &&
             !inspectorWindow.dirty) ||
           process.env.DGN_GAME_HEADLESS
         ) {
@@ -1550,7 +1609,7 @@ else {
         closeRequested = true;
         send("close-requested", {
           busy: launcher.hasRunning || launcher.starting || !!rooms.room,
-          dirty: dirty || inspectorWindow.dirty,
+          dirty: dirty || worldDataDirty || worldDataWriteBusy || inspectorWindow.dirty,
         });
       });
       win.once("ready-to-show", () => {
@@ -1564,7 +1623,8 @@ else {
       app.quit();
     });
   app.on("window-all-closed", () => app.quit());
-  app.on("before-quit", () => {
+  app.on("before-quit", (event) => {
+    if (worldDataWriteBusy) { event.preventDefault(); return; }
     if (process.env.DGN_GAME_HEADLESS) inspectorWindow?.destroy();
   });
   app.on("will-quit", (event) => {
@@ -1576,6 +1636,7 @@ else {
           ["mcp.shutdown", () => automation?.setEnabled(false), false],
           ["map-preview.shutdown", () => mapPreviewJobs?.dispose(), false],
           ["world-data.shutdown", () => worldDataJobs?.dispose(), false],
+          ["world-data.write.shutdown", () => worldDataEdits?.queue, false],
           ["world-data.compute.shutdown", () => worldDataStore?.dispose(), false],
           ["file-selection.shutdown", () => fileSelections.dispose(), false],
           ["architecture.shutdown", () => architectureImport?.dispose(), false],

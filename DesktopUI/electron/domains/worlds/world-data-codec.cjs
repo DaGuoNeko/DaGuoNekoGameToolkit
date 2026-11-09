@@ -22,15 +22,22 @@ function reader(bytes, little = true) {
   return { number, long, buffer, text, count, visit, get offset() { return offset; } };
 }
 
-function decodeMessagePack(bytes, { binaryText = false, types = {}, path = "" } = {}) {
-  const r = reader(bytes, false);
+function decodeMessagePack(bytes, { binaryText = false, types = {}, path = "", nodes = null } = {}) {
+  const r = reader(bytes, false), mapKeys = new Map();
   function read(depth = 0, field = path) {
+    const start = r.offset, value = readValue(depth, field);
+    if (nodes) nodes[field] = { start, end: r.offset, tag: bytes[start], value, keys: mapKeys.get(field) };
+    return value;
+  }
+  function readValue(depth, field) {
     r.visit(depth);
     const tag = r.number(1);
     const array = size => Array.from({ length: r.count(size) }, (_, i) => read(depth + 1, field + "/" + i));
     const map = size => {
+      const keys = []; if (nodes) mapKeys.set(field, keys);
       const entries = Array.from({ length: r.count(size) }, (_, i) => {
-        const key = read(depth + 1, field + "/@key" + i);
+        const start = r.offset, key = readValue(depth + 1, field + "/@key" + i);
+        if (nodes) keys.push({ value: key, start, end: r.offset });
         const part = typeof key === "string" || typeof key === "number" ? String(key).replace(/~/g, "~0").replace(/\//g, "~1") : "@value" + i;
         return [key, read(depth + 1, field + "/" + part)];
       });
@@ -71,11 +78,16 @@ function decodeMessagePack(bytes, { binaryText = false, types = {}, path = "" } 
   return value;
 }
 
-function parseNbtRecord(bytes, { little = true, worldScript = false } = {}) {
-  const r = reader(bytes, little), types = {}, warnings = [];
+function parseNbtRecord(bytes, { little = true, worldScript = false, capture = false } = {}) {
+  const r = reader(bytes, little), types = {}, warnings = [], nodes = {}, scripts = {};
   const names = ["end", "byte", "short", "int", "long", "float", "double", "byteArray", "string", "list", "compound", "intArray", "longArray"];
   const name = () => r.text(r.number(2));
   function value(type, path, depth, parent) {
+    const start = r.offset, result = readValue(type, path, depth, parent);
+    if (capture) nodes[path] = { start, end: r.offset, type, value: result };
+    return result;
+  }
+  function readValue(type, path, depth, parent) {
     r.visit(depth);
     if (!names[type] || type === 0) throw Error("NBT 类型无效：" + type);
     types[path] = names[type];
@@ -84,12 +96,15 @@ function parseNbtRecord(bytes, { little = true, worldScript = false } = {}) {
     if (type === 5 || type === 6) return r.number(type === 5 ? 4 : 8, false, true);
     if (type === 7) return { $binary: r.buffer(r.number(4, true)).toString("base64") };
     if (type === 8) {
-      const script = path.endsWith("/scriptData");
+      const script = little && path.endsWith("/scriptData");
       const extended = script && (worldScript || parent?.saveLongString === 1);
+      const start = r.offset;
       const raw = r.buffer(r.number(extended ? 4 : 2));
       if (script) {
         types[path] = extended ? "neteaseScriptData32" : "neteaseScriptData16";
-        try { return decodeMessagePack(raw, { binaryText: true, types, path }); }
+        const entry = { start, end: r.offset, lengthBytes: extended ? 4 : 2, nodes: {}, raw };
+        if (capture) scripts[path] = entry;
+        try { return decodeMessagePack(raw, { binaryText: true, types, path, nodes: capture ? entry.nodes : null }); }
         catch (e) { warnings.push({ path, message: e.message }); return { $binary: raw.toString("base64"), error: "未能解码 MessagePack" }; }
       }
       return new TextDecoder("utf-8", { fatal: true }).decode(raw);
@@ -114,6 +129,6 @@ function parseNbtRecord(bytes, { little = true, worldScript = false } = {}) {
   }
   const type = r.number(1); if (type !== 10) throw Error("NBT 根节点必须是 Compound");
   const rootName = name(), result = value(type, "", 0);
-  return { value: result, name: rootName, size: r.offset, types, warnings };
+  return { value: result, name: rootName, size: r.offset, types, warnings, ...(capture ? { nodes, scripts } : {}) };
 }
 module.exports = { decodeMessagePack, parseNbtRecord, MAX_BYTES };

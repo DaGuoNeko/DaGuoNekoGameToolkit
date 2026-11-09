@@ -73,7 +73,7 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
     page.on("pageerror", (e) => errors.push(e.message));
     await page
       .getByRole("article", { name: "存档 功能测试存档", exact: true })
-      .getByRole("button", { name: "打开存档", exact: true })
+      .getByRole("button", { name: "打开存档控制台", exact: true })
       .click();
     await page.getByRole("navigation", { name: "存档工作区" }).getByRole("button", { name: "设置", exact: true }).click();
     await page
@@ -113,7 +113,7 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
     // Reopen verifies storage across application lifetimes, before any game is started.
     page = await launch();
     page.on("pageerror", (e) => errors.push(e.message));
-    await page.getByRole("button", { name: "打开存档", exact: true }).click();
+    await page.getByRole("button", { name: "打开存档控制台", exact: true }).click();
     await page.getByRole("navigation", { name: "存档工作区" }).getByRole("button", { name: "设置", exact: true }).click();
     await page
       .getByRole("article", { name: "功能 领取钻石", exact: true })

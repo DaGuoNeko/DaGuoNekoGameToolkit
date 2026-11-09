@@ -7,6 +7,10 @@ const { safeDirectory, readFile, extractArchive, levelFormat, parseAnvilChunk } 
 const { parseNbtRecord, MAX_BYTES } = require("./world-data-codec.cjs");
 const { businessObjects, references } = require("../../../shared/world-data-model.cjs");
 const { ContentIndex } = require("../profiles/content-index.cjs");
+const { detectCapabilities, enabled, availableKinds } = require("../../../shared/world-data-capabilities.cjs");
+const crypto = require("node:crypto");
+const { readPolicy, POLICY_FILE } = require("./world-version-policy.cjs");
+const { inspectSelection, verifySelection } = require("../../file-selection.cjs");
 
 async function sourceFiles(root) {
   const files = [];
@@ -27,14 +31,24 @@ async function sourceFiles(root) {
   const stat = await fs.lstat(path.join(root, "level.dat"));
   if (!stat.isFile() || stat.isSymbolicLink()) throw Error("level.dat 无效");
   files.push(["level.dat", stat.size, stat.mtimeMs, stat.ctimeMs]);
+  for (const name of ["world_behavior_packs.json", "world_resource_packs.json", POLICY_FILE]) {
+    const info = await fs.lstat(path.join(root, name)).catch(e => { if (e.code === "ENOENT") return null; throw e; });
+    if (!info) continue;
+    if (!info.isFile() || info.isSymbolicLink()) throw Error("存档启用清单无效");
+    files.push([name, info.size, info.mtimeMs, info.ctimeMs]);
+  }
   return files.sort((a, b) => a[0].localeCompare(b[0]));
 }
 
-async function scanWorldData({ source, dataRoot, scope = "all", onProgress = () => {} }) {
+async function scanWorldData({ source, dataRoot, scope = "all", reuseFingerprint, onProgress = () => {} }) {
   if (typeof source !== "string" || !path.isAbsolute(source)) throw Error("请选择存档来源");
   if (!["all", "gameplay", "world", "entities"].includes(scope)) throw Error("数据读取范围无效");
-  let root = source;
-  if (/\.(zip|mcworld)$/i.test(source)) {
+  const identity = await inspectSelection(source), archive = /\.(zip|mcworld)$/i.test(source);
+  const fingerprintFor = files => crypto.createHash("sha256").update(JSON.stringify([scope, identity.identity, files])).digest("hex");
+  let root = source, fingerprint;
+  if (archive) {
+    fingerprint = fingerprintFor(null);
+    if (reuseFingerprint === fingerprint) return { source, reused: true };
     await fs.mkdir(dataRoot, { recursive: true });
     await safeDirectory(dataRoot);
     root = path.join(dataRoot, "world");
@@ -42,24 +56,41 @@ async function scanWorldData({ source, dataRoot, scope = "all", onProgress = () 
     await extractArchive(source, root);
   }
   await safeDirectory(root);
+  onProgress("检查来源是否变化", 0, null);
   const before = await sourceFiles(root);
+  fingerprint ||= fingerprintFor(before);
+  if (reuseFingerprint === fingerprint) {
+    if (JSON.stringify(before) !== JSON.stringify(await sourceFiles(root))) throw Error("来源在检查期间变化，请保存退出游戏后重新读取");
+    await verifySelection(identity); return { source, reused: true };
+  }
   const level = await readFile(path.join(root, "level.dat"), MAX_BYTES);
   const format = levelFormat(level), objects = [], issues = [], statistics = { keys: 0, records: 0, ignored: 0, failed: 0 };
-  let bytes = 0, truncated = false;
+  let bytes = 0, truncated = false, versionMarkers = {};
   const add = object => {
     const size = Buffer.byteLength(JSON.stringify(object));
     if (objects.length >= 20000 || bytes + size > 24 * 1024 * 1024) { truncated = true; return; }
     bytes += size; objects.push(object);
   };
   const fail = (key, error) => { statistics.failed++; if (issues.length < 200) issues.push({ key, message: error.message }); };
-  function record(parsed, key, offset, kind, dimension = null) {
+  onProgress("核对存档模组与启用清单", 0, null);
+  const content = await new ContentIndex(null).scan({ root, sourceId: "world" });
+  let bindings = null, netease = false, extraData = false;
+  if (format === "bedrock" && before.some(([name]) => name === "world_behavior_packs.json")) {
+    try {
+      bindings = JSON.parse((await readFile(path.join(root, "world_behavior_packs.json"), MAX_BYTES)).toString("utf8").replace(/^\uFEFF/, ""));
+      if (!Array.isArray(bindings) || bindings.some(row => !row || typeof row.pack_id !== "string" || !Array.isArray(row.version) || row.version.length !== 3 || !row.version.every(Number.isInteger))) throw Error("存档启用清单结构无效");
+    } catch (error) { bindings = null; fail("world_behavior_packs.json", error); }
+  }
+  const capabilities = detectCapabilities(format === "bedrock" ? content.packs : [], format === "bedrock" ? bindings : []);
+  function record(parsed, key, offset, kind, dimension = null, revision = null) {
     const value = parsed.value;
+    if (key === "level.dat" && format === "bedrock") versionMarkers = Object.fromEntries(["MinimumCompatibleClientVersion", "lastOpenedWithVersion", "baseGameVersion", "StorageVersion", "NetworkVersion"].filter(key => Object.hasOwn(value, key)).map(key => [key, value[key]]));
     const position = Array.isArray(value.Pos) ? value.Pos : [value.x, value.y, value.z];
     const positioned = position.length === 3 && position.every(Number.isFinite);
     dimension = value.DimensionId ?? value.LastDimensionId ?? dimension;
     if (kind === "blockEntity" && typeof value.Command === "string") kind = "command";
     else if (kind === "blockEntity" && (Array.isArray(value.Items) || Array.isArray(value.ChestItems))) kind = "container";
-    else if (kind === "entity" && [value.identifier, value.id].some(name => typeof name === "string" && /npc/i.test(name))) kind = "npc";
+    else if (kind === "entity" && enabled(capabilities, "npc") && value.scriptData?.NPC_IDENTITY) kind = "npc";
     const uuid = value.UniqueID ?? value.UUID;
     const identity = ["command", "container", "blockEntity"].includes(kind) && positioned
       ? kind + ":" + dimension + ":" + position.join(",")
@@ -67,19 +98,25 @@ async function scanWorldData({ source, dataRoot, scope = "all", onProgress = () 
         : key + ":" + offset;
     const object = { id: key + ":" + offset, identity, kind, name: [value.CustomName, value.identifier, value.id].find(name => typeof name === "string" && name) || key,
       position: positioned ? position : null, dimension, value, types: parsed.types,
-      evidence: { key, offset, bytes: parsed.size, field: "" }, rule: format === "java" ? "Java NBT" : "Bedrock NBT" };
+      evidence: { key, offset, bytes: parsed.size, field: "", revision }, rule: format === "java" ? "Java NBT" : "Bedrock NBT" };
     statistics.records++;
     for (const warning of parsed.warnings) fail(key + warning.path, Error(warning.message));
     const include = scope === "all" || scope === "gameplay" && ["world", "npc", "command", "container"].includes(kind) || scope === "world" && ["world", "player"].includes(kind) || scope === "entities" && ["entity", "npc", "world"].includes(kind);
     if (!include) return;
     add(object);
-    for (const item of businessObjects(object)) add(item);
+    const script = format === "bedrock" && /^neteaseScriptData/.test(parsed.types["/scriptData"] || "");
+    if (script) {
+      netease = true;
+      if (value.scriptData && typeof value.scriptData === "object" && !value.scriptData.$binary && Object.keys(value.scriptData).length) extraData = true;
+      for (const item of businessObjects(object, capabilities)) add(item);
+    }
   }
   const parseMany = (raw, key, kind, dimension, options = {}) => {
+    const revision = crypto.createHash("sha256").update(raw).digest("hex");
     let offset = 0;
     while (offset < raw.length && !truncated) {
       const parsed = parseNbtRecord(raw.subarray(offset), options);
-      record(parsed, key, offset, kind, dimension);
+      record(parsed, key, offset, kind, dimension, revision);
       offset += parsed.size;
     }
   };
@@ -134,16 +171,19 @@ async function scanWorldData({ source, dataRoot, scope = "all", onProgress = () 
   }
   if (!truncated) {
     onProgress("读取存档内物品定义", 0, null);
-    const content = await new ContentIndex(null).scan({ root, sourceId: "world" });
     for (const item of content.entries.filter(entry => entry.type === "item")) add({ id: "item:" + path.relative(root, item.path) + ":" + item.identifier, identity: "item:" + item.identifier, kind: "item", name: item.displayName || item.identifier,
       value: { identifier: item.identifier, components: item.componentValues, properties: item.properties, pack: item.packName }, types: {}, evidence: { key: path.relative(root, item.path).replace(/\\/g, "/"), field: "", offset: null }, rule: "存档内物品定义（存在不代表已启用）" });
     for (const issue of content.issues.filter(issue => !["missing-manifest", "duplicate-identifier"].includes(issue.code))) fail(issue.path || "world-packs", Error(issue.message));
   }
+  const versionPolicy = await readPolicy(root);
   if (JSON.stringify(before) !== JSON.stringify(await sourceFiles(root))) throw Error("来源在扫描期间变化，请保存退出游戏后重新读取");
+  await verifySelection(identity);
   onProgress("分析已识别引用", objects.length, objects.length);
-  const relations = references(objects);
+  const relations = references(objects, capabilities);
   if (relations.length >= 20000) { truncated = true; issues.push({ key: "relations", message: "引用达到 20000 条上限，关系结果已截断" }); }
-  return { source, format, scope, generatedAt: new Date().toISOString(), complete: !truncated && !statistics.failed, truncated, statistics, issues, objects, relations,
+  return { source, format, scope, fingerprint, generatedAt: new Date().toISOString(), complete: !truncated && !statistics.failed, truncated, statistics, issues, objects, relations,
+    capabilities, edition: netease ? "netease" : format, extraData, availableKinds: availableKinds(capabilities, extraData),
+    versionPolicy, versionMarkers, editable: !/\.(zip|mcworld)$/i.test(source) && format === "bedrock",
     coverage: "已保存的受支持记录；未生成区块、内存状态、外部模组定义及动态脚本不在本次检查范围。实体记录不代表当前加载或存活状态。", rules: ["NBT", "网易 scriptData 16/32 位与 MessagePack", "Custom NPC V3", "Quest Engine quest_item/allitem", "Miao Command Library V2"] };
 }
 module.exports = { scanWorldData, sourceFiles };

@@ -502,7 +502,9 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
       exact: true,
     });
     await card.waitFor();
-    await card.getByRole("button", { name: "存档设置", exact: true }).click();
+    await card.getByRole("button", { name: "打开存档控制台", exact: true }).click();
+    await page.getByRole("button", { name: "存档设置", exact: true }).click();
+    await page.getByRole("button", { name: "编辑存档设置", exact: true }).click();
     await page
       .getByRole("dialog")
       .getByRole("combobox", { name: "使用启动配置", exact: true })
@@ -512,6 +514,8 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
       .getByRole("dialog")
       .getByRole("button", { name: "保存存档设置", exact: true })
       .click();
+    await page.getByRole("dialog").waitFor({ state: "hidden" });
+    await page.getByRole("button", { name: "返回存档列表", exact: true }).click();
     await card.getByText("启动配置：联机 B", { exact: true }).waitFor();
     await card.getByRole("button", { name: "启动此存档", exact: true }).click();
     await page.getByRole("button", { name: "查看日志", exact: true }).click();

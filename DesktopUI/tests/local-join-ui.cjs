@@ -145,7 +145,7 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
     await require("./fixtures/navigation.cjs").navigate(page, "存档");
     await page
       .getByRole("article", { name: "存档 World B", exact: true })
-      .getByRole("button", { name: "打开存档", exact: true })
+      .getByRole("button", { name: "打开存档控制台", exact: true })
       .click();
     await page
       .getByRole("button", { name: "加入此存档测试", exact: true })

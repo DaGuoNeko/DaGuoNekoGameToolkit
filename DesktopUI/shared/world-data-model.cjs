@@ -1,4 +1,7 @@
-const labels = { command: "命令方块", blockEntity: "方块实体", container: "容器", entity: "实体", npc: "NPC", world: "世界数据", player: "玩家数据", structure: "结构", extra: "ExtraData", quest: "任务", questGroup: "任务分组", objective: "任务目标", dialogue: "对话", template: "NPC 模板", library: "指令库", progress: "任务进度", item: "物品" };
+const { enabled } = require("./world-data-capabilities.cjs");
+const { describeObject, fieldLabel } = require("./world-data-presentation.cjs");
+const labels = { command: "命令方块", blockEntity: "方块实体", container: "容器", entity: "实体", npc: "NPC", world: "世界数据", player: "玩家数据", structure: "结构", extra: "ExtraData", quest: "任务", questGroup: "任务分组", objective: "任务目标", dialogue: "对话", template: "NPC 模板", library: "指令库", progress: "任务进度", item: "物品", attributes: "RPG 属性" };
+const kindOrder = ["command", "npc", "quest", "questGroup", "objective", "dialogue", "template", "library", "container", "player", "progress", "attributes", "entity", "item", "blockEntity", "structure", "world", "extra"];
 const pointer = key => String(key).replace(/~/g, "~0").replace(/\//g, "~1");
 function walk(value, callback, path = "", depth = 0) {
   if (depth > 48) return;
@@ -6,35 +9,38 @@ function walk(value, callback, path = "", depth = 0) {
   if (value && typeof value === "object" && !value.$binary)
     for (const [key, item] of Object.entries(value)) walk(item, callback, path + "/" + pointer(key), depth + 1);
 }
-function businessObjects(record) {
+function businessObjects(record, capabilities = {}) {
   const root = record.value.scriptData;
   if (!root || typeof root !== "object" || root.$binary) return [];
   const objects = [];
   const add = (kind, key, value, field, rule, aliases = []) => objects.push({
-    id: record.id + field, identity: kind + ":" + key, kind, name: typeof value?.name === "string" ? value.name : typeof value?.title === "string" ? value.title : key,
+    id: record.id + ":" + kind + field, identity: kind + ":" + key, kind, name: typeof value?.name === "string" ? value.name : typeof value?.title === "string" ? value.title : key,
     value, position: record.position, dimension: record.dimension,
-    evidence: { ...record.evidence, field }, rule, aliases, types: {},
+    evidence: { ...record.evidence, field }, rule, aliases, types: Object.fromEntries(Object.entries(record.types || {}).filter(([path]) => path === field || path.startsWith(field + "/")).map(([path, type]) => [path.slice(field.length), type])),
   });
   for (const [key, value] of Object.entries(root)) {
     const base = "/scriptData/" + pointer(key);
-    add(key === "Quest_Engine_Player_Data" ? "progress" : "extra", key, value, base, "网易 ExtraData 根键");
-    if (key === "Quest_Engine_Data") {
+    add("extra", record.identity + ":" + key, value, base, "网易 ExtraData 根键");
+    objects.at(-1).name = key;
+    if (key === "Quest_Engine_Player_Data" && enabled(capabilities, "quest")) { add("progress", record.identity + ":" + key, value, base, "Quest Engine 已保存进度"); objects.at(-1).name = "任务进度 · " + (record.name || record.identity); }
+    if (["Attr_Main_Data", "Attr_Data", "Attr_PlayerInfo"].includes(key) && enabled(capabilities, "attributes")) { add("attributes", record.identity + ":" + key, value, base, "自定义属性已保存数据（非运行时最终属性）"); objects.at(-1).name = key; }
+    if (key === "Quest_Engine_Data" && enabled(capabilities, "quest")) {
       for (const [id, data] of Object.entries(value?.quest_item?.allitem || {}))
         if (["quest", "group"].includes(data?._type_)) add(data._type_ === "quest" ? "quest" : "questGroup", id, data, base + "/quest_item/allitem/" + pointer(id), "Quest Engine quest_item/allitem");
       for (const [id, data] of Object.entries(value?.quest_item?.allobjitem || {})) add("objective", id, data, base + "/quest_item/allobjitem/" + pointer(id), "Quest Engine quest_item/allobjitem");
     }
-    if (key === "CUSTOMNPC_TEMPLATE_LIBRARY_V3" && value?.schema_version === 3)
+    if (key === "CUSTOMNPC_TEMPLATE_LIBRARY_V3" && enabled(capabilities, "npc") && value?.schema_version === 3)
       for (const [id, data] of Object.entries(value.items || {})) add("template", id, data, base + "/items/" + pointer(id), "Custom NPC V3");
-    if (key === "CUSTOMNPC_DIALOGUE_LIBRARY_V3" && value?.schema_version === 3)
+    if (key === "CUSTOMNPC_DIALOGUE_LIBRARY_V3" && enabled(capabilities, "npc") && value?.schema_version === 3)
       for (const [category, group] of Object.entries(value.items || {}))
         for (const [id, data] of Object.entries(group.items || {})) add("dialogue", id, data, base + "/items/" + pointer(category) + "/items/" + pointer(id), "Custom NPC V3",
           group.legacy_type_id != null && data.legacy_dialogue_id != null ? ["dialogueLegacy:" + JSON.stringify([group.legacy_type_id, data.legacy_dialogue_id])] : []);
-    if (key === "DAGUOMIAO_API_MOD_data_v1" && value?.command_library?.schema_version === 2)
+    if (key === "DAGUOMIAO_API_MOD_data_v1" && enabled(capabilities, "library") && value?.command_library?.schema_version === 2)
       for (const [id, data] of Object.entries(value.command_library.data || {})) add("library", id, data, base + "/command_library/data/" + pointer(id), "Miao Command Library V2");
   }
   return objects;
 }
-function references(objects) {
+function references(objects, capabilities = null) {
   const index = new Map(), result = [];
   for (const object of objects) {
     for (const key of [object.identity, ...(object.aliases || [])]) { const ids = index.get(key) || []; ids.push(object.id); index.set(key, ids); }
@@ -43,8 +49,10 @@ function references(objects) {
     // 根数据与业务投影只分析一次，避免同一引用在结果中重复出现。
     if (["extra", "progress"].includes(object.kind)) continue;
     walk(object.value, (value, field) => {
-      if (object.kind === "world" && /^\/scriptData\/(?:Quest_Engine_Data|CUSTOMNPC_TEMPLATE_LIBRARY_V3|CUSTOMNPC_DIALOGUE_LIBRARY_V3|DAGUOMIAO_API_MOD_data_v1)$/.test(field)) return false;
+      if (object.kind === "world" && field === "/scriptData") return false;
       const add = (kind, key, rule) => {
+        const dependency = { library: "library", quest: "quest", questGroup: "quest", objective: "quest", dialogue: "npc", dialogueLegacy: "npc", template: "npc" }[kind];
+        if (capabilities && dependency && !enabled(capabilities, dependency)) return;
         if (typeof key !== "string" || !key.trim() || result.length >= 20000) return;
         const targets = index.get(kind + ":" + key) || [];
         result.push({ from: object.id, to: targets.length === 1 ? targets[0] : null, target: kind + ":" + key,
@@ -63,7 +71,12 @@ function references(objects) {
       if (npcCommand && !value.startsWith("cmd.")) add("library", value, "NPC 交互指令库字段");
       if (field.endsWith("/dialogue_id")) add("dialogue", value, "Custom NPC 稳定对话 ID 字段");
       if (field.endsWith("/quest_uid") || field.endsWith("/owner_quest_uid")) add("quest", value, "Quest Engine 任务 ID 字段");
+      if (["quest", "questGroup"].includes(object.kind) && (field === "/parent_uid" || /^\/child_uid\/\d+$/.test(field))) {
+        const kind = index.has("quest:" + value) ? "quest" : "questGroup";
+        add(kind, value, "Quest Engine 分组层级");
+      }
       if (object.kind === "quest" && /^\/target\/list\/\d+$/.test(field)) add("objective", value, "Quest Engine 任务目标列表");
+      if (object.kind === "quest" && field === "/nextquest/uid") add("quest", value, "Quest Engine 后续任务");
       if (field.endsWith("/Name") && /\/(Items|ChestItems|Inventory)\//.test(field)) add("item", value, "容器物品标识符（资源定义未纳入扫描）");
       const commandText = value.startsWith("cmd.") ? value.slice(4) : value.trim();
       const direct = /^cmd\(([^()]+)\)$/.exec(commandText);
@@ -106,29 +119,34 @@ function compareWorldData(left, right) {
     const before = a.get(key) || [], after = b.get(key) || [];
     if (before.length > 1 || after.length > 1) { changes.push({ identity: key, status: "ambiguous", fields: [], name: (after[0] || before[0]).name }); continue; }
     const row = after[0] || before[0];
-    if (!before.length || !after.length) { changes.push({ identity: key, name: row.name, status: before.length ? "removed" : "added", fields: [], before: before[0]?.evidence, after: after[0]?.evidence }); continue; }
+    const partial = !left.complete || !right.complete || left.scope !== right.scope || JSON.stringify(left.capabilities) !== JSON.stringify(right.capabilities);
+    if (!before.length || !after.length) { changes.push({ identity: key, name: row.name, kind: row.kind, status: partial ? before.length ? "not-observed-right" : "not-observed-left" : before.length ? "removed" : "added", fields: [], before: before[0]?.evidence, after: after[0]?.evidence }); continue; }
     const fields = [];
     function diff(x, y, path = "") {
       if (fields.length >= 200) return;
       if (JSON.stringify(stable(x)) === JSON.stringify(stable(y))) return;
-      if (x && y && typeof x === "object" && typeof y === "object" && !Array.isArray(x) && !Array.isArray(y))
+      if (/\/(Items|ChestItems|Inventory|EnderChestInventory)$/.test(path) && Array.isArray(x) && Array.isArray(y)) {
+        const slots = rows => rows.every(row => Number.isInteger(row?.Slot)) && new Set(rows.map(row => row.Slot)).size === rows.length;
+        if (slots(x) && slots(y)) { diff(Object.fromEntries(x.map(row => [row.Slot, row])), Object.fromEntries(y.map(row => [row.Slot, row])), path); return; }
+      }
+      if (x && y && typeof x === "object" && typeof y === "object" && Array.isArray(x) === Array.isArray(y))
         for (const name of new Set([...Object.keys(x), ...Object.keys(y)])) diff(x[name], y[name], path + "/" + pointer(name));
       else {
         const preview = value => {
           const text = JSON.stringify(value);
           return text?.length > 8192 ? { $preview: text.slice(0, 8192), characters: text.length, truncated: true } : value;
         };
-        fields.push({ path, before: preview(x), after: preview(y) });
+        fields.push({ path, label: fieldLabel(path), before: preview(x), after: preview(y) });
       }
     }
     diff(before[0].value, after[0].value);
     diff(before[0].types, after[0].types, "/@types");
     if (fields.length) {
-      const change = { identity: key, name: row.name, status: "changed", fields, fieldsTruncated: fields.length >= 200, before: before[0].evidence, after: after[0].evidence };
+      const change = { identity: key, name: row.name, kind: row.kind, status: "changed", fields, fieldsTruncated: fields.length >= 200, before: before[0].evidence, after: after[0].evidence };
       resultBytes += JSON.stringify(change).length; changes.push(change);
     }
   }
-  return { left: left.source, right: right.source, leftScope: left.scope, rightScope: right.scope, changes, truncated, partial: !left.complete || !right.complete || left.scope !== right.scope };
+  return { left: left.source, right: right.source, leftScope: left.scope, rightScope: right.scope, changes, truncated, partial: !left.complete || !right.complete || left.scope !== right.scope || JSON.stringify(left.capabilities) !== JSON.stringify(right.capabilities) };
 }
 function exportWorldData(result, format, kind = "") {
   if (format === "json") return JSON.stringify(result, null, 2) + "\n";
@@ -143,12 +161,47 @@ function exportWorldData(result, format, kind = "") {
   for (const row of result.objects.filter(row => !kind || row.kind === kind)) rows.push([labels[row.kind], row.name, row.identity, row.dimension, ...(row.position || ["", "", ""]), row.evidence.key, row.evidence.field, JSON.stringify(row.value)]);
   return "\uFEFF" + rows.map(row => row.map(cell).join(",")).join("\r\n") + "\r\n";
 }
-function queryWorldData(result, { view = "objects", kind = "", query = "", offset = 0, limit = 50, includeData = false } = {}, searchIndex = null) {
-  if (!["objects", "relations"].includes(view) || !Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 100 || typeof query !== "string" || query.length > 256) throw Error("数据查询范围无效");
+function queryWorldData(result, { view = "objects", kind = "", query = "", offset = 0, limit = 50, includeData = false, id = "", direction = "both", status = "", field = "" } = {}, searchIndex = null) {
+  if (!["objects", "relations", "fields"].includes(view) || !Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 100 || typeof query !== "string" || query.length > 256 || typeof id !== "string" || id.length > 4096 || typeof field !== "string" || field.length > 8192 || !["both", "incoming", "outgoing"].includes(direction) || !["", "resolved", "not-found", "ambiguous", "unknown"].includes(status)) throw Error("数据查询范围无效");
+  const base = { source: result.source, generatedAt: result.generatedAt, complete: result.complete, coverage: result.coverage, offset };
+  if (view === "fields") {
+    const object = result.objects.find(row => row.id === id);
+    if (!object) throw Error("对象不在当前快照中");
+    let value = object.value;
+    if (field && !field.startsWith("/")) throw Error("字段路径无效");
+    for (const key of field ? field.slice(1).split("/").map(key => key.replace(/~1/g, "/").replace(/~0/g, "~")) : []) {
+      if (!value || typeof value !== "object" || !Object.hasOwn(value, key)) throw Error("字段不存在");
+      value = value[key];
+    }
+    const entries = value && typeof value === "object" ? Object.entries(value) : [["", value]];
+    const rows = entries.slice(offset, offset + limit).map(([key, child]) => {
+      const childField = key === "" && (value === null || typeof value !== "object") ? field : field + "/" + pointer(key);
+      const expandable = child !== null && typeof child === "object";
+      const text = expandable ? `${Array.isArray(child) ? "列表" : "对象"} · ${Object.keys(child).length} 项` : String(child ?? "null");
+      const absolute = (object.evidence?.field || "") + childField;
+      const protectedField = /^\/(x|y|z|Pos|UniqueID|UUID|identifier|id|StorageVersion|NetworkVersion|saveLongString)(\/|$)/.test(absolute);
+      const opaque = child && typeof child === "object" && ["$binary", "$extension", "$map", "$float"].some(key => Object.hasOwn(child, key));
+      const editable = !!object.evidence?.revision && !protectedField && !opaque && (!!absolute.includes("/scriptData/") || absolute === "/scriptData" || !expandable || /^list<(byte|short|int|long|float|double|string)>$|^(intArray|longArray)$/.test(object.types?.[childField] || ""));
+      return { key, field: childField, type: object.types?.[childField] || (Array.isArray(child) ? "array" : child === null ? "null" : typeof child), expandable, editable, preview: text.slice(0, 8192), truncated: text.length > 8192 };
+    });
+    if (JSON.stringify(rows).length > 1024 * 1024) throw Error("字段结果过大，请减小分页数量或导出 JSON");
+    return { ...base, field, total: entries.length, rows };
+  }
   const needle = query.toLowerCase();
-  const rows = (view === "objects" ? result.objects : result.relations).filter((row, index) => (!kind || row.kind === kind) && (!needle || (searchIndex?.[index] ?? JSON.stringify(row).toLowerCase()).includes(needle)));
-  const selected = rows.slice(offset, offset + limit).map(row => view === "objects" && !includeData ? { id: row.id, identity: row.identity, kind: row.kind, name: row.name, position: row.position, dimension: row.dimension, rule: row.rule, evidence: row.evidence } : row);
+  const names = new Map(result.objects.map(row => [row.id, row.name]));
+  const rows = (view === "objects" ? result.objects : result.relations).filter((row, index) => (!kind || row.kind === kind) && (!status || row.status === status) && (!id || (view === "objects" ? row.id === id : direction === "incoming" ? row.to === id : direction === "outgoing" ? row.from === id : row.to === id || row.from === id)) && (!needle || (searchIndex?.[index] ?? JSON.stringify(row).toLowerCase()).includes(needle) || view === "relations" && `${names.get(row.from)} ${names.get(row.to)}`.toLowerCase().includes(needle)));
+  if (view === "objects") rows.sort((a, b) => kindOrder.indexOf(a.kind) - kindOrder.indexOf(b.kind));
+  const selected = rows.slice(offset, offset + limit).map(row => {
+    if (view === "relations") return { ...row, fromName: names.get(row.from), toName: names.get(row.to) };
+    if (includeData) return row;
+    const summary = describeObject(row, !!id);
+    return { id: row.id, identity: row.identity, kind: row.kind, name: row.name, position: row.position, dimension: row.dimension, rule: row.rule, evidence: row.evidence, summary: id ? summary : { description: summary.description } };
+  });
   if (JSON.stringify(selected).length > 1024 * 1024) throw Error("查询结果过大，请缩小范围或关闭 includeData");
-  return { source: result.source, generatedAt: result.generatedAt, complete: result.complete, coverage: result.coverage, total: rows.length, offset, rows: selected };
+  return { ...base, total: rows.length, rows: selected };
 }
-module.exports = { labels, businessObjects, references, compareWorldData, exportWorldData, queryWorldData };
+function summarizeSnapshot(result) {
+  return { ...result, objects: result.objects.filter(row => row.position && !row.evidence?.field).slice(0, 500).map(({ id, name, kind, position, dimension }) => ({ id, name, kind, position, dimension })), relations: undefined,
+    objectCount: result.objects.length, relationCount: result.relations.length, counts: Object.fromEntries(Object.keys(labels).map(kind => [kind, result.objects.filter(row => row.kind === kind).length])) };
+}
+module.exports = { labels, kindOrder, businessObjects, references, compareWorldData, exportWorldData, queryWorldData, summarizeSnapshot };
