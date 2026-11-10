@@ -13,6 +13,11 @@ import {
 import { modRows, setModOption } from "../../../shared/mod-selection.cjs";
 import "./mod-library.css";
 import { useWorkspaceState } from "../../app/workspaces.jsx";
+
+const studioKey = (value) => String(value || "").toLowerCase();
+function studioMod(mod, studio) {
+  return (studio?.mods || []).find((item) => studioKey(item.directory) === studioKey(mod?.path)) || null;
+}
 const call = (method, args = {}) => window.toolkit.call(method, args);
 export function ModLibraryPage({ onRemoved }) {
   return (
@@ -157,6 +162,7 @@ export function ModCatalog({
 }) {
   const selecting = !!onChange;
   const [library, setLibrary] = useState(null),
+    [studio, setStudio] = useState(null),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
     [query, setQuery] = useState(""),
@@ -171,7 +177,9 @@ export function ModCatalog({
     setError("");
     try {
       const value = await call("mods.list");
+      const found = await call("mcstudio.scan").catch(() => null);
       if (current === ticket.current) setLibrary(value);
+      if (current === ticket.current) setStudio(found);
     } catch (e) {
       if (current === ticket.current) setError(e.message);
     } finally {
@@ -190,6 +198,23 @@ export function ModCatalog({
   const shown = rows.filter((m) =>
     `${m.name}\n${m.path}`.toLowerCase().includes(query.toLowerCase()),
   );
+  const registeredMods = new Set(rows.map((item) => studioKey(item.path)));
+  const externalMods = selecting ? [] : (studio?.mods || []).filter((item) => item.importable && !registeredMods.has(studioKey(item.directory)) && (item.name + " " + item.projectName + " " + item.directory).toLowerCase().includes(query.toLowerCase()));
+  async function importStudioMod(item) {
+    const current = ticket.current;
+    setWorking(true);
+    setError("");
+    try {
+      const value = await call("mcstudio.import-mod", { directory: item.directory, revision: library.revision });
+      if (current !== ticket.current) return;
+      setLibrary(value);
+      setNotice("已从 MCStudio 收录 " + value.added + " 个模组目录，文件仍留在原处。");
+    } catch (e) {
+      if (current === ticket.current) setError(e.message);
+    } finally {
+      if (current === ticket.current) setWorking(false);
+    }
+  }
   function open(kind, mod) {
     setDialog({ kind, mod });
     setName(mod?.name || "");
@@ -401,6 +426,7 @@ export function ModCatalog({
             <div className="mod-library-info">
               <h3 title={m.name}>{m.name}</h3>
               <p title={m.path}>{m.path}</p>
+              {studioMod(m, studio) && <p>来自 MCStudio · {studioMod(m, studio).projectName}</p>}
               {(!selecting ||
                 m.local ||
                 !m.available ||
@@ -480,6 +506,26 @@ export function ModCatalog({
           </article>
         ))}
       </div>
+      {!!externalMods.length && (
+        <section aria-label="可从 MCStudio 导入">
+          <h2>可从 MCStudio 导入</h2>
+          <p className="muted">这些目录带有行为包或资源包清单，尚未收入模组库。收录只登记路径，不移动文件。</p>
+          <div className="mod-library-grid">
+            {externalMods.map((item) => (
+              <article className="mod-library-card mcstudio-import-card" key={item.id} aria-label={"MCStudio 模组 " + item.name}>
+                <div className="mod-library-info">
+                  <h3>{item.name}</h3>
+                  <p title={item.directory}>{item.directory}</p>
+                  <p>来自 MCStudio · {item.projectName}</p>
+                </div>
+                <div className="mod-library-actions">
+                  <Button disabled={working || !library} onClick={() => importStudioMod(item)}>从外部导入</Button>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
       {!shown.length && (
         <Empty
           title={

@@ -64,6 +64,19 @@
   padding: 5px 8px;
   min-height: 28px;
 }
+.mod-library-grid .mod-library-card.mcstudio-import-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.mod-library-grid .mod-library-card.mcstudio-import-card .mod-library-info h3,
+.mod-library-grid .mod-library-card.mcstudio-import-card .mod-library-info p {
+  overflow: visible;
+  white-space: normal;
+  text-overflow: unset;
+  overflow-wrap: anywhere;
+}
 .mod-pick-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));

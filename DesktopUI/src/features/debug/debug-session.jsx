@@ -6,7 +6,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Button, Field, Select, ErrorBox } from "../../app/ui.jsx";
+import { Button, Field, Select, ErrorBox, HelpDisclosure } from "../../app/ui.jsx";
 import { diffCache, applyCache } from "../../../shared/inspector-cache.cjs";
 const Context = createContext(null);
 const states = {
@@ -337,9 +337,9 @@ export function DebugSessionBar() {
         </Button>
       </div>
       {!ready && (
-        <p className="muted">
+        <HelpDisclosure label="连接提示">
           请通过工具箱启动项目并进入世界；项目需启用“加载开发辅助模组”。调试操作在连接就绪后开放。
-        </p>
+        </HelpDisclosure>
       )}
       <ErrorBox>{error || snapshot.error}</ErrorBox>
     </>

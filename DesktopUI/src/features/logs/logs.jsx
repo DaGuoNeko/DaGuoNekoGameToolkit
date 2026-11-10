@@ -343,7 +343,6 @@ export function LogsPage({ receive, stop, busy, report }) {
   return (
     <div className="logs-page">
       <header className="logs-heading">
-        <h1>运行日志</h1>
         <div role="group" aria-label="日志频道" className="log-channel-buttons">
           {[
             ["script", "脚本日志"],

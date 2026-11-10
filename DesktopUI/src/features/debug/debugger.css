@@ -17,7 +17,7 @@
   display: flex;
   gap: 4px;
   border-bottom: 1px solid var(--line);
-  margin: 20px 0;
+  margin: 12px 0;
   overflow: auto;
 }
 .debug-tabs > button {

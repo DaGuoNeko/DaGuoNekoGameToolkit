@@ -26,6 +26,16 @@
 .runtime-context p { margin:0; font-size:12px; color:var(--muted); }
 .runtime-console { display:grid; gap:20px; }
 .tracy-main .debug-page { display:flex; flex-direction:column; height:100%; min-height:0; padding:12px; gap:8px; }
-.tracy-main .debug-page > div:last-child { min-height:0; flex:1; overflow:auto; }
-.tracy-main .debug-page > div:last-child > .tracy-page { height:100%; }
+.tracy-main .debug-page > .performance-tools { flex-shrink: 0; color: var(--muted); font-size: 12px; }
+.tracy-main .debug-page > .performance-tools > summary { width: fit-content; display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.tracy-main .debug-page > .performance-tools h1 { margin: 0; color: var(--text); font-size: 16px; font-weight: 600; }
+.tracy-main .debug-page > .performance-tools > p { margin: 8px 0; }
+.tracy-main .debug-page > .performance-tools .reload-toolbar { margin: 0; }
+.tracy-main .debug-page > .debug-tabs { margin: 0; flex-shrink: 0; }
+.tracy-main .debug-page > div:last-child { min-height:0; flex:1; overflow:hidden; display:flex; flex-direction:column; }
+.tracy-main .debug-page > div:last-child > .tracy-page,
+.tracy-main .debug-page > div:last-child > .profile-page { height:100%; min-height:0; }
+.tracy-main .profile-page { display:flex; flex-direction:column; min-height:0; overflow:auto; }
+.tracy-main .profile-report { margin-top: 8px; }
+.tracy-main .profile-table-scroll { max-height: none; }
 @media (max-width:1000px) { .workspace-tabs { padding:6px 10px; } .workspace-tabs button { padding:7px 9px; } .world-context { align-items:flex-start; flex-direction:column; } .runtime-context { flex-wrap:wrap; } }

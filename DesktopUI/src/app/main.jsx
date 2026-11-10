@@ -37,6 +37,8 @@ import { UpdatePanel } from "../features/settings/update-panel.jsx";
 import { RoomsPage } from "../features/rooms/rooms.jsx";
 import { SettingsWorkspace, SettingsGroup } from "../features/settings/settings-workspace.jsx";
 import { ActivityPage } from "../features/activity/activity-page.jsx";
+import { NeteaseConfigPage } from "../features/netease/netease-config.jsx";
+import { QuickLaunchPage } from "../features/quick-launch/quick-launch.jsx";
 import { workspaces, workspaceFor, WorkspaceTabs } from "./workspaces.jsx";
 import { RuntimeConsole } from "../features/debug/runtime-console.jsx";
 import { createActivityInvalidator, sameRecords } from "../../shared/resource-refresh.cjs";
@@ -53,6 +55,8 @@ const nav = [
   { id: "mods", label: "模组与内容", icon: "cube" },
   { id: "logs", label: "运行日志", icon: "terminal" },
   { id: "activity", label: "任务与记录", icon: "activity" },
+  { id: "netease-config", label: "网易全局配置", icon: "folder" },
+  { id: "quick-launch", label: "快捷程序", icon: "tools" },
   { id: "debug", label: "游戏调试", icon: "bug" },
   { id: "ui-debug", label: "UI 调试器", icon: "inspect" },
   { id: "ui-editor", label: "UI 编辑器", icon: "layout-edit" },
@@ -479,7 +483,9 @@ function App() {
         <ErrorBox>{error}</ErrorBox>
       </div>
     );
-  const title = nav.find((item) => item.id === page).label;
+  const title = nav.find((item) => item.id === page)?.label
+    || workspaces.flatMap((item) => item.pages).find(([id]) => id === page)?.[1]
+    || "页面";
   const workspace = workspaceFor(page);
   const runningSessions = runtimeState.sessions?.filter((item) => item.running).length || 0;
   const activityPending = runtimeState.starting || runtimeState.stopping;
@@ -557,7 +563,7 @@ function App() {
         <header className="app-bar">
           <div className="app-bar-title">
             <span className="eyebrow">大果喵游戏工具箱</span>
-            <span className="breadcrumb">{workspace.label}{title !== workspace.label && <> / <strong>{title}</strong></>}</span>
+            <div className="breadcrumb">{title !== workspace.label && <span>{workspace.label} /</span>}<h1>{title}</h1></div>
           </div>
           <div className="app-bar-tools">
             <span className="app-bar-status" data-state={activityPending ? "pending" : "ready"} role="status">
@@ -711,6 +717,8 @@ function App() {
               />
             )}
             {page === "activity" && <ActivityPage projects={projects} />}
+            {page === "netease-config" && <NeteaseConfigPage />}
+            {page === "quick-launch" && <QuickLaunchPage />}
             {page === "mods" && <ModWorkspacePage request={modWorkspaceRequest} onClearScope={() => setModWorkspaceRequest(null)} onBack={() => go("launch")} onEditor={() => go("ui-editor")} onRemoved={removedMod} />}
             {page === "debug" && (
               <DebugPage

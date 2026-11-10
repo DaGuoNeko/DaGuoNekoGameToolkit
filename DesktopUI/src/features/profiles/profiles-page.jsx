@@ -134,6 +134,7 @@ export function ProfilesPage({
   return (
     <>
       <Intro
+        heading={!!(editing && snapshot)}
         title={editing && snapshot ? snapshot.project.name : "启动配置"}
         subtitle={
           editing

@@ -228,10 +228,21 @@ h3 {
 .breadcrumb {
   font-size: 15px;
   line-height: 1.2;
+  align-items: baseline;
+  gap: 6px;
 }
 
-.breadcrumb strong {
+.breadcrumb h1 {
+  margin: 0;
+  color: var(--text);
+  font-size: inherit;
   font-weight: 650;
+  letter-spacing: 0;
+  line-height: inherit;
+}
+.intro:not(:has(h1)) {
+  align-items: center;
+  margin-bottom: 8px;
 }
 
 .app-bar-status {

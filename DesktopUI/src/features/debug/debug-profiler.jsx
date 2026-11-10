@@ -90,7 +90,7 @@ export function ProfilerPanel({ kind, context, ready, snapshot }) {
     );
   }
   return (
-    <>
+    <div className="profile-page">
       <section className="debug-card">
         <header>
           <h2>{title}</h2>
@@ -443,6 +443,6 @@ export function ProfilerPanel({ kind, context, ready, snapshot }) {
           开始采样后，在游戏中重现需要分析的操作。
         </Empty>
       )}
-    </>
+    </div>
   );
 }

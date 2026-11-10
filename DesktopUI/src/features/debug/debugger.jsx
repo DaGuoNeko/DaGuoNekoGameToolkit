@@ -30,12 +30,27 @@ export function DebugPage({ projectId, draft, setDraft, performance = false }) {
   const visibleTabs = performance ? [...tabs.slice(2), ["tracy", "Tracy"]] : tabs.slice(0, 2);
   return (
     <div className="debug-page">
-      <Intro
-        title={performance ? "性能分析" : "游戏调试"}
-        subtitle={performance ? "按当前会话采样 Python、内存、Native 或使用 Tracy。" : "在当前会话执行代码、调用调试函数。"}
-      />
-      <DebugSessionBar />
-      <ReloadActions context={context} ready={ready} />
+      {performance ? (
+        <details className="performance-tools">
+          <summary>
+            <h1>性能分析</h1>
+            <span>会话操作与说明</span>
+          </summary>
+          <p>
+            按当前会话采样 Python、内存、Native 或使用 Tracy。采样和重载都作用于上方选中的游戏会话。
+          </p>
+          <ReloadActions context={context} ready={ready} compact />
+        </details>
+      ) : (
+        <>
+          <Intro
+            title="游戏调试"
+            subtitle="在当前会话执行代码、调用调试函数。"
+          />
+          <DebugSessionBar />
+          <ReloadActions context={context} ready={ready} />
+        </>
+      )}
       <div className="debug-tabs" role="tablist" aria-label="调试工具">
         {visibleTabs.map(([id, label]) => (
           <button
@@ -83,7 +98,7 @@ export function DebugPage({ projectId, draft, setDraft, performance = false }) {
   );
 }
 
-export function ReloadActions({ context, ready }) {
+export function ReloadActions({ context, ready, compact = false }) {
   const [pending, setPending] = useState(false),
     [confirm, setConfirm] = useState(null),
     [sources, setSources] = useState(null),
@@ -183,9 +198,11 @@ export function ReloadActions({ context, ready }) {
         >
           重载资源和游戏
         </Button>
-        <span className="muted">
-          {pending ? "正在发送…" : "作用于上方选中的游戏会话"}
-        </span>
+        {!compact && (
+          <span className="muted">
+            {pending ? "正在发送…" : "作用于上方选中的游戏会话"}
+          </span>
+        )}
       </div>
       {sources && (
         <div className="reload-sources">

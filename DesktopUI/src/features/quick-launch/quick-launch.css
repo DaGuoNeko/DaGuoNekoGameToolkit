@@ -1,0 +1,24 @@
+.quick-launch-note {
+  min-height: 2.8em;
+  overflow-wrap: anywhere;
+}
+.quick-launch-card small {
+  display: block;
+  margin-top: 4px;
+}
+.quick-launch-card .world-card-actions {
+  display: flex;
+  align-items: center;
+}
+.quick-launch-card .world-card-actions .button.primary {
+  margin-right: auto;
+}
+.quick-launch-path {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.quick-launch-path input {
+  flex: 1;
+  min-width: 0;
+}

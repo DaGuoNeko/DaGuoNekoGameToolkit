@@ -87,6 +87,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Game version selection UI acceptance failed' }
           node tests/navigation-polish-ui.cjs
           if ($LASTEXITCODE -ne 0) { throw 'World console navigation acceptance failed' }
+          node tests/mcstudio-netease-ui.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'MCStudio and NetEase configuration acceptance failed' }
       - run: npm run package
       - name: Packaged client acceptance
         run: |

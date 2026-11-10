@@ -26,7 +26,7 @@ const { WorldLibrary } = require("../electron/domains/worlds/worlds.cjs");
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [globalThis.fixtureSource] });
     }, source);
     await page.getByRole("heading", { name: "存档", exact: true }).waitFor();
-    assert.equal(await page.locator(".sidebar nav button").count(), 7);
+    assert.equal(await page.locator(".sidebar nav button").count(), 9);
     const nav = async name => { await page.locator(".sidebar").getByRole("button", { name, exact: true }).click(); await page.waitForFunction(() => !document.documentElement.dataset.pageAnimating); };
     await page.getByRole("button", { name: "打开外部存档", exact: true }).click();
     await page.getByRole("navigation", { name: "存档工作区" }).getByRole("button", { name: "世界数据", exact: true }).click();

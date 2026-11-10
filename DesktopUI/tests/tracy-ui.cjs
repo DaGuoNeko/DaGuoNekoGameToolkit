@@ -19,7 +19,7 @@ const { testResultsRoot } = require("./fixtures/artifacts.cjs");
     page.setDefaultTimeout(20000);
     page.on("pageerror", (e) => errors.push(e.message));
     await require("./fixtures/navigation.cjs").navigate(page, "Tracy 性能");
-    await page.getByRole("heading", { name: "Tracy 性能分析" }).waitFor();
+    await page.getByRole("heading", { name: "性能分析", exact: true }).waitFor();
     assert(
       await page.getByRole("button", { name: "连接所选游戏" }).isDisabled(),
     );

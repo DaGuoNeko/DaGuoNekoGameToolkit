@@ -7,7 +7,7 @@ import React, {
   useSyncExternalStore,
 } from "react";
 import { Button, Intro, Field, Select, ErrorBox, Empty, Modal } from "../../app/ui.jsx";
-import { useDebugSession, DebugSessionBar } from "./debug-session.jsx";
+import { useDebugSession } from "./debug-session.jsx";
 import {
   properties,
   equal,
@@ -119,7 +119,6 @@ export function UiInspectorPage() {
         )}
       </Intro>
       <ErrorBox>{windowError}</ErrorBox>
-      <DebugSessionBar />
       {workspace.open ? (
         <RemoteInspectorSettings />
       ) : (

@@ -810,11 +810,11 @@ export function FileDropZone({
   );
 }
 
-export function Intro({ title, subtitle, children }) {
+export function Intro({ title, subtitle, children, heading = false }) {
   return (
     <div className="intro">
       <div>
-        <h1>{title}</h1>
+        {heading && <h1>{title}</h1>}
         {subtitle && <HelpDisclosure label={title + "使用说明"}>{subtitle}</HelpDisclosure>}
       </div>
       <div className="intro-actions">{children}</div>

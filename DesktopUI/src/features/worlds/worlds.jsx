@@ -21,6 +21,12 @@ import {
   AUTO_IMPORT_PROFILE,
   AUTO_IMPORT_LABEL,
 } from "../../../shared/world-import-model.cjs";
+
+const studioKey = (value) => String(value || "").toLowerCase();
+function studioWorld(world, studio) {
+  const keys = new Set([world?.path, world?.linkedPath].filter(Boolean).map(studioKey));
+  return (studio?.worlds || []).find((item) => keys.has(studioKey(item.directory))) || null;
+}
 const call = (method, args = {}) => window.toolkit.call(method, args);
 const defaults = {
   game_mode: 1,
@@ -69,6 +75,7 @@ export function WorldHome({
   const [quickWorld, setQuickWorld] = useState(null);
   const [joinTarget, setJoinTarget] = useState(null);
   const [worlds, setWorlds] = useState([]),
+    [studio, setStudio] = useState(null),
     [loaded, setLoaded] = useState(false),
     [error, setError] = useState(""),
     [working, setWorking] = useState(false),
@@ -115,7 +122,8 @@ export function WorldHome({
     const t = ++ticket.current;
     try {
       const v = await call("worlds.list", { includePackChecks: true });
-      if (t === ticket.current) { setWorlds(v.worlds); setLoaded(true); }
+      const found = await call("mcstudio.scan").catch(() => null);
+      if (t === ticket.current) { setWorlds(v.worlds); setStudio(found); setLoaded(true); }
     } catch (e) {
       setError(e.message); setLoaded(true);
     }
@@ -251,11 +259,25 @@ export function WorldHome({
       setWorking(false);
     }
   }
+  async function importStudio(item) {
+    setWorking(true);
+    setError("");
+    try {
+      await call("mcstudio.import-world", { directory: item.directory });
+      await refresh();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setWorking(false);
+    }
+  }
   const items = worlds.filter(
     (w) =>
       !!w.deleted === trash &&
       w.name.toLowerCase().includes(query.toLowerCase()),
   );
+  const registeredWorlds = new Set(worlds.flatMap((w) => [w.path, w.linkedPath]).filter(Boolean).map(studioKey));
+  const externalWorlds = trash ? [] : (studio?.worlds || []).filter((item) => !registeredWorlds.has(studioKey(item.directory)) && item.name.toLowerCase().includes(query.toLowerCase()));
   const focused = worlds.find((w) => w.id === focusId && !w.deleted);
   const focusedSession = runtimeState.sessions?.find(s => s.running && s.worldId === focused?.id);
   const joinDialog = joinTarget && (
@@ -402,6 +424,7 @@ export function WorldHome({
             active = runtimeState.sessions?.some(
               (s) => s.running && s.worldId === w.id,
             );
+          const origin = studioWorld(w, studio);
           return (
             <article
               className="world-card"
@@ -429,6 +452,7 @@ export function WorldHome({
               </div>
               <div className="world-card-content">
                 <h3><button className="world-name-button" disabled={w.copying || w.deleted} onClick={() => { setInitialTab("overview"); setFocusId(w.id); }}>{w.name}</button></h3>
+                {origin && <p>来自 MCStudio · {origin.projectName}</p>}
                 <p>启动配置：{config?.name || "请重新选择配置"}</p>
                 {!config && !w.deleted && (
                   <p className="muted">
@@ -565,7 +589,27 @@ export function WorldHome({
           );
         })}
       </div>
-      {!items.length && (
+      {!trash && !!externalWorlds.length && (
+        <section aria-label="可从 MCStudio 导入">
+          <h2>可从 MCStudio 导入</h2>
+          <p className="muted">这些是 MCStudio 的测试存档，尚未登记。导入后按原目录使用，不复制世界，也不改 MCStudio 工程。</p>
+          <div className="world-grid">
+            {externalWorlds.map((item) => (
+              <article className="world-card" key={item.id} aria-label={"MCStudio 存档 " + item.name}>
+                <div className="world-card-content">
+                  <h3>{item.name}</h3>
+                  <p>来自 MCStudio · {item.projectName}</p>
+                  <p className="muted break-all">{item.directory}</p>
+                  <div className="world-card-actions">
+                    <Button primary disabled={busy || working} onClick={() => importStudio(item)}>从外部导入</Button>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+      {!items.length && !externalWorlds.length && (
         <Empty title={trash ? "回收站为空" : "还没有存档"}>
           {trash
             ? "删除的存档可在这里恢复，也可永久删除以释放空间。"

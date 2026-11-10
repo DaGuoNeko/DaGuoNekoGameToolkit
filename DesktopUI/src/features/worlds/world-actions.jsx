@@ -460,6 +460,7 @@ export function WorldDashboard({
       {(mode === "all" || mode === "overview") && <>
       {mode === "all" &&
       <Intro
+        heading
         title={mode === "overview" ? "存档概览" : mode === "settings" ? "自定义与启动操作" : "存档控制台"}
         subtitle="管理当前存档，执行即时操作，设置自己的常用功能。"
       >

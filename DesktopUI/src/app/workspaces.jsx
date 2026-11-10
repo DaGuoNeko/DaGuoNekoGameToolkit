@@ -7,6 +7,8 @@ export const workspaces = [
   { id: "config", label: "启动配置", icon: "launch-profile", group: "资源", pages: [["config", "启动配置"]] },
   { id: "logs", label: "运行与调试", icon: "bug", group: "运行", pages: [["runtime", "控制台"], ["logs", "运行日志"], ["debug", "代码与函数"], ["ui-debug", "UI 调试器"], ["tracy", "性能"]] },
   { id: "rooms", label: "远程联机", icon: "gamepad", group: "运行", pages: [["rooms", "联机房间"]] },
+  { id: "netease-config", label: "网易全局配置", icon: "folder", group: "工具箱", pages: [["netease-config", "网易全局配置"]] },
+  { id: "quick-launch", label: "快捷程序", icon: "tools", group: "工具箱", pages: [["quick-launch", "快捷程序"]] },
   { id: "activity", label: "任务与记录", icon: "activity", group: "工具箱", pages: [["activity", "任务与记录"]] },
   { id: "settings", label: "设置", icon: "gear", group: "工具箱", pages: [["settings", "工具箱设置"], ["game-options", "游戏启动设置"], ["about", "关于"]] },
 ];

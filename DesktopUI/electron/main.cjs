@@ -113,6 +113,18 @@ const modLibrary = new ModLibrary(store, profiles);
 const { ContentIndex } = require("./domains/profiles/content-index.cjs");
 const contentIndex = new ContentIndex(modLibrary);
 const { GameOptions } = require("./domains/game/game-options.cjs");
+const { NeteaseConfigs } = require("./domains/game/netease-config.cjs");
+const { QuickLaunch } = require("./domains/game/quick-launch.cjs");
+const { McStudioIndex } = require("./domains/game/mcstudio.cjs");
+const clientRoaming = process.env.DGN_GAME_DATA_DIR
+  ? path.join(dataRoot, "game-data")
+  : process.env.APPDATA;
+const clientLocal = process.env.DGN_GAME_DATA_DIR
+  ? path.join(dataRoot, "local")
+  : process.env.LOCALAPPDATA;
+const neteaseConfigs = new NeteaseConfigs(clientRoaming);
+const quickLaunch = new QuickLaunch(dataRoot);
+const mcStudio = new McStudioIndex(clientLocal, clientRoaming);
 const gameOptions = new GameOptions(
   dataRoot,
   path.join(
@@ -816,6 +828,42 @@ async function dispatch(method, args, source = win) {
       return launcher.remove(args.sessionId);
     case "worlds.list":
       return worlds.list(args.projectId, args.includePackChecks === true);
+    case "mcstudio.scan":
+      return mcStudio.scan();
+    case "mcstudio.import-world": {
+      if (!worlds) throw Error("存档库尚未就绪");
+      const { AUTO_IMPORT_PROFILE } = require("../shared/world-import-model.cjs");
+      const world = await mcStudio.world(args.directory);
+      return worlds.importWorld(AUTO_IMPORT_PROFILE, world.name, world.directory, "linked");
+    }
+    case "mcstudio.import-mod": {
+      const mod = await mcStudio.mod(args.directory);
+      return modLibrary.addDirectories([mod.directory], args.revision);
+    }
+    case "netease-config.list":
+      return neteaseConfigs.list(args.channel, args.player);
+    case "netease-config.open": {
+      if (!neteaseConfigs.known(args.path)) throw Error("此路径不属于当前配置列表");
+      if (args.reveal) {
+        shell.showItemInFolder(args.path);
+        return true;
+      }
+      const opened = await shell.openPath(args.path);
+      if (opened) throw Error(opened);
+      return true;
+    }
+    case "netease-config.read":
+      return neteaseConfigs.read(args.path);
+    case "netease-config.save":
+      return neteaseConfigs.save(args.path, args.text, args.modified);
+    case "quick-launch.list":
+      return quickLaunch.list();
+    case "quick-launch.save":
+      return quickLaunch.save(args);
+    case "quick-launch.remove":
+      return quickLaunch.remove(args.id);
+    case "quick-launch.launch":
+      return quickLaunch.launch(args.id);
     case "worlds.sync-pack-versions":
       return worlds.syncPackVersions(args.worldId, args.confirmed === true, args.revision);
     case "worlds.inspect-pack-health":

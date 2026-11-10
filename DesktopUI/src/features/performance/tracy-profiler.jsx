@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Button, Select, ErrorBox, Modal, HelpDisclosure } from "../../app/ui.jsx";
+import { Button, ErrorBox, Modal, HelpDisclosure } from "../../app/ui.jsx";
 import { useDebugSession } from "../debug/debug-session.jsx";
 import "./tracy-profiler.css";
 const api = (method, args = {}) => window.toolkit.call(method, args);
 export function TracyPage() {
-  const { snapshot, selected, setSelected } = useDebugSession();
+  const { snapshot, selected, ready } = useDebugSession();
   const [state, setState] = useState({
       phase: "stopped",
       generation: 0,
@@ -27,10 +27,7 @@ export function TracyPage() {
       off();
     };
   }, []);
-  const clients = snapshot.sessions.filter(
-    (s) => s.connected && s.minecraftPid && s.state !== "exited",
-  );
-  const chosen = clients.find((s) => s.id === selected);
+  const chosen = snapshot.sessions.find((s) => s.id === selected);
   const active = !!state.pid;
   useEffect(() => {
     let last = "";
@@ -91,24 +88,10 @@ export function TracyPage() {
   }
   return (
     <div className="tracy-page">
-      <div className="tracy-heading">
-        <h1>Tracy 性能分析</h1>
-        <span className="muted">官方完整界面 · 建议使用 0.11.1</span>
-      </div>
       <div className="tracy-toolbar">
-        <Select
-          aria-label="Tracy 游戏会话"
-          value={chosen?.id || ""}
-          disabled={active || busy}
-          options={clients.map((s) => ({
-            value: s.id,
-            label: `${s.profileName || "游戏"} · PID ${s.minecraftPid}`,
-          }))}
-          onChange={setSelected}
-        />
         <Button
           primary
-          disabled={!chosen || active || busy}
+          disabled={!ready || !chosen?.connected || !chosen.minecraftPid || chosen.state === "exited" || active || busy}
           onClick={() =>
             action("tracy.start", {
               sessionId: chosen.id,
@@ -153,17 +136,16 @@ export function TracyPage() {
         </Button>
       </div>
       <ErrorBox>{error}</ErrorBox>
-      <div className="tracy-status">
-        <span>
-          {state.message ||
-            "选择游戏自动连接，或打开离线采样文件。首次自动查找本机 MCStudio 的 Tracy。"}
-        </span>
-        {state.target && (
-          <span>
-            PID {state.target.gamePid} · 127.0.0.1:{state.target.port}
-          </span>
-        )}
-      </div>
+      {(state.message || state.target) && (
+        <div className="tracy-status" role="status">
+          <span>{state.message}</span>
+          {state.target && (
+            <span>
+              PID {state.target.gamePid} · 127.0.0.1:{state.target.port}
+            </span>
+          )}
+        </div>
+      )}
       <div className="tracy-viewport" ref={area}>
         <div className="tracy-placeholder">
           {active
@@ -174,8 +156,7 @@ export function TracyPage() {
         </div>
       </div>
       <HelpDisclosure label="采样、保存与退出说明">
-        切页后采样继续，保存请使用 Tracy 内的 Save。与 Native
-        采样共用游戏连接；同一游戏不能同时连接两份分析器。退出工具箱会将分析器恢复为独立窗口，保留未保存数据。
+        官方完整界面，建议使用 0.11.1。选择上方游戏会话后连接，或打开离线采样文件。首次自动查找本机 MCStudio 的 Tracy。切页后采样继续，保存请使用 Tracy 内的 Save。与 Native 采样共用游戏连接；同一游戏不能同时连接两份分析器。退出工具箱会将分析器恢复为独立窗口，保留未保存数据。
       </HelpDisclosure>
       {confirm && (
         <Modal title="关闭 Tracy 分析器" onClose={() => setConfirm(false)}>
