@@ -8,7 +8,7 @@
 
 离线数据先调用 `scan_world_data(worldId, requestId, scope)`，scope 可为 all/gameplay/world/entities，默认 all；最长可能占用 120 秒，客户端应设置对应调用超时。结果返回摘要、模组条件 capabilities、可用分类 availableKinds、可选 ExtraData 状态与 requestId。随后用 `read_world_data` 分页（limit 最多 100）：view=objects 查询对象，指定 id 返回业务摘要，includeData 返回原始数据；view=relations 可按 id、direction=both/incoming/outgoing 和 status 查询引用；view=fields 配合 id、field（JSON Pointer，空字符串为根）逐层分页读取原始字段及类型，单值预览最多 8192 字符。`world_data_scan_state` 可查询或取消明确 requestId，`compare_world_data(left,right)` 使用两份已完成快照；最近四份之外的快照需重扫，扫描 ID 不可复用。MCP 不接受任意未选择的外部路径；外部查看与文件导出使用 UI。比较和关系是静态结果，partial、未找到或无法判断不得表述为游戏运行失败；模组配置已启用也不等于运行时已加载。
 
-当前工具目录以安装实例 `tools/list` 为准，包含客户端控制、配置/存档、固定拍摄、运行时地形探针和架构导入任务接口。更新源码后需要构建并重新启动对应工具箱实例，已有发行程序不会自动获得接口。按领域理解工具即可，不要依赖工具总数。
+当前工具目录以安装实例 `tools/list` 为准，包含客户端控制、配置/存档、固定拍摄、运行时地形探针、架构导入，以及模组内容、模型和 NPC 皮肤接口。更新源码后需要构建并重新启动对应工具箱实例，已有发行程序不会自动获得接口。按领域理解工具即可，不要依赖工具总数。
 
 | 范围 | 新工具 | 约束 |
 |---|---|---|
@@ -24,6 +24,10 @@
 | 固定拍摄 | `capture_scene` | 结构化参数、能力检查、区块等待、参数回读和截图前后核对；HUD 回读暂不支持 |
 | 地形探针 | `probe_dimension_runtime`、`probe_build_height` | 读取实体所在维度的实际高度边界和候选 Y 方块；高度写入只允许 isolated 会话，写前保存、回读并恢复 |
 | 架构导入 | `terrain_prepare`、`terrain_capture_source`、`terrain_preview`、`terrain_apply`、`terrain_rollback`、`terrain_status` | 复用 UI 的来源副本、维度边界、预览、覆盖/保留、空气策略、备份、写入和撤销状态机；支持 `externalDataRoot` |
+| 模组内容与模型 | `list_content`、`read_content`、`list_models`、`read_geometry`、`save_geometry`、`create_model`、`delete_model`、`list_textures`、`read_texture`、`save_texture`、`create_texture`、`list_animations`、`list_controllers`、`read_controller`、`save_controller`、`create_controller`、`read_animation`、`save_animation`、`create_animation`、`delete_animation`、`rename_animation`、`duplicate_animation`、`save_manifest` | 只访问已登记模组、指定存档或工具箱模型草稿；内容扫描不含贴图预览；控制器保存需要 revision |
+| NPC 皮肤 | `list_skins`、`list_skin_targets`、`read_skin`、`create_skin`、`update_skin`、`remove_skin` | 只改工具箱皮肤草稿；可新建空白皮肤或替换 PNG。ZIP 和 `.bbmodel` 导入导出仍只在界面完成 |
+
+模组内容、模型和 NPC 皮肤调用与界面相同的服务。`read_content` 用 `view=entries` 或 `view=files` 分页，`limit` 最多 100。几何、贴图和动画的路径必须来自这些列表或 `list_models`。贴图和皮肤图片以 MCP image 返回；保存贴图时提交 `data:image/png;base64,` 加图片数据，并带上 `revision`。新建模型只写入工具箱草稿目录。写入需要 `confirmed=true`，同一次重试复用 `requestId`。结果过大时明确拒绝。
 
 ## 会话和结果语义
 

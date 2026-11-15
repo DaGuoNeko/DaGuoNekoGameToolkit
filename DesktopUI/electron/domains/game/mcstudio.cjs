@@ -43,14 +43,20 @@ async function realDirectory(directory) {
   }
 }
 
-async function isPack(directory) {
+async function packKind(directory) {
   for (const name of ["manifest.json", "pack_manifest.json"]) {
     try {
       const stat = await fs.lstat(path.join(directory, name));
-      if (!stat.isSymbolicLink() && stat.isFile()) return true;
+      if (stat.isSymbolicLink() || !stat.isFile()) continue;
+      const data = await readJson(path.join(directory, name));
+      const modules = Array.isArray(data?.modules) ? data.modules : [];
+      const type = modules.find(item => item?.type === "data" || item?.type === "resources")?.type;
+      if (type === "data") return "behavior";
+      if (type === "resources") return "resource";
+      return "pack";
     } catch {}
   }
-  return false;
+  return "";
 }
 
 async function studioRoot(localAppData) {
@@ -109,14 +115,25 @@ function rememberMod(mods, directory, projectName, projectId, importable) {
 async function consider(mods, directory, projectName, projectId) {
   const resolved = await realDirectory(directory);
   if (!resolved) return;
-  const pack = await isPack(resolved);
-  rememberMod(mods, resolved, projectName, projectId, pack);
-  if (pack) return;
+  const own = await packKind(resolved);
+  if (own) {
+    rememberMod(mods, resolved, projectName, projectId, true);
+    return;
+  }
+  rememberMod(mods, resolved, projectName, projectId, false);
+  const children = [];
   for (const name of await listDirectories(resolved)) {
     if (name.startsWith(".")) continue;
     const child = await realDirectory(path.join(resolved, name));
-    if (child && (await isPack(child))) rememberMod(mods, child, projectName, projectId, true);
+    const kind = child ? await packKind(child) : "";
+    if (kind) children.push({ child, kind });
   }
+  const paired = children.some(item => item.kind === "behavior") && children.some(item => item.kind === "resource");
+  if (paired) {
+    mods.get(key(resolved)).importable = true;
+    return;
+  }
+  for (const item of children) rememberMod(mods, item.child, projectName, projectId, true);
 }
 
 async function walkConfigs(directory, files, depth) {

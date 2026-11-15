@@ -400,7 +400,11 @@
   overflow: auto;
 }
 .pack-browser-details small { display: block; }
-.pack-browser-toolbar, .pack-browser-card { flex-wrap: wrap; }
+.pack-browser-toolbar { flex-wrap: wrap; }
+.pack-browser-card { flex-wrap: nowrap; align-items: center; }
+.pack-browser-info { flex: 1; }
+.pack-browser-info > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pack-browser-card > .world-toolbar { flex: 0 0 auto; flex-wrap: nowrap; }
 .pack-browser-list {
   max-height: 55vh;
   overflow: auto;

@@ -5,3 +5,4 @@
 - 只放与 Electron、DOM、`window` 和本机进程无关的纯逻辑。
 - 保持现有 `module.exports`，不在这里访问用户数据、IPC 或运行时目录。
 - 需要依赖具体运行环境的代码放回 `src/features/` 或 `electron/domains/`。
+- `skins/` 保存前后端共用的 NPC 几何和初始贴图静态数据；业务服务不反向导入 renderer 目录。

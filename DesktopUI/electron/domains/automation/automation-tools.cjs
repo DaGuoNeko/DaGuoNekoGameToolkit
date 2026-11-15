@@ -327,6 +327,65 @@ const tools = [
   tool("terrain_apply", "应用当前地形预览。写入前检查目标会话、维度和预览身份，结果不确定时保留批次记录且不自动重放。", {...terrainTask, previewId: text()}, ["instanceId", "requestId", "taskId", "confirmed", "previewId"]),
   tool("terrain_rollback", "撤销当前地形批次，按写入前快照逆序恢复；需要目标仍在导入时维度并明确确认。", terrainTask, ["instanceId", "requestId", "taskId", "confirmed"]),
   tool("terrain_status", "读取架构导入任务状态、阶段、进度、预览计数、备份位置和 externalDataRoot；不会启动游戏或修改存档。", { instanceId: text(), taskId: text(), externalDataRoot: text(4096) }, ["instanceId", "taskId"], true),
+  tool("list_content", "只读扫描已登记模组或指定存档的包内容，返回摘要、来源、包和问题，不含贴图预览。", { worldId: text(), packId: text(256) }, [], true),
+  tool("read_content", "分页读取内容扫描。view=entries 是物品、方块、实体、模型、动画和粒子；view=files 是内容文件。每次都重新扫描。", {
+    worldId: text(), packId: text(256), view: { enum: ["entries", "files"] }, type: text(32),
+    query: { type: "string", maxLength: 256 }, offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: 100 },
+  }, [], true),
+  tool("list_models", "列出工具箱模型草稿和已登记模组中的几何文件。只在存档里的模型用 read_content 查找，再带 worldId 读取。", {}, [], true),
+  tool("read_geometry", "读取 list_models 或内容扫描返回的几何文件，包含骨骼、立方体、定位器、网格、分面贴图和显示槽位。不能读取未登记路径。", { path: text(4096), worldId: text() }, ["path"], true),
+  tool("save_geometry", "按标识符写回骨骼、贴图尺寸和 dgn_display，并留下 .bak。面级 dgn_texture 只允许 list_textures 返回的模型内 PNG 相对路径，尺寸须一致。不新建几何文件。", {
+    ...operation, path: text(4096), worldId: text(), identifier: text(128),
+    bones: { type: "array", maxItems: 400, items: { type: "object" } },
+    textureWidth: { type: "integer" }, textureHeight: { type: "integer" }, display: { type: "object" },
+  }, ["instanceId", "requestId", "confirmed", "path", "identifier", "bones"]),
+  tool("create_model", "在工具箱模型草稿目录新建几何文件，不写入已登记模组。同一次重试必须复用 requestId。", { ...operation, identifier: text(80) }, ["instanceId", "requestId", "confirmed"]),
+  tool("delete_model", "删除 list_models 返回的几何文件。草稿目录里没有其他几何文件时，连同该草稿文件夹删除。", { ...operation, path: text(4096) }, ["instanceId", "requestId", "confirmed", "path"]),
+  tool("list_textures", "列出模型附近已登记的 PNG 贴图，最多 40 张。relative 字段只在模型目录内提供，可用于面级 dgn_texture 分配。", { path: text(4096), worldId: text() }, ["path"], true),
+  tool("read_texture", "读取 PNG。图片在 image 内容里，文本含 path、revision 和图层。保存时把图片重新组成 data:image/png;base64 数据。", { path: text(4096), worldId: text() }, ["path"], true),
+  tool("save_texture", "按 read_texture 的 revision 写回 PNG 和图层。revision 不符时不覆盖文件。", {
+    ...operation, path: text(4096), worldId: text(), revision: { type: "string", pattern: "^[a-f0-9]{64}$" },
+    dataUrl: { type: "string", maxLength: 6291456 }, layers: { type: "object" },
+  }, ["instanceId", "requestId", "confirmed", "path", "revision", "dataUrl"]),
+  tool("create_texture", "在模型旁边的 textures 目录新建空白或 UV 模板 PNG，拒绝覆盖同名文件。", {
+    ...operation, modelPath: text(4096), worldId: text(), name: text(64),
+    width: { type: "integer" }, height: { type: "integer" },
+    templateBones: { type: "array", maxItems: 400, items: { type: "object" } },
+  }, ["instanceId", "requestId", "confirmed", "modelPath", "width", "height"]),
+  tool("list_animations", "列出模型同目录的动画文件。", { path: text(4096), worldId: text() }, ["path"], true),
+  tool("list_controllers", "列出模型同目录可解析的动画控制器及其标识符。", { path: text(4096), worldId: text() }, ["path"], true),
+  tool("read_controller", "读取动画控制器完整 JSON 和 revision；保存前必须使用这次读取的 revision。", { path: text(4096), worldId: text() }, ["path"], true),
+  tool("save_controller", "按 revision 原子保存动画控制器，保留 .bak；文件已被外部修改时拒绝覆盖。", {
+    ...operation, path: text(4096), worldId: text(), revision: { type: "string", pattern: "^[a-f0-9]{64}$" }, document: { type: "object" },
+  }, ["instanceId", "requestId", "confirmed", "path", "revision", "document"]),
+  tool("create_controller", "在模型同目录创建或追加一个动画控制器文件；同一次重试复用 requestId。", {
+    ...operation, modelPath: text(4096), worldId: text(), name: text(80),
+  }, ["instanceId", "requestId", "confirmed", "modelPath"]),
+  tool("read_animation", "读取一个动画及其骨骼、声音、粒子和指令效果轨道。省略 id 时返回文件中的第一个。", { path: text(4096), worldId: text(), id: text(128) }, ["path"], true),
+  tool("save_animation", "按动画 ID 写回动画对象，保留文件中的其他动画，并留下 .bak。", {
+    ...operation, path: text(4096), worldId: text(), id: text(128), animation: { type: "object" },
+  }, ["instanceId", "requestId", "confirmed", "path", "id", "animation"]),
+  tool("create_animation", "在模型同目录新建动画文件。同名文件已存在时拒绝。", { ...operation, modelPath: text(4096), worldId: text(), name: text(64) }, ["instanceId", "requestId", "confirmed", "modelPath"]),
+  tool("delete_animation", "删除一个动画。文件里只剩这一个时删除整个文件。", { ...operation, path: text(4096), worldId: text(), id: text(128) }, ["instanceId", "requestId", "confirmed", "path", "id"]),
+  tool("rename_animation", "重命名动画 ID，并同步同一目录里的客户端实体和动画控制器引用。", {
+    ...operation, path: text(4096), worldId: text(), id: text(128), name: text(64),
+  }, ["instanceId", "requestId", "confirmed", "path", "id", "name"]),
+  tool("duplicate_animation", "在同一动画文件里复制一个动画，并生成不冲突的 ID。", { ...operation, path: text(4096), worldId: text(), id: text(128) }, ["instanceId", "requestId", "confirmed", "path", "id"]),
+  tool("save_manifest", "写回已登记包清单的名称和三段版本，保留其他字段并留下 .bak。", {
+    ...operation, worldId: text(), directory: text(4096), manifestFile: text(64), name: text(80),
+    version: { type: "array", minItems: 3, maxItems: 3, items: { type: "integer", minimum: 0 } },
+  }, ["instanceId", "requestId", "confirmed", "directory", "manifestFile", "name", "version"]),
+  tool("list_skins", "列出工具箱里的 NPC 皮肤草稿，不含图片。", {}, [], true),
+  tool("list_skin_targets", "列出可选 NPC 目标模型和默认贴图槽。", {}, [], true),
+  tool("read_skin", "读取一张 NPC 皮肤 PNG。过大的图片会拒绝，请在界面查看。", { id: text(160) }, ["id"], true),
+  tool("create_skin", "按名称、作者和目标模型新建一张空白 NPC 皮肤。不导入外部图片或 ZIP。", {
+    ...operation, name: text(120), author: text(120), targetIdentifier: text(160), textureSlot: text(80),
+  }, ["instanceId", "requestId", "confirmed", "name", "author"]),
+  tool("update_skin", "修改皮肤名称、作者、目标模型、贴图槽，或用 data:image/png;base64 替换图片。", {
+    ...operation, id: text(160), name: text(120), author: text(120), targetIdentifier: text(160), textureSlot: text(80),
+    image: { type: "string", maxLength: 29360128 },
+  }, ["instanceId", "requestId", "confirmed", "id"]),
+  tool("remove_skin", "删除一张 NPC 皮肤草稿及其图片。", { ...operation, id: text(160) }, ["instanceId", "requestId", "confirmed", "id"]),
 ];
 const ajv = new Ajv({ allErrors: true, strict: false });
 const validators = new Map(

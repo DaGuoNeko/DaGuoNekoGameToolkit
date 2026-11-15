@@ -27,7 +27,8 @@ import { InspectorShell } from "../features/debug/inspector-shell.jsx";
 import { WorldHome } from "../features/worlds/worlds.jsx";
 import { WindowSizeSettings } from "../features/settings/window-size-settings.jsx";
 import { ProfilesPage } from "../features/profiles/profiles-page.jsx";
-import { ModWorkspacePage } from "../features/mods/mod-library.jsx";
+import { ContentBrowserV2, ModWorkspacePage } from "../features/mods/mod-library.jsx";
+import { ModelStudioPage } from "../features/mods/model-studio-page.jsx";
 import { modKey, withoutMod, removeModJson } from "../../shared/mod-removal.cjs";
 import { ReloadSettings } from "../features/settings/reload-settings.jsx";
 import { GameOptionsPage } from "../features/settings/game-options.jsx";
@@ -39,6 +40,7 @@ import { SettingsWorkspace, SettingsGroup } from "../features/settings/settings-
 import { ActivityPage } from "../features/activity/activity-page.jsx";
 import { NeteaseConfigPage } from "../features/netease/netease-config.jsx";
 import { QuickLaunchPage } from "../features/quick-launch/quick-launch.jsx";
+import { SkinsPage } from "../features/skins/skins-page.jsx";
 import { workspaces, workspaceFor, WorkspaceTabs } from "./workspaces.jsx";
 import { RuntimeConsole } from "../features/debug/runtime-console.jsx";
 import { createActivityInvalidator, sameRecords } from "../../shared/resource-refresh.cjs";
@@ -83,6 +85,7 @@ const patchFor = (config) =>
 function App() {
   const [worldImportDraft, setWorldImportDraft] = useState(null);
   const [modWorkspaceRequest, setModWorkspaceRequest] = useState(null);
+  const [modelRequest, setModelRequest] = useState(null);
   const [profileCreateRequest, setProfileCreateRequest] = useState(null);
   const [profileOpenRequest, setProfileOpenRequest] = useState(null);
   const [profileOrigin, setProfileOrigin] = useState(null);
@@ -121,7 +124,12 @@ function App() {
     workspaces.flatMap(workspace => workspace.pages.map(([id]) => id)),
   );
   const [lastPages, setLastPages] = useState({});
-  const go = next => { setLastPages(old => ({ ...old, [workspaceFor(next).id]: next })); navigate(next); };
+  const go = next => {
+    const owner = workspaceFor(next);
+    const entry = owner?.pages.find(([id]) => id === next);
+    if (entry && !entry[2]?.hidden) setLastPages(old => ({ ...old, [owner.id]: next }));
+    navigate(next);
+  };
   const openWorld = (worldId, tab = "overview") => { setWorldOpenRequest({ worldId, tab, id: crypto.randomUUID() }); go("launch"); };
   const [advanced, setAdvanced] = useState(false),
     [runtime, setRuntime] = useState(""),
@@ -576,7 +584,7 @@ function App() {
             </div>
           </div>
         </header>
-        {workspace.pages.length > 1 && <WorkspaceTabs tabs={workspace.pages} value={page} onChange={go} />}
+        {workspace.pages.length > 1 && <WorkspaceTabs tabs={workspace.pages} value={workspace.pages.some(([id, , flags]) => id === page && flags?.hidden) ? workspace.pages.find(([, , flags]) => !flags?.hidden)[0] : page} onChange={go} />}
         {workspace.id === "logs" && <div className="runtime-context">
           <Select aria-label="当前运行会话" value={runtimeState.session?.id || ""} disabled={selectionLocked}
             options={(runtimeState.sessions || []).map(s => ({ value: s.id, label: `${s.worldName || s.profileName || "菜单客户端"} · ${s.userName || "玩家"} · ${s.running ? "运行中" : "已结束"}` }))}
@@ -590,6 +598,8 @@ function App() {
               ? "tracy-main"
               : page === "ui-editor"
                 ? "editor-main"
+                : page === "model-studio"
+                  ? "model-main"
                 : page === "ui-debug"
                   ? "inspector-main"
                   : page === "logs"
@@ -642,7 +652,7 @@ function App() {
                 onStop={stop}
                 onRuntime={async id => { try { if (selectionLocked) throw Error("请等待当前属性写入完成后切换会话"); if (typeof id === "string") receive(await api("launch.select", { sessionId: id })); go("runtime"); } catch (e) { report(e); } }}
                 onActivity={() => go("activity")}
-                onBrowseContent={(request) => { setModWorkspaceRequest(request); go("mods"); }}
+                onBrowseContent={(request) => { setModWorkspaceRequest({ returnTo: "launch", ...request }); go("mod-content"); }}
               />
             )}
             {page === "tracy" && <DebugPage key="performance" performance projectId={snapshot?.project.id} draft={debugDraft} setDraft={setDebugDraft} />}
@@ -719,7 +729,10 @@ function App() {
             {page === "activity" && <ActivityPage projects={projects} />}
             {page === "netease-config" && <NeteaseConfigPage />}
             {page === "quick-launch" && <QuickLaunchPage />}
-            {page === "mods" && <ModWorkspacePage request={modWorkspaceRequest} onClearScope={() => setModWorkspaceRequest(null)} onBack={() => go("launch")} onEditor={() => go("ui-editor")} onRemoved={removedMod} />}
+            {page === "skins" && <SkinsPage />}
+            {page === "mods" && <ModWorkspacePage onRemoved={removedMod} onOpenContent={request => { setModWorkspaceRequest({ returnTo: "mods", ...request }); go("mod-content"); }} />}
+            {page === "mod-content" && <ContentBrowserV2 key={(modWorkspaceRequest?.worldId || "global") + ":" + (modWorkspaceRequest?.packId || "") + ":" + (modWorkspaceRequest?.sourceId || "")} request={modWorkspaceRequest} onManage={() => { const back = modWorkspaceRequest?.returnTo || "mods"; setModWorkspaceRequest(null); go(back); }} onEditModel={asset => { setModelRequest({ path: asset.path, identifier: asset.identifier, label: asset.displayName || asset.label, worldId: modWorkspaceRequest?.worldId }); go("model-studio"); }} />}
+            {page === "model-studio" && <ModelStudioPage request={modelRequest} onLeave={() => setModelRequest(null)} onBack={() => { setModelRequest(null); go("mod-content"); }} />}
             {page === "debug" && (
               <DebugPage
                 key="code"

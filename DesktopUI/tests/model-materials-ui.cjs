@@ -1,0 +1,76 @@
+const { _electron: electron } = require("playwright");
+const assert=require("node:assert/strict"),fs=require("node:fs/promises"),path=require("node:path");
+const {encodeRgbaPng,decodePng}=require("../electron/domains/skins/npc-skins.cjs");
+const {importProject}=require("../electron/domains/profiles/bbmodel-codec.cjs");
+const {artifactPath,artifactRoot}=require("./fixtures/artifacts.cjs");
+(async()=>{
+  const data=artifactPath("data"),folder=path.join(data,"model-studio","materials"),file=path.join(folder,"model.geo.json");
+  await fs.mkdir(path.join(folder,"textures"),{recursive:true});
+  const source={name:"body",pivot:[0,0,0],cubes:[{origin:[-4,0,-4],size:[8,8,8],uv:[0,0]}]};
+  const original=JSON.stringify({"minecraft:geometry":[{description:{identifier:"geometry.materials",texture_width:64,texture_height:64},bones:[source]}],extra:"keep"});
+  await fs.writeFile(file,original,"utf8");
+  const colors=[["red",[255,0,0,255]],["blue",[0,0,255,255]]];
+  for(const[name,color]of colors)await fs.writeFile(path.join(folder,"textures",name+".png"),encodeRgbaPng(64,64,Buffer.from(Array.from({length:4096},()=>color).flat())));
+  const env={...process.env,DGN_GAME_HEADLESS:"1",DGN_GAME_DATA_DIR:data};delete env.ELECTRON_RUN_AS_NODE;
+  let app,page;const errors=[];
+  const launch=async()=>{
+    app=await electron.launch({cwd:path.resolve(__dirname,".."),env,...(process.env.DGN_GAME_TEST_EXE?{executablePath:process.env.DGN_GAME_TEST_EXE,args:[]}:{args:["."]})});
+    page=await app.firstWindow();page.setDefaultTimeout(15000);page.on("pageerror",e=>errors.push(e.message));
+    await app.evaluate(({BrowserWindow})=>{const w=BrowserWindow.getAllWindows()[0];w.webContents.setBackgroundThrottling(false);w.setSize(1440,900);w.show();w.focus();});
+    await page.getByRole("heading",{name:"存档",exact:true}).waitFor();await page.getByRole("button",{name:"模组与资源",exact:true}).click();await page.getByRole("button",{name:"模型制作",exact:true}).click();
+    await page.locator(".model-library-open").filter({hasText:"geometry.materials"}).click();await button("red.png").waitFor();await button("body 立方体 1").click();
+    await pick("视角","透视");
+  };
+  const close=async()=>{if(!app)return;const instance=app;app=null;const timer=setTimeout(()=>instance.process().kill(),5000);try{await instance.close();}finally{clearTimeout(timer);}};
+  const button=name=>page.getByRole("button",{name,exact:true}),read=async()=>JSON.parse(await fs.readFile(file,"utf8"));
+  const pick=async(label,value)=>{await page.getByRole("combobox",{name:label,exact:true}).click();await page.getByRole("option",{name:value,exact:true}).click();};
+  const save=async()=>{await button("保存模型").click();await page.getByText("已写回模型文件，原文件保存在同名 .bak",{exact:true}).waitFor();await page.waitForFunction(()=>[...document.querySelectorAll(".model-studio-actions button")].some(n=>n.textContent.trim()==="保存模型"&&!n.disabled));return(await read())["minecraft:geometry"][0].bones[0].cubes[0];};
+  const chooseTexture=async name=>{await button(name).click();await page.waitForFunction(()=>[...document.querySelectorAll("button")].some(n=>n.textContent.trim()==="分配当前贴图"&&!n.disabled));};
+  const capture=async name=>{await page.waitForTimeout(400);const bytes=await app.evaluate(async({BrowserWindow})=>(await BrowserWindow.getAllWindows()[0].webContents.capturePage()).toPNG().toString("base64"));await fs.writeFile(artifactPath("outputs/"+name+".png"),Buffer.from(bytes,"base64"));};
+  const checkColors=async()=>{
+    await page.waitForTimeout(500);
+    const screenshot=await page.locator(".model-view-canvas").screenshot();await fs.writeFile(artifactPath("outputs/colors-check.png"),screenshot);const png=decodePng(screenshot);
+    let red=0,blue=0;for(let i=0;i<png.pixels.length;i+=4){const r=png.pixels[i],g=png.pixels[i+1],b=png.pixels[i+2];if(r>60&&r>b*1.6&&r>g*1.6)red++;if(b>60&&b>r*1.6&&b>g*1.6)blue++;}
+    assert.ok(red>400,"预览应显示红色面");assert.ok(blue>400,"预览应显示蓝色面");
+  };
+  try{
+    await launch();await chooseTexture("red.png");await button("分配当前贴图").click();assert.equal(await fs.readFile(file,"utf8"),original);
+    await chooseTexture("blue.png");await pick("分配贴图的面","南面");await button("分配当前贴图").click();
+    let cube=await save();assert.equal(cube.uv.south.dgn_texture,"textures/blue.png");assert.equal(cube.uv.east.dgn_texture,"textures/red.png");
+    await checkColors();await capture("materials-assigned-dark");await button("撤销").click();cube=await save();assert.equal(cube.uv.south.dgn_texture,"textures/red.png");
+    await button("重做").click();cube=await save();assert.equal(cube.uv.south.dgn_texture,"textures/blue.png");
+    await button("取消贴图分配").click();cube=await save();assert.equal(cube.uv.south.dgn_texture,undefined);await button("撤销").click();await save();await checkColors();
+    await close();await launch();await checkColors();assert.equal((await read()).extra,"keep");
+    const exported=artifactPath("outputs/materials.bbmodel");
+    await app.evaluate(({dialog},file)=>{dialog.showSaveDialog=async()=>({canceled:false,filePath:file});},exported);
+    await button("导出 .bbmodel").click();await page.getByText(/工程已导出：/).waitFor();
+    const model=JSON.parse(await fs.readFile(exported,"utf8"));assert.equal(model.meta.model_format,"bedrock_block");assert.equal(model.textures.length,2);
+    assert.notEqual(model.elements[0].faces.south.texture,model.elements[0].faces.east.texture);
+    console.log("PASS 按面分配/盒子展开、双贴图真实渲染、撤销重做/取消、保存重启与方块工程导出");
+    await chooseTexture("red.png");await button("绘制").click();await page.locator(".model-brush").getByRole("button",{name:"立体",exact:true}).click();
+    await pick("视角","前视图（南）");const stage=page.locator(".model-view-canvas"),stageBox=await stage.boundingBox();
+    await page.mouse.click(stageBox.x+stageBox.width/2,stageBox.y+stageBox.height/2);
+    await page.getByText("请先选择该面的贴图，再绘制：textures/blue.png",{exact:true}).waitFor();
+    assert.equal(await page.locator(".model-brush").getByRole("button",{name:"放弃",exact:true}).isDisabled(),true);
+    await pick("视角","透视");await page.locator(".model-brush").getByRole("button",{name:"立体",exact:true}).click();
+    await button("编辑").click();await chooseTexture("blue.png");await button("绘制").click();await page.getByLabel("画笔颜色").fill("#00ff00");
+    const canvas=page.getByLabel("贴图绘制画布",{exact:true}),bounds=await canvas.boundingBox();await page.mouse.click(bounds.x+bounds.width/2,bounds.y+bounds.height/2);
+    await button("导出 .bbmodel").click();await page.getByText(/工程已导出：/).waitFor();await page.waitForFunction(()=>[...document.querySelectorAll("button")].some(n=>n.textContent.trim()==="导出 .bbmodel"&&!n.disabled));
+    const painted=JSON.parse(await fs.readFile(exported,"utf8"));const blueIndex=painted.elements[0].faces.south.texture;
+    const bluePixels=decodePng(Buffer.from(painted.textures[blueIndex].source.split(",")[1],"base64")).pixels;assert.ok(bluePixels.some((v,i)=>i%4===1&&v===255),"未保存笔画进入对应贴图");
+    assert.deepEqual([...decodePng(await fs.readFile(path.join(folder,"textures/blue.png"))).pixels.slice(0,4)],[0,0,255,255]);
+    await page.locator(".model-brush").getByRole("button",{name:"保存贴图",exact:true}).click();await page.waitForFunction(()=>[...document.querySelectorAll(".model-brush button")].some(n=>n.textContent.trim()==="放弃"&&n.disabled));
+    await button("编辑").click();await chooseTexture("red.png");await checkColors();await chooseTexture("blue.png");
+    await button("带贴图重排").click();await page.locator("dialog[open]").getByLabel("贴图重排预览").waitFor();await page.keyboard.press("Escape");
+    await button("退出编辑").click();await app.evaluate(({dialog},file)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[file]});},exported);await button("导入 .bbmodel").click();await button("texture_0.png").waitFor();
+    await page.waitForFunction(()=>document.querySelector(".model-texture-list .active")?.textContent==="texture_0.png");await button("body 立方体 1").click();await checkColors();
+    await button("保存模型").click();await page.getByText("已写回模型文件，原文件保存在同名 .bak",{exact:true}).waitFor();
+    await capture("materials-reimported");assert.equal(importProject(painted).textures.length,2);
+    await button("动画").click();await button("新建动画").click();await button("animation.idle").waitFor();
+    await button("导出 .bbmodel").click();await page.getByText(/多贴图方块工程不支持动画/).waitFor();
+    await button("编辑").click();await button("body 立方体 1").click();await app.evaluate(({BrowserWindow,nativeTheme})=>{BrowserWindow.getAllWindows()[0].setSize(1000,720);nativeTheme.themeSource="light";});
+    await page.waitForFunction(()=>document.documentElement.dataset.theme==="light");await button("分配当前贴图").scrollIntoViewIfNeeded();await capture("materials-small-light");
+    assert.deepEqual(errors,[]);await fs.writeFile(artifactPath("outputs/result.json"),JSON.stringify({passed:true,errors},null,2),"utf8");
+    console.log("PASS 未保存绘制导出/实际保存、切换贴图、图集预览取消、独立重导入、动画保护与窄窗浅色");console.log(artifactRoot);
+  }catch(error){console.error("renderer errors",errors);if(page)await capture("failure").catch(()=>{});throw error;}finally{await close();}
+})().catch(error=>{console.error(error);process.exitCode=1;});

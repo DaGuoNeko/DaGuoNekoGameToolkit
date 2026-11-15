@@ -14,7 +14,84 @@ const { withMcdk } = require("./mcp-endpoint.cjs");
 const { dimensionProbeCode, buildHeightProbeCode } = require("../worlds/terrain-runtime.cjs");
 const { sharedSources } = require("../../../shared/source-sharing.cjs");
 const { isolatedGameVersions } = require("../../host-isolation-support.cjs");
+const { runContentCommand } = require("../profiles/content-commands.cjs");
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const modelTools = {
+  list_content: "content.scan",
+  read_content: "content.scan",
+  list_models: "content.list-models",
+  read_geometry: "content.read-geometry",
+  save_geometry: "content.save-geometry",
+  create_model: "content.create-model",
+  delete_model: "content.delete-model",
+  list_textures: "content.list-textures",
+  read_texture: "content.read-texture",
+  save_texture: "content.save-texture",
+  create_texture: "content.create-texture",
+  list_animations: "content.list-animations",
+  list_controllers: "content.list-controllers",
+  read_controller: "content.read-controller",
+  save_controller: "content.save-controller",
+  create_controller: "content.create-controller",
+  read_animation: "content.read-animation",
+  save_animation: "content.save-animation",
+  create_animation: "content.create-animation",
+  delete_animation: "content.delete-animation",
+  rename_animation: "content.rename-animation",
+  duplicate_animation: "content.duplicate-animation",
+  save_manifest: "content.save-manifest",
+};
+const modelWrites = new Set(Object.keys(modelTools).filter((name) => !["list_content", "read_content", "list_models", "read_geometry", "list_textures", "read_texture", "list_animations", "list_controllers", "read_controller", "read_animation"].includes(name)));
+const skinWrites = new Set(["create_skin", "update_skin", "remove_skin"]);
+const resultLimit = 20 * 1024 * 1024;
+function bounded(value) {
+  const payload = result(value);
+  if (JSON.stringify(payload).length > resultLimit) throw Error("结果超过 MCP 返回上限，请缩小范围或在工具箱界面打开");
+  return payload;
+}
+function boundedImage(dataUrl, meta) {
+  const prefix = "data:image/png;base64,";
+  if (typeof dataUrl !== "string" || !dataUrl.startsWith(prefix)) throw Error("无效的 PNG 文件");
+  const payload = {
+    content: [
+      { type: "image", mimeType: "image/png", data: dataUrl.slice(prefix.length) },
+      { type: "text", text: JSON.stringify(meta) },
+    ],
+  };
+  if (JSON.stringify(payload).length > resultLimit) throw Error("图片超过 MCP 返回上限，请在工具箱界面打开");
+  return payload;
+}
+function withoutPreview(row) {
+  if (!row || typeof row !== "object") return row;
+  const next = { ...row };
+  delete next.preview;
+  if (next.texture && typeof next.texture === "object") {
+    const { preview, ...texture } = next.texture;
+    next.texture = texture;
+  }
+  return next;
+}
+function summarizeContent(scan) {
+  return {
+    generatedAt: scan.generatedAt,
+    summary: scan.summary,
+    issues: scan.issues,
+    limits: scan.limits,
+    sources: scan.sources || [],
+    packs: (scan.packs || []).map(({ assets, entries, languageMap, textureCatalog, ...pack }) => pack),
+  };
+}
+// shortcut: 分页每次重新扫描，不缓存快照；内容目录很大时再做成有界快照。
+function pageContent(scan, args) {
+  const source = args.view === "files" ? scan.assets || [] : scan.entries || [];
+  const query = typeof args.query === "string" ? args.query.toLowerCase() : "";
+  let rows = source.map(withoutPreview);
+  if (args.type) rows = rows.filter((row) => row.type === args.type);
+  if (query) rows = rows.filter((row) => [row.identifier, row.label, row.relative, row.path, row.name].join("\n").toLowerCase().includes(query));
+  const offset = args.offset || 0;
+  const limit = args.limit || 50;
+  return { total: rows.length, offset, limit, rows: rows.slice(offset, offset + limit) };
+}
 function assertionPhase(text) {
   if (/png|resource|texture|ImageHash|Empty resource/i.test(text || "")) return "resources";
   if (/UI|UITypes|layout|modifier/i.test(text || "")) return "ui";
@@ -43,6 +120,10 @@ class AutomationRouter {
     worldData,
     proxy = withMcdk,
     onError = () => {},
+    modLibrary,
+    contentIndex,
+    studioRoot,
+    skins,
   }) {
     Object.assign(this, {
       sessions,
@@ -61,13 +142,19 @@ class AutomationRouter {
       worldData,
       proxy,
       onError,
+      modLibrary,
+      contentIndex,
+      studioRoot,
+      skins,
     });
     this.instanceId = crypto.randomUUID();
     this.launches = new Map();
+    this.writes = new Map();
     this.busy = new Set();
     this.captures = new Map();
     this.assertions = new AssertionTracker();
     this.startQueue = Promise.resolve();
+    this.writeQueue = Promise.resolve();
   }
   worker(id) {
     const worker = this.sessions.workers.find((w) => w.session?.id === id);
@@ -170,6 +257,21 @@ class AutomationRouter {
     const promise = this.startQueue.then(fn);
     this.startQueue = promise.catch(() => {});
     this.launches.set(args.requestId, { hash, promise });
+    return promise;
+  }
+  async writeOnce(name, args, fn) {
+    if (args.instanceId !== this.instanceId)
+      throw Error("工具箱已重启或 instanceId 错误，请先检查 toolbox_status，不能直接重试这次写入");
+    const hash = crypto.createHash("sha256").update(JSON.stringify([name, Object.keys(args).sort().map((k) => [k, args[k]])])) .digest("hex");
+    const old = this.writes.get(args.requestId);
+    if (old) {
+      if (old.hash !== hash) throw Error("requestId 已用于另一组写入参数");
+      return old.promise;
+    }
+    if (this.writes.size >= 1000) throw Error("本次运行的内容写入请求已达 1000 条上限");
+    const promise = this.writeQueue.then(fn);
+    this.writeQueue = promise.catch(() => {});
+    this.writes.set(args.requestId, { hash, promise });
     return promise;
   }
   guard(worker, generation, sequence, gamePid) {
@@ -658,9 +760,63 @@ class AutomationRouter {
         if (!state || state.id !== args.taskId) throw Error("地形任务不存在或已变化");
         return result(state);
       }
+      case "list_content":
+      case "read_content":
+      case "list_models":
+      case "read_geometry":
+      case "save_geometry":
+      case "create_model":
+      case "delete_model":
+      case "list_textures":
+      case "read_texture":
+      case "save_texture":
+      case "create_texture":
+      case "list_animations":
+      case "list_controllers":
+      case "read_controller":
+      case "save_controller":
+      case "create_controller":
+      case "read_animation":
+      case "save_animation":
+      case "create_animation":
+      case "delete_animation":
+      case "rename_animation":
+      case "duplicate_animation":
+      case "save_manifest":
+        return modelWrites.has(name) ? this.writeOnce(name, args, () => this.modelTool(name, args)) : this.modelTool(name, args);
+      case "list_skins":
+      case "list_skin_targets":
+      case "read_skin":
+      case "create_skin":
+      case "update_skin":
+      case "remove_skin":
+        return skinWrites.has(name) ? this.writeOnce(name, args, () => this.skinTool(name, args)) : this.skinTool(name, args);
       default:
         throw Error("此操作由 stdio 桥接器处理");
     }
+  }
+  async modelTool(name, args) {
+    if (!this.modLibrary || !this.contentIndex || !this.studioRoot) throw Error("当前实例不支持模组内容与模型");
+    const value = await runContentCommand(modelTools[name], args, {
+      modLibrary: this.modLibrary,
+      contentIndex: this.contentIndex,
+      worlds: this.worlds,
+      studioRoot: this.studioRoot,
+    });
+    if (name === "list_content") return bounded(summarizeContent(value));
+    if (name === "read_content") return bounded(pageContent(value, args));
+    if (name === "read_texture") return boundedImage(value.dataUrl, { path: value.path, revision: value.revision, layers: value.layers });
+    return bounded(value);
+  }
+  async skinTool(name, args) {
+    if (!this.skins) throw Error("当前实例不支持 NPC 皮肤");
+    if (name === "list_skins") return bounded(await this.skins.list());
+    if (name === "list_skin_targets") return bounded({ targets: this.skins.targets() });
+    if (name === "read_skin") return boundedImage(await this.skins.image(args.id), { id: args.id });
+    if (name === "create_skin") return bounded(await this.skins.create(args));
+    if (name === "update_skin") return bounded(await this.skins.update(args.id, args));
+    if (name === "remove_skin") return bounded(await this.skins.remove(args.id));
+    throw Error("未知的皮肤操作");
   }
 }
 module.exports = { AutomationRouter };

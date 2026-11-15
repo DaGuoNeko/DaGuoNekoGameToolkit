@@ -5,6 +5,7 @@ const { renderWorld } = require("../electron/domains/worlds/map-preview.cjs");
 const { MapPreviewJobs } = require("../electron/domains/worlds/map-preview-jobs.cjs");
 const { bedrockMap, zipMap } = require("./fixtures/map-world.cjs");
 const { inspectSelection } = require("../electron/file-selection.cjs");
+const { renameWithRetry } = require("../electron/file-rename.cjs");
 const { artifactPath } = require("./fixtures/artifacts.cjs");
 
 test("cached map index preserves all dimensions and selection results and invalidates on change", async () => {
@@ -27,7 +28,7 @@ test("cached map index preserves all dimensions and selection results and invali
   try { db.put(Buffer.from("cache-test-change"), Buffer.from([1])); } finally { await db.close(); }
   assert(!(await run({ chunks: [[0, 0]] })).includes("复用基岩索引"));
   assert.notEqual(cache.state.index.stamp, before);
-  await fs.rename(source, source + "-previous"); await bedrockMap(source);
+  await renameWithRetry(source, source + "-previous"); await bedrockMap(source);
   assert(!(await run({ chunks: [[0, 0]] })).includes("复用基岩索引"));
 });
 
@@ -55,7 +56,7 @@ test("cached jobs verify authorization on every request and release all caches o
   assert(service.previewCache.index); assert(service.cacheDirectory);
   await service.render("two", { source, identity, chunks: [[1, 0]] });
   const db = await Database.open(path.join(source, "db")); await db.close(); // 前次 worker 没有保留数据库句柄。
-  await fs.rename(source, source + "-old"); await bedrockMap(source);
+  await renameWithRetry(source, source + "-old"); await bedrockMap(source);
   await assert.rejects(service.render("stale", { source, identity, chunks: [[0, 0]] }), /变化/);
   assert.equal(service.previewCache, null); assert.equal(service.cacheDirectory, null);
   await service.render("fresh", { source, chunks: [[0, 0]] });

@@ -22,6 +22,7 @@ test("source layout keeps renderer, shared, and Electron domain boundaries", () 
     "features/profiles",
     "features/rooms",
     "features/settings",
+    "features/skins",
     "features/worlds",
   ]) {
     assert.ok(fs.existsSync(path.join(appRoot, "src", directory)), directory);
@@ -44,6 +45,7 @@ test("source layout keeps renderer, shared, and Electron domain boundaries", () 
       "performance",
       "profiles",
       "reload",
+      "skins",
       "update",
       "worlds",
     ],
@@ -60,6 +62,8 @@ test("source layout keeps renderer, shared, and Electron domain boundaries", () 
   }
   for (const file of [
     "src/app/main.jsx",
+    "shared/skins/npc-models.json",
+    "shared/skins/npc-textures.json",
     "src/features/editor/ui-layout.wasm",
     "electron/main.cjs",
     "electron/domains/automation/automation-stdio.cjs",

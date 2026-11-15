@@ -3,7 +3,8 @@ import "./workspaces.css";
 
 export const workspaces = [
   { id: "launch", label: "存档", icon: "archive", group: "资源", pages: [["launch", "存档库"]] },
-  { id: "mods", label: "模组与资源", icon: "cube", group: "资源", pages: [["mods", "模组与内容"], ["ui-editor", "UI 编辑器"]] },
+  { id: "mods", label: "模组与资源", icon: "cube", group: "资源", pages: [["mods", "模组与内容"], ["ui-editor", "UI 编辑器"], ["skins", "NPC皮肤"], ["model-studio", "模型制作"]] },
+  { id: "mod-content", label: "模组内容", icon: "cube", pages: [["mod-content", "模组内容"]] },
   { id: "config", label: "启动配置", icon: "launch-profile", group: "资源", pages: [["config", "启动配置"]] },
   { id: "logs", label: "运行与调试", icon: "bug", group: "运行", pages: [["runtime", "控制台"], ["logs", "运行日志"], ["debug", "代码与函数"], ["ui-debug", "UI 调试器"], ["tracy", "性能"]] },
   { id: "rooms", label: "远程联机", icon: "gamepad", group: "运行", pages: [["rooms", "联机房间"]] },
@@ -31,6 +32,7 @@ export function useWorkspaceState(key, initial) {
 }
 
 export function WorkspaceTabs({ tabs, value, onChange, label = "工作区工具" }) {
-  return <nav className="workspace-tabs" aria-label={label}>{tabs.map(([id, name]) =>
+  const shown = tabs.filter(tab => !tab[2]?.hidden);
+  return <nav className="workspace-tabs" aria-label={label}>{shown.map(([id, name]) =>
     <button key={id} aria-current={id === value ? "page" : undefined} className={id === value ? "active" : ""} onClick={() => onChange(id)}>{name}</button>)}</nav>;
 }

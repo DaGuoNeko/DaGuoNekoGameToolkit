@@ -9,6 +9,10 @@ const {
   queryProcesses,
 } = require("../electron/domains/game/game-processes.cjs");
 const { GameOptions } = require("../electron/domains/game/game-options.cjs");
+test("process inventory rejects invalid names without invoking system discovery", async () => {
+  for (const names of [null, [""], ["../node.exe"], ["C:\\node.exe"], ["x\n.exe"], [42]]) await assert.rejects(queryProcesses(names), /无效/);
+  assert.deepEqual(await queryProcesses([]), []);
+});
 async function fixture(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-process-"));
   t.after(async () => {
@@ -143,5 +147,27 @@ test(
     ]);
     assert.match(own.ownerSid, /^S-\d-/);
     assert.equal(own.ownerSid, own.currentSid);
+    assert.deepEqual(await queryProcesses(["dgn-absent-process-'quoted'.exe"]), []);
   },
 );
+
+test("native inventory finds an owned child with a quoted Unicode filename and never returns arguments", { skip: process.platform !== "win32" }, async t => {
+  const { root } = await fixture(t);
+  const exe = path.join(root, "测试 O'Brien.exe");
+  await fs.copyFile(process.execPath, exe);
+  const { spawn } = require("node:child_process");
+  const { once } = require("node:events");
+  const child = spawn(exe, ["-e", "setInterval(() => {}, 1000)", "SYNTHETIC_ARGUMENT_NOT_AN_IDENTITY"], { windowsHide: true, stdio: "ignore" });
+  const ended = once(child, "exit");
+  try {
+    await once(child, "spawn");
+    for (let i = 0; i < 8; i++) {
+      const rows = await queryProcesses([path.basename(exe)]);
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0].pid, child.pid); assert.equal(rows[0].path.toLowerCase(), exe.toLowerCase());
+      assert.equal(rows[0].ownerSid, rows[0].currentSid);
+      assert.equal(JSON.stringify(rows).includes("SYNTHETIC_ARGUMENT"), false);
+    }
+    assert.deepEqual(await queryProcesses(["x.exe' OR Name='node.exe"]), []);
+  } finally { child.kill(); await ended; }
+});

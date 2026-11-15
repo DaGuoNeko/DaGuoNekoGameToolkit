@@ -838,6 +838,24 @@ td.check-cell {
   border-radius: 5px;
   background: var(--hover);
 }
+.skin-model-thumb {
+  width: 52px;
+  height: 78px;
+  image-rendering: auto;
+  background: transparent;
+}
+.skin-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.skins-page td {
+  vertical-align: middle;
+}
+.skin-actions {
+  width: 1%;
+  white-space: nowrap;
+}
 .thumbnail-button {
   border: 0;
   background: transparent;
@@ -1140,6 +1158,10 @@ td.check-cell {
 .skin-input-row .skin-thumbnail {
   width: 60px;
   height: 60px;
+}
+.skin-input-row .skin-model-thumb {
+  width: 56px;
+  height: 84px;
 }
 .error-box {
   display: flex;

@@ -89,6 +89,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'World console navigation acceptance failed' }
           node tests/mcstudio-netease-ui.cjs
           if ($LASTEXITCODE -ne 0) { throw 'MCStudio and NetEase configuration acceptance failed' }
+          node tests/model-editor-reliability-ui.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Model editor reliability acceptance failed' }
       - run: npm run package
       - name: Packaged client acceptance
         run: |
@@ -105,6 +107,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Packaged automatic loading acceptance failed' }
           node tests/performance-ui.cjs
           if ($LASTEXITCODE -ne 0) { throw 'Packaged resource refresh acceptance failed' }
+          node tests/acceptance-fixes-ui.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged NPC skin and process identity acceptance failed' }
+          node tests/model-editor-reliability-ui.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged model editor reliability acceptance failed' }
       - name: Publish complete release
         env:
           GH_TOKEN: ${{ github.token }}

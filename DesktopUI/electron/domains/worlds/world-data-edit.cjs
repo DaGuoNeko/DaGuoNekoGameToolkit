@@ -4,6 +4,7 @@ const { parseNbtRecord, MAX_BYTES } = require("./world-data-codec.cjs");
 const { patchRecord } = require("./world-data-edit-codec.cjs");
 const { readFile, safeDirectory, levelFormat } = require("./map-preview.cjs");
 const { inspectSelection, verifySelection } = require("../../file-selection.cjs");
+const { renameWithRetry } = require("../../file-rename.cjs");
 const { POLICY_FILE, validatePolicy } = require("./world-version-policy.cjs");
 const hash = bytes => crypto.createHash("sha256").update(bytes).digest("hex");
 const idPattern = /^[a-f0-9-]{36}$/;
@@ -19,7 +20,7 @@ async function durableWrite(file, bytes, exclusive = false) {
   const handle = await fs.open(temporary, "wx");
   try { await handle.writeFile(bytes); await handle.sync(); } finally { await handle.close(); }
   if (!exclusive) {
-    try { await fs.rename(temporary, file); }
+    try { await renameWithRetry(temporary, file); }
     finally { await fs.rm(temporary, { force: true }); }
   }
 }

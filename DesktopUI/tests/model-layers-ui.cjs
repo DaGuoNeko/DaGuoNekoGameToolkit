@@ -1,0 +1,90 @@
+const { _electron: electron } = require("playwright");
+const assert = require("node:assert/strict"), fs = require("node:fs/promises"), path = require("node:path");
+const { createTexture } = require("../electron/domains/profiles/content-files.cjs");
+const { readLayerPng } = require("../electron/domains/profiles/texture-layers.cjs");
+const { decodePng } = require("../electron/domains/skins/npc-skins.cjs");
+const { artifactPath, artifactRoot } = require("./fixtures/artifacts.cjs");
+
+(async () => {
+  const data = artifactPath("data"), folder = path.join(data, "model-studio", "layers"); await fs.mkdir(folder, { recursive: true });
+  const file = path.join(folder, "model.geo.json"), original = JSON.stringify({ "minecraft:geometry": [{ description: { identifier: "geometry.layers", texture_width: 16, texture_height: 16 }, bones: [{ name: "body", cubes: [{ origin: [-4, 0, -2], size: [8, 12, 4], uv: Object.fromEntries(["east", "west", "up", "down", "north", "south"].map(name => [name, { uv: [0, 0], uv_size: [16, 16] }])) }] }] }] });
+  await fs.writeFile(file, original, "utf8");
+  const pngFile = (await createTexture({ list: async () => ({ mods: [] }) }, { modelPath: file, name: "ink", width: 16, height: 16 }, null, path.join(data, "model-studio"))).path;
+  const white = await fs.readFile(pngFile), env = { ...process.env, DGN_GAME_HEADLESS: "1", DGN_GAME_DATA_DIR: data }; delete env.ELECTRON_RUN_AS_NODE;
+  let app, page; const errors = [];
+  const launch = async () => {
+    app = await electron.launch({ cwd: path.resolve(__dirname, ".."), env, ...(process.env.DGN_GAME_TEST_EXE ? { executablePath: process.env.DGN_GAME_TEST_EXE, args: [] } : { args: ["."] }) });
+    page = await app.firstWindow(); page.setDefaultTimeout(15000); page.on("pageerror", error => errors.push(error.message));
+    await app.evaluate(({ BrowserWindow }) => { const win = BrowserWindow.getAllWindows()[0]; win.webContents.setBackgroundThrottling(false); win.setSize(1440, 900); win.show(); win.focus(); });
+    await page.getByRole("heading", { name: "存档", exact: true }).waitFor(); await page.getByRole("button", { name: "模组与资源", exact: true }).click(); await page.getByRole("button", { name: "模型制作", exact: true }).click();
+    await page.locator(".model-library-open").filter({ hasText: "geometry.layers" }).click(); await page.getByRole("button", { name: "ink.png", exact: true }).waitFor();
+    await page.getByRole("button", { name: "绘制", exact: true }).click(); await page.locator(".model-layer-select").getByText("背景", { exact: true }).waitFor();
+  };
+  const close = async () => { const instance = app; if (!instance) return; app = null; const timer = setTimeout(() => instance.process().kill(), 5000); try { await instance.close(); } finally { clearTimeout(timer); } };
+  const capture = async name => {
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    const image = await app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].webContents.capturePage()).toPNG().toString("base64"));
+    await fs.writeFile(artifactPath("outputs/" + name + ".png"), Buffer.from(image, "base64"));
+  };
+  const pixel = (bytes, x = 2, y = 3) => [...decodePng(bytes).pixels.subarray((y * 16 + x) * 4, (y * 16 + x + 1) * 4)];
+  try {
+    await launch();
+    const button = name => page.getByRole("button", { name, exact: true });
+    const brush = () => page.locator(".model-brush");
+    const save = async () => { await brush().getByRole("button", { name: "保存贴图", exact: true }).click(); await page.waitForFunction(() => { const buttons = [...document.querySelectorAll('.model-brush button')]; return buttons.some(n => n.textContent.trim() === "放弃" && n.disabled) && buttons.some(n => n.textContent.trim() === "保存贴图" && !n.disabled); }); return fs.readFile(pngFile); };
+    const paint = async color => {
+      await page.getByLabel("画笔颜色").fill(color);
+      const rect = await page.getByLabel("贴图绘制画布", { exact: true }).boundingBox(), scale = Math.min(rect.width, rect.height) / 16;
+      await page.mouse.click(rect.x + (rect.width - 16 * scale) / 2 + 2.5 * scale, rect.y + (rect.height - 16 * scale) / 2 + 3.5 * scale);
+    };
+    const rename = async name => { await page.getByLabel("图层名称", { exact: true }).fill(name); await page.getByLabel("图层名称", { exact: true }).press("Enter"); };
+    const count = () => page.locator(".model-layer-row").count();
+    await button("新建图层").click(); await rename("红色笔迹"); await paint("#ff0000");
+    let bytes = await save(), document = readLayerPng(bytes).layers;
+    assert.equal(document.layers.length, 2); assert.deepEqual(pixel(bytes), [255, 0, 0, 255]);
+    assert.deepEqual(pixel(Buffer.from(document.layers[0].source.slice(22), "base64")), [255, 255, 255, 255]);
+    assert.deepEqual(pixel(Buffer.from(document.layers[1].source.slice(22), "base64"), 0, 0), [0, 0, 0, 0]);
+    await page.getByLabel("图层不透明度").fill("50"); await page.getByLabel("图层不透明度").press("Enter"); bytes = await save();
+    assert.deepEqual(pixel(bytes), [255, 127, 127, 255]);
+    await button("锁定图层 红色笔迹").click(); await paint("#0000ff"); await page.getByText("当前图层已锁定或隐藏，请先解锁或显示", { exact: true }).waitFor();
+    assert.deepEqual(pixel(await save()), [255, 127, 127, 255]);
+    await button("解锁图层 红色笔迹").click(); await button("隐藏图层 红色笔迹").click(); assert.deepEqual(pixel(await save()), [255, 255, 255, 255]);
+    await brush().getByRole("button", { name: "撤销", exact: true }).click(); assert.deepEqual(pixel(await save()), [255, 127, 127, 255]);
+    await brush().getByRole("button", { name: "重做", exact: true }).click(); assert.deepEqual(pixel(await save()), [255, 255, 255, 255]); await button("显示图层 红色笔迹").click();
+    console.log("PASS 分层绘制、透明度、锁定/隐藏与图层撤销重做");
+    await button("复制图层").click(); assert.equal(await count(), 3); await rename("副本");
+    bytes = await save(); assert.ok(pixel(bytes)[1] >= 62 && pixel(bytes)[1] <= 64);
+    await button("下移").click(); await button("下移").click(); assert.deepEqual(pixel(await save()), [255, 127, 127, 255]);
+    await button("上移").click(); await button("上移").click(); const beforeMerge = pixel(await save());
+    await button("向下合并").click(); assert.equal(await count(), 2); assert.deepEqual(pixel(await save()), beforeMerge);
+    await brush().getByRole("button", { name: "撤销", exact: true }).click(); assert.equal((readLayerPng(await save()).layers.layers.length), 3);
+    await button("删除图层").click(); assert.equal(await count(), 2); assert.deepEqual(pixel(await save()), [255, 127, 127, 255]);
+    await button("新建图层").click(); await rename("未保存蓝色"); await paint("#0000ff");
+    await button("动画").click(); await button("绘制").click(); assert.equal(await count(), 3); assert.equal(await brush().getByRole("button", { name: "放弃", exact: true }).isEnabled(), true);
+    const output = artifactPath("outputs/layers.bbmodel"); await app.evaluate(({ dialog }, file) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: file }); }, output);
+    await button("导出 .bbmodel").click(); await page.getByText(/工程已导出：/).waitFor();
+    const project = JSON.parse(await fs.readFile(output, "utf8")), exported = Buffer.from(project.textures[0].source.slice(22), "base64");
+    assert.deepEqual(pixel(exported), [0, 0, 255, 255]); assert.equal(readLayerPng(exported).layers, null);
+    bytes = await save(); await capture("layers-dark");
+    await close(); await launch(); assert.equal(await count(), 3); assert.equal(await page.getByLabel("图层名称").inputValue(), "未保存蓝色");
+    assert.deepEqual(pixel(await save()), [0, 0, 255, 255]); console.log("PASS 图层排序/合并/删除、跨模式保留、合成导出和重启恢复");
+    await button("选区").click(); await page.getByLabel("贴图绘制画布", { exact: true }).focus(); await page.keyboard.press("Control+a");
+    await button("删除选区").click(); const selected = await save(), selectedLayers = readLayerPng(selected).layers.layers;
+    assert.deepEqual(pixel(selected), [255, 127, 127, 255]);
+    assert.deepEqual(pixel(Buffer.from(selectedLayers[2].source.slice(22), "base64")), [0, 0, 0, 0]);
+    await brush().getByRole("button", { name: "撤销", exact: true }).click(); assert.deepEqual(pixel(await save()), [0, 0, 255, 255]);
+    await button("取消选区").click(); await button("画笔").click();
+    const beforeFailure = await fs.readFile(pngFile); await fs.unlink(pngFile + ".bak"); await fs.mkdir(pngFile + ".bak"); await rename("待重试");
+    await brush().getByRole("button", { name: "保存贴图", exact: true }).click(); await page.getByText(/所选路径是链接或类型发生变化/).waitFor();
+    assert.deepEqual(await fs.readFile(pngFile), beforeFailure); assert.equal(await brush().getByRole("button", { name: "放弃", exact: true }).isEnabled(), true);
+    await fs.rmdir(pngFile + ".bak"); await save();
+    const latest = await fs.readFile(pngFile); await fs.writeFile(pngFile, white); await rename("外部冲突");
+    await brush().getByRole("button", { name: "保存贴图", exact: true }).click(); await page.getByText(/贴图已被外部修改/).waitFor(); assert.deepEqual(await fs.readFile(pngFile), white);
+    await fs.writeFile(pngFile, latest); await save();
+    await app.evaluate(({ BrowserWindow, nativeTheme }) => { BrowserWindow.getAllWindows()[0].setSize(1000, 720); nativeTheme.themeSource = "light"; });
+    await page.waitForFunction(() => document.documentElement.dataset.theme === "light"); await page.waitForTimeout(300); await capture("layers-small-light");
+    assert.equal(await fs.readFile(file, "utf8"), original); assert.deepEqual(errors, []);
+    console.log("PASS 写入失败保留草稿、外部修改拒绝覆盖、深浅主题与小窗口"); console.log(artifactRoot);
+  } catch (error) { if (page) await capture("failure").catch(() => {}); throw error; }
+  finally { await close(); }
+})().catch(error => { console.error(error); process.exitCode = 1; });

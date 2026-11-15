@@ -266,9 +266,12 @@ async function enrichPack(pack, files, lang, textures) {
 }
 
 async function listPackDirs(source, targetPackId = null) {
+  const wanted = targetPackId
+    ? new Set(String(targetPackId).toLowerCase().split(",").map(item => item.trim()).filter(Boolean))
+    : null;
   const result = [], seen = new Set();
   async function visit(dir, depth) {
-    if (result.length >= MAX_PACKS || depth > 4) return;
+    if (result.length >= MAX_PACKS || depth > 4 || (wanted && result.length >= wanted.size)) return;
     const real = path.resolve(dir).toLowerCase();
     if (seen.has(real) || !(await safeDirectory(dir))) return;
     seen.add(real);
@@ -277,7 +280,7 @@ async function listPackDirs(source, targetPackId = null) {
       if (!targetPackId) { result.push({ dir, filename }); return; }
       try {
         const info = manifestInfo(await readJson(path.join(dir, filename)), path.join(dir, filename));
-        if (info.id === String(targetPackId).toLowerCase()) result.push({ dir, filename });
+        if (wanted.has(info.id)) result.push({ dir, filename });
       } catch { /* 当前目标包已由存档包检查确认；其他坏包不阻塞定向扫描。 */ }
       return;
     }

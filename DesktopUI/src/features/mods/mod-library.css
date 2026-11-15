@@ -87,10 +87,6 @@
   padding: 2px;
 }
 
-.mod-workspace-page { display: flex; flex-direction: column; gap: 18px; }
-.mod-workspace-tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line); }
-.mod-workspace-tabs button { border: 0; background: transparent; color: var(--muted); padding: 10px 14px; cursor: pointer; border-bottom: 2px solid transparent; font-weight: 600; }
-.mod-workspace-tabs button.active { color: var(--text); border-color: var(--accent); }
 .content-workbench { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .content-hero { display: flex; justify-content: space-between; gap: 20px; align-items: flex-end; padding: 22px 24px; border: 1px solid var(--line); border-radius: 14px; background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 10%, var(--surface)), var(--surface)); }
 .content-eyebrow { color: var(--accent); font-size: 10px; letter-spacing: .16em; font-weight: 800; }
@@ -150,6 +146,12 @@
 .content-workbench-header h2 { margin: 5px 0 2px; font-size: 24px; letter-spacing: -.025em; }
 .content-workbench-header p { margin: 0; color: var(--muted); font-size: 12px; }
 .content-workbench-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.content-pack-picker { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+.content-pack-picker select { min-width: 240px; }
+.content-mod-info { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px; }
+.content-pack-fields { display: grid; grid-template-columns: 4.5em minmax(0, 1fr) 7em auto auto; gap: 8px; align-items: center; margin: 0; border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
+.content-pack-fields input[type="checkbox"] { margin-right: 6px; }
+.content-pack-fields small { grid-column: 1 / -1; color: var(--muted); }
 .content-kpi-row { display: grid; grid-template-columns: 1.45fr repeat(5, minmax(70px, .65fr)); gap: 7px; }
 .content-kpi { min-height: 66px; display: flex; flex-direction: column; justify-content: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); }
 .content-kpi strong { font-size: 20px; line-height: 1; }.content-kpi span { margin-top: 5px; color: var(--muted); font-size: 11px; }.content-kpi small { margin-top: 4px; color: var(--muted); font-size: 9px; }.content-kpi-primary { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); background: color-mix(in srgb, var(--accent) 7%, var(--surface)); }.content-kpi-warn strong { color: #b67913; }

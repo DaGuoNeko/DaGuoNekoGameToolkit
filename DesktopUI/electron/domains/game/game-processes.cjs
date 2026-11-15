@@ -1,8 +1,6 @@
 const fs = require("node:fs/promises"),
   path = require("node:path");
-const execFile = require("node:util").promisify(
-  require("node:child_process").execFile,
-);
+const { inventory } = require("./process-inventory.cjs");
 const { parse } = require("jsonc-parser");
 const imageNames = ["Minecraft.Windows.exe", "Minecraft.exe"];
 function normalized(file) {
@@ -17,34 +15,8 @@ async function canonical(file) {
   }
 }
 async function queryProcesses(names) {
-  // Names are data, not interpolated PowerShell/WQL. Never return launch tokens.
-  const { stdout } = await execFile(
-    path.join(
-      process.env.SystemRoot,
-      "System32/WindowsPowerShell/v1.0/powershell.exe",
-    ),
-    [
-      "-NoProfile",
-      "-NonInteractive",
-      "-Command",
-      "[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); $images=ConvertFrom-Json $env:DGN_GAME_IMAGE_NAMES; $currentSid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value; @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object { $images -contains $_.Name } | ForEach-Object { $ownerSid=$null; try { $owner=Invoke-CimMethod -InputObject $_ -MethodName GetOwnerSid -ErrorAction Stop; if($owner.ReturnValue -eq 0){$ownerSid=$owner.Sid} } catch [Microsoft.Management.Infrastructure.CimException] {} ; [PSCustomObject]@{ProcessId=$_.ProcessId;Name=$_.Name;ExecutablePath=$_.ExecutablePath;OwnerSid=$ownerSid;CurrentSid=$currentSid} }) | ConvertTo-Json -Compress",
-    ],
-    {
-      windowsHide: true,
-      timeout: 10000,
-      maxBuffer: 1024 * 1024,
-      env: { ...process.env, DGN_GAME_IMAGE_NAMES: JSON.stringify(names) },
-    },
-  );
-  return stdout.trim()
-    ? [].concat(JSON.parse(stdout)).map((p) => ({
-        pid: p.ProcessId,
-        ownerSid: p.OwnerSid,
-        currentSid: p.CurrentSid,
-        name: p.Name,
-        path: p.ExecutablePath || null,
-      }))
-    : [];
+  if (!Array.isArray(names) || names.length > 256 || names.some(name => typeof name !== "string" || !name || name.length > 260 || /[\0-\x1f]/.test(name) || path.win32.basename(name) !== name)) throw Error("进程文件名无效");
+  return inventory(names);
 }
 async function developmentBuild(file) {
   // Known MCStudio version layout, including versions not selected in a profile.

@@ -1,0 +1,82 @@
+const {_electron:electron}=require("playwright");
+const assert=require("node:assert/strict"),fs=require("node:fs/promises"),path=require("node:path");
+const {importProject}=require("../electron/domains/profiles/bbmodel-codec.cjs");
+const {artifactPath,artifactRoot}=require("./fixtures/artifacts.cjs");
+(async()=>{
+  const data=artifactPath("data"),folder=path.join(data,"model-studio","timeline"),file=path.join(folder,"model.animation.json"),modelFile=path.join(folder,"model.geo.json");
+  await fs.mkdir(folder,{recursive:true});
+  const model=JSON.stringify({"minecraft:geometry":[{description:{identifier:"geometry.timeline",texture_width:64,texture_height:64},bones:[{name:"body",cubes:[{origin:[-4,0,-2],size:[8,12,4],uv:[0,0]}]},{name:"arm",parent:"body",cubes:[]},{name:"hand",parent:"arm",cubes:[]}]}]});
+  const frame={pre:[3,4,5],post:[10,20,30],extra:"keep"};
+  const source={animation_length:2,loop:false,bones:{body:{rotation:{"0.00":[0,0,0],"0.50":frame,"1.00":[20,30,40]},position:{"0.00":[0,0,0]}},arm:{rotation:{"0.00":[0,0,0],"1.00":[0,5,0]}},hand:{scale:{"0.50":[1,1,1]}}},sound_effects:{"0.50":{effect:"test.click"}},particle_effects:{"0.65":{effect:"test.smoke"}},timeline:{"0.80":"variable.test = 1;"}};
+  const long={animation_length:10000,loop:false,bones:{body:{rotation:{"0.00":[0,0,0],"9999.50":[20,0,0]}}}},short={animation_length:0.05,loop:false,bones:{body:{rotation:{"0.00":[0,0,0],"0.05":[5,0,0]}}}};
+  await fs.writeFile(modelFile,model,"utf8");await fs.writeFile(file,JSON.stringify({animations:{"animation.timeline":source,"animation.long":long,"animation.short":short}}),"utf8");
+  const env={...process.env,DGN_GAME_HEADLESS:"1",DGN_GAME_DATA_DIR:data};delete env.ELECTRON_RUN_AS_NODE;
+  let app,page;const errors=[];
+  const button=name=>page.getByRole("button",{name,exact:true}),slider=()=>page.getByRole("slider",{name:"时间",exact:true}),ruler=()=>page.getByRole("slider",{name:"时间刻度",exact:true});
+  const track=()=>page.getByRole("group",{name:"关键帧轨道 body 旋转",exact:true}).locator(".model-key-track");
+  const key=time=>track().getByRole("button",{name:"关键帧 旋转 "+time.toFixed(2),exact:true});
+  const read=async()=>JSON.parse(await fs.readFile(file,"utf8")).animations["animation.timeline"];
+  const at=async time=>{await page.waitForFunction(t=>Math.abs(Number(document.querySelector('input[aria-label="时间"]').value)-t)<0.001,time);};
+  const saved=async text=>{await page.getByText(text,{exact:true}).waitFor();await page.waitForFunction(()=>document.querySelector('[aria-label="关键帧选择"]').textContent!=="保存中…");};
+  const seek=async time=>{await slider().fill(String(time));await at(time);};
+  const capture=async name=>{await page.waitForTimeout(250);const png=await app.evaluate(async({BrowserWindow})=>(await BrowserWindow.getAllWindows()[0].webContents.capturePage()).toPNG().toString("base64"));await fs.writeFile(artifactPath("outputs/"+name+".png"),Buffer.from(png,"base64"));};
+  const launch=async(expected=0.5)=>{
+    app=await electron.launch({cwd:path.resolve(__dirname,".."),env,...(process.env.DGN_GAME_TEST_EXE?{executablePath:process.env.DGN_GAME_TEST_EXE,args:[]}:{args:["."]})});
+    page=await app.firstWindow();page.setDefaultTimeout(15000);page.on("pageerror",error=>errors.push(error.message));
+    await app.evaluate(({BrowserWindow})=>{const w=BrowserWindow.getAllWindows()[0];w.setSize(1440,900);w.webContents.setBackgroundThrottling(false);w.show();w.focus();});
+    await page.getByRole("heading",{name:"存档",exact:true}).waitFor();await button("模组与资源").click();await button("模型制作").click();await page.locator(".model-library-open").filter({hasText:"geometry.timeline"}).click();await button("动画").click();await button("animation.timeline").click();await page.locator(".model-bone-list").getByRole("button",{name:"body",exact:true}).click();await key(expected).waitFor();
+  };
+  const close=async()=>{if(!app)return;const instance=app;app=null;const timer=setTimeout(()=>instance.process().kill(),5000);try{await instance.close();}finally{clearTimeout(timer);}};
+  const dragKey=async(from,to,cancel="")=>{
+    await key(from).scrollIntoViewIfNeeded();const a=await key(from).boundingBox(),b=await track().boundingBox();
+    await page.mouse.move(a.x+a.width/2,a.y+a.height/2);await page.mouse.down();await page.mouse.move(a.x+a.width/2+(b.width-12)*(to-from)/2,a.y+a.height/2,{steps:8});
+    if(cancel==="escape")await page.keyboard.press("Escape");
+    if(cancel==="blur")await page.evaluate(()=>window.dispatchEvent(new Event("blur")));
+    if(cancel==="pointer")await key(from).dispatchEvent("pointercancel");
+    await page.mouse.up();
+  };
+  try{
+    await launch();await seek(0.5);
+    assert.equal(await page.evaluate(()=>{const rect=s=>document.querySelector(s).getBoundingClientRect(),a=rect('.model-anims'),v=rect('.model-stage'),p=rect('.model-anim-props'),t=rect('.model-timeline');return a.right<=v.left&&v.right<=p.left&&t.top>=v.bottom&&t.left<=a.left&&t.right>=p.right;}),true,"动画列表/预览/属性三栏与底部时间轴布局");
+    const aligned=await page.evaluate(()=>{
+      const center=n=>{const b=n.getBoundingClientRect();return b.x+b.width/2;};
+      return [center(document.querySelector('[aria-label="关键帧轨道 body 旋转"] [aria-label="关键帧 旋转 0.50"]')),center(document.querySelector('[aria-label="声音 0.50 test.click"]')),document.querySelector('.model-key-playhead').getBoundingClientRect().x,center(document.querySelector('.model-ruler-head'))];
+    });assert.ok(Math.max(...aligned)-Math.min(...aligned)<1.1,"刻度、骨骼、效果和播放头应对齐");
+    assert.ok(await page.locator(".model-timeline-scroll").evaluate(n=>n.clientHeight)>=65,"骨骼轨道不能被效果轨道挤没");
+    await capture("timeline-dark");
+    await button("下一关键帧").click();await at(0.65);await button("下一关键帧").click();await at(0.8);await button("上一关键帧").click();await at(0.65);
+    await seek(0);for(let i=0;i<5;i++)await button("放大时间轴").click();await button("播放").click();await page.waitForFunction(()=>document.querySelector('.model-timeline-scroll').scrollLeft>50);await button("暂停").click();await button("适应时长").click();await seek(0.65);
+    await ruler().focus();await ruler().press("ArrowRight");await at(0.7);await ruler().press("Shift+ArrowLeft");await at(0.2);await ruler().press("End");await at(2);await ruler().press("Home");await at(0);
+    const rb=await ruler().boundingBox();await ruler().click({position:{x:6+(rb.width-12)*0.6,y:10}});await at(1.2);
+    await page.mouse.move(rb.x+6+(rb.width-12)*0.4,rb.y+10);await page.mouse.down();await page.mouse.move(rb.x+6+(rb.width-12)*0.9,rb.y+10,{steps:5});await at(1.8);await page.keyboard.press("Escape");await page.mouse.up();await at(1.2);
+    await track().scrollIntoViewIfNeeded();const tb=await track().boundingBox();await track().click({position:{x:6+(tb.width-12)*0.35,y:4}});await at(0.7);
+    await button("粒子 0.65 test.smoke").click();await at(0.65);await page.getByRole("heading",{name:"粒子 · 0.65 秒",exact:true}).waitFor();
+    await button("声音 0.50 test.click").click();await at(0.5);await page.getByRole("heading",{name:"声音 · 0.50 秒",exact:true}).waitFor();
+    await button("指令 0.80 variable.test = 1;").click();await at(0.8);
+    assert.deepEqual(await read(),source);await assert.rejects(fs.stat(file+".bak"),{code:"ENOENT"});
+    await button("放大时间轴").click();await button("放大时间轴").click();assert.equal(await page.getByLabel("时间轴缩放").innerText(),"400%");
+    await page.locator(".model-timeline-scroll").evaluate(n=>{n.scrollLeft=300;n.scrollTop=60;});
+    const sticky=await page.evaluate(()=>{const h=document.querySelector('.model-timeline-scroll').getBoundingClientRect(),label=document.querySelector('[aria-label="关键帧轨道 body 旋转"] > span').getBoundingClientRect(),r=document.querySelector('.model-ruler-row').getBoundingClientRect();return{left:label.left-h.left,top:r.top-h.top,ticks:document.querySelectorAll('.model-timeline-ruler span').length};});
+    assert.ok(Math.abs(sticky.left)<=2&&Math.abs(sticky.top)<=2);assert.ok(sticky.ticks<=16);
+    await seek(0.5);await button("定位播放头").click();await key(0.5).click();
+    for(const kind of ["escape","blur","pointer"]){await dragKey(0.5,0.75,kind);assert.deepEqual(await read(),source);assert.equal(await key(0.5).getAttribute("aria-pressed"),"true");}
+    await button("适应时长").click();await dragKey(0.5,1);await page.getByText("目标时间已有关键帧，未覆盖任何帧",{exact:true}).waitFor();assert.deepEqual(await read(),source);
+    await fs.mkdir(file+".bak");await dragKey(0.5,0.75);await page.getByText(/EISDIR|EPERM|illegal operation|operation not permitted/).waitFor();assert.deepEqual(await read(),source);assert.equal(await key(0.5).count(),1);await fs.rmdir(file+".bak");
+    await button("放大时间轴").click();await dragKey(0.5,0.75);await saved("已移动 1 个关键帧");const moved=await read();assert.equal(moved.bones.body.rotation["0.50"],undefined);assert.deepEqual(moved.bones.body.rotation["0.75"],frame);
+    assert.deepEqual(moved.sound_effects,source.sound_effects);assert.deepEqual(moved.bones.arm,source.bones.arm);
+    const timeline=page.locator(".model-timeline");await timeline.getByRole("button",{name:"撤销",exact:true}).click();await saved("已撤销");assert.deepEqual(await read(),source);await timeline.getByRole("button",{name:"重做",exact:true}).click();await saved("已重做");assert.deepEqual(await read(),moved);
+    await button("折叠轨道 body").click();assert.equal(await track().count(),0);await button("展开轨道 body").click();await key(0.75).waitFor();await capture("timeline-zoomed");
+    const exported=artifactPath("outputs/timeline.bbmodel");await app.evaluate(({dialog},p)=>{dialog.showSaveDialog=async()=>({canceled:false,filePath:p});},exported);await button("导出 .bbmodel").click();await page.getByText(/工程已导出：/).waitFor();const returned=importProject(JSON.parse(await fs.readFile(exported,"utf8"))).animations["animation.timeline"];assert.deepEqual(returned.bones.body.rotation["0.75"].post,frame.post);
+    console.log("PASS 时间坐标统一、效果导航/键盘/空轨定位、缩放滚动与固定标签、取消/冲突/写入失败保护、改时/撤销/重做/折叠和工程导出");
+    await button("animation.long").click();await ruler().waitFor();assert.ok(await ruler().locator("span").count()<=20);await seek(9999.5);await button("放大时间轴").click();await button("定位播放头").click();assert.ok(await ruler().locator("span").count()<=20);
+    await button("animation.short").click();await page.waitForFunction(()=>Number(document.querySelector('input[aria-label="时间"]').max)===0.05);await at(0);assert.equal(await page.getByLabel("时间轴缩放").innerText(),"100%");await ruler().press("End");await at(0.05);await ruler().press("Home");await at(0);
+    await close();await launch(0.75);await key(0.75).waitFor();assert.equal(await page.getByLabel("时间轴缩放").innerText(),"100%");assert.deepEqual(await read(),moved);
+    await app.evaluate(({BrowserWindow,nativeTheme})=>{BrowserWindow.getAllWindows()[0].setSize(1000,720);nativeTheme.themeSource="light";});await page.waitForFunction(()=>document.documentElement.dataset.theme==="light");
+    await page.getByRole("separator",{name:"调整时间轴高度",exact:true}).press("Home");await key(0.75).scrollIntoViewIfNeeded();await capture("timeline-small-light");
+    assert.ok(await page.locator(".model-timeline-scroll").evaluate(n=>n.clientHeight)>=65);
+    await button("声音 0.50 test.click").click();await at(0.5);await page.getByRole("heading",{name:"声音 · 0.50 秒",exact:true}).waitFor();
+    assert.equal(await fs.readFile(modelFile,"utf8"),model);assert.deepEqual(await read(),moved);assert.deepEqual(errors,[]);
+    await capture("timeline-effects-small-light");
+    await fs.writeFile(artifactPath("outputs/result.json"),JSON.stringify({passed:true,errors},null,2),"utf8");console.log("PASS 长短动画刻度有界、重启结果、浅色窄窗及独立原模型保留");console.log(artifactRoot);
+  }catch(error){if(page)await capture("failure").catch(()=>{});console.error("renderer errors",errors);throw error;}finally{await close();}
+})().catch(error=>{console.error(error);process.exitCode=1;});

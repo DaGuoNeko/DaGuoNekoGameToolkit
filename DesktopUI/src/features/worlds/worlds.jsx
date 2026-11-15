@@ -306,7 +306,7 @@ export function WorldHome({
   if (focusId && !loaded) return <Empty title="正在读取存档工作区">正在恢复上次浏览位置。</Empty>;
   const workspace = focused && (
       <>
-        <WorldWorkspace key={focused.id} world={focused} worlds={worlds} request={workspaceRequest} initialTab={initialTab} running={!!runtimeState.starting || !!runtimeState.stopping || !!runtimeState.sessions?.some(s => s.running)} onChanged={refresh} onActivity={onActivity}
+        <WorldWorkspace key={focused.id} world={focused} worlds={worlds} request={workspaceRequest} initialTab={initialTab} running={!!runtimeState.starting || !!runtimeState.stopping || !!runtimeState.sessions?.some(s => s.running)} onChanged={refresh} onActivity={onActivity} onBrowseContent={onBrowseContent}
           primaryAction={<Button primary disabled={busy || !focusedSession && (!profiles.some(p => p.id === focused.profileId) || !!focused.error || focused.copying)} onClick={() => focusedSession ? onRuntime(focusedSession.id) : onStart(focused.profileId, focused.id)}>{focusedSession ? "查看会话控制台" : "启动此存档"}</Button>}
           actions={<WorldDashboard mode="settings" world={focused} profiles={profiles} runtimeState={runtimeState} busy={busy} onBack={() => openWorkspace(focused)} onStart={onStart} onStop={onStop} onSettings={() => open("edit", focused)} onLogs={onLogs} onPacks={() => openWorkspace(focused, "packs")} onMapPreview={() => openWorkspace(focused, "map")} onQuickTest={() => setQuickWorld(focused)} onJoinClient={hostSessionId => setJoinTarget({ hostSessionId })} />}
           onBack={() => setFocusId("")} onImport={() => { setFocusId(""); open("import"); }} onSettings={() => open("edit", focused)} overview={

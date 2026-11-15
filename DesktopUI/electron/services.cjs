@@ -12,6 +12,9 @@ const { managedId, LIBRARY_NAME } = require("./domains/worlds/world-path.cjs");
 const { reloadDefaults, validateReloadKeys } = require("./domains/reload/reload-options.cjs");
 const { GameProcesses } = require("./domains/game/game-processes.cjs");
 const { windowSizeDefaults, validateWindowSize } = require("./window-size.cjs");
+const { validateLayout, validateLayouts, normalizeLayouts } = require("../shared/model-layout.cjs");
+const { defaultViews, validateViews, normalizeViews } = require("../shared/model-views.cjs");
+const { renameWithRetry } = require("./file-rename.cjs");
 
 const defaults = {
   AppearanceMode: "System",
@@ -27,6 +30,8 @@ const defaults = {
   AutomationEnabled: true,
   IndependentWorlds: true,
   GameWindowSize: { ...windowSizeDefaults },
+  ModelStudioLayouts: {},
+  ModelStudioViews: null,
 };
 const configDefaults = {
   included_mod_dirs: ["./"],
@@ -73,7 +78,7 @@ async function atomicWrite(file, text) {
   const temporary = file + "." + crypto.randomUUID() + ".tmp";
   try {
     await fs.writeFile(temporary, text, "utf8");
-    await fs.rename(temporary, file);
+    await renameWithRetry(temporary, file);
   } finally {
     await fs.rm(temporary, { force: true });
   }
@@ -365,6 +370,14 @@ class WorkspaceStore {
           .join("\n");
       }
       const originalGame = stored.settings?.GamePath;
+      const savedLayouts = stored.settings?.ModelStudioLayouts;
+      this.value.settings.ModelStudioLayouts = normalizeLayouts(savedLayouts);
+      const savedViews = stored.settings?.ModelStudioViews;
+      this.value.settings.ModelStudioViews = normalizeViews(savedViews);
+      try { if (savedViews != null) validateViews(savedViews); }
+      catch { this.warning = [this.warning, "模型视角含无效数据，已使用默认视角；原设置文件保留。"].filter(Boolean).join(String.fromCharCode(10)); }
+      try { if (savedLayouts !== undefined) validateLayouts(savedLayouts); }
+      catch { this.warning = [this.warning, "模型面板布局含无效数据，相关模式使用默认尺寸；原设置文件保留。"].filter(Boolean).join("\n"); }
       if (
         originalGame !== undefined &&
         (typeof originalGame !== "string" ||
@@ -402,13 +415,16 @@ class WorkspaceStore {
       const disk = JSON.parse(text.replace(/^\uFEFF/, ""));
       if (JSON.stringify(disk.projects) !== JSON.stringify(this.value.projects) ||
           JSON.stringify(disk.recycledProfiles || []) !== JSON.stringify(this.value.recycledProfiles || []) ||
-          Object.entries(disk.settings || {}).some(([key,value]) => Object.hasOwn(defaults,key) && JSON.stringify(value) !== JSON.stringify(this.value.settings[key])))
+          JSON.stringify(normalizeLayouts(disk.settings?.ModelStudioLayouts)) !== JSON.stringify(normalizeLayouts(this.value.settings.ModelStudioLayouts)) ||
+          JSON.stringify(normalizeViews(disk.settings?.ModelStudioViews)) !== JSON.stringify(normalizeViews(this.value.settings.ModelStudioViews)) ||
+          Object.entries(disk.settings || {}).some(([key,value]) => key !== "ModelStudioLayouts" && key !== "ModelStudioViews" && Object.hasOwn(defaults,key) && JSON.stringify(value) !== JSON.stringify(this.value.settings[key])))
         throw Error("设置已被外部修改，请重新打开工具箱后读取；未覆盖外部内容");
     }
     return hash(JSON.stringify(this.value.settings) + "\0" + (text || ""));
   }
   mutate(update, expectedRevision) {
     const operation = this.queue.then(async () => {
+      if (typeof expectedRevision === "function") expectedRevision = await expectedRevision();
       if (expectedRevision !== undefined && expectedRevision !== await this.settingsRevision())
         throw Error("设置已变化，请重新 read_settings");
       const next = structuredClone(this.value);
@@ -429,6 +445,14 @@ class WorkspaceStore {
   updateSettings(patch, expectedRevision) {
     return this.mutate((next) => {
       for (const [key, value] of Object.entries(patch)) {
+        if (key === "ModelStudioLayouts") {
+          next.settings.ModelStudioLayouts = validateLayouts(value);
+          continue;
+        }
+        if (key === "ModelStudioViews") {
+          next.settings.ModelStudioViews = validateViews(value);
+          continue;
+        }
         if (key === "GameWindowSize") {
           next.settings.GameWindowSize = validateWindowSize(value);
           continue;
@@ -472,6 +496,33 @@ class WorkspaceStore {
         )
           throw Error("无效设置：" + key);
     }, expectedRevision);
+  }
+  async readModelLayouts() {
+    await this.queue;
+    return { layouts: structuredClone(this.value.settings.ModelStudioLayouts) };
+  }
+  saveModelLayout(mode, layout) {
+    const value = validateLayout(mode, layout);
+    // 在设置写入队列中取 revision，连续拖动不会相互覆盖。
+    return this.mutate(next => {
+      next.settings.ModelStudioLayouts[mode] = value;
+    }, () => this.settingsRevision()).then(() => ({ mode, layout: value })).catch(error => {
+      if (error.code) throw Error("无法写入工具箱布局设置，请检查文件占用、磁盘空间或写入权限后重试");
+      throw error;
+    });
+  }
+  async readModelViews() {
+    await this.queue;
+    return { views: structuredClone(this.value.settings.ModelStudioViews || defaultViews()) };
+  }
+  saveModelViews(views) {
+    const value = validateViews(views);
+    return this.mutate(next => {
+      next.settings.ModelStudioViews = value;
+    }, () => this.settingsRevision()).then(() => ({ views: value })).catch(error => {
+      if (error.code) throw Error("无法写入工具箱视角设置，请检查文件占用、磁盘空间或写入权限后重试");
+      throw error;
+    });
   }
   async addProject(root) {
     root = path.resolve(root);

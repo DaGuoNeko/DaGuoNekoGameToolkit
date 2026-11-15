@@ -112,9 +112,12 @@ const { ModLibrary } = require("./domains/profiles/mod-library.cjs");
 const modLibrary = new ModLibrary(store, profiles);
 const { ContentIndex } = require("./domains/profiles/content-index.cjs");
 const contentIndex = new ContentIndex(modLibrary);
+const { importModelProject, prepareModelProject, writeModelProject } = require("./domains/profiles/model-projects.cjs");
+const { resolveWorld, runContentCommand } = require("./domains/profiles/content-commands.cjs");
 const { GameOptions } = require("./domains/game/game-options.cjs");
 const { NeteaseConfigs } = require("./domains/game/netease-config.cjs");
 const { QuickLaunch } = require("./domains/game/quick-launch.cjs");
+const { NpcSkins } = require("./domains/skins/npc-skins.cjs");
 const { McStudioIndex } = require("./domains/game/mcstudio.cjs");
 const clientRoaming = process.env.DGN_GAME_DATA_DIR
   ? path.join(dataRoot, "game-data")
@@ -124,6 +127,7 @@ const clientLocal = process.env.DGN_GAME_DATA_DIR
   : process.env.LOCALAPPDATA;
 const neteaseConfigs = new NeteaseConfigs(clientRoaming);
 const quickLaunch = new QuickLaunch(dataRoot);
+const npcSkins = new NpcSkins(dataRoot);
 const mcStudio = new McStudioIndex(clientLocal, clientRoaming);
 const gameOptions = new GameOptions(
   dataRoot,
@@ -670,11 +674,50 @@ async function dispatch(method, args, source = win) {
     case "mods.add-directories":
       return modLibrary.addDirectories(args.directories, args.revision);
     case "content.scan": {
-      if (!args.worldId) return contentIndex.scan();
-      const record = worlds.find(await worlds.read(), null, args.worldId);
-      const info = await worlds.inspect(record);
-      if (info.deleted || !info.ready || !info.present) throw Error("存档尚未生成或已移除");
-      return contentIndex.scan({ root: info.path, packId: args.packId, sourceId: record.id, sourceName: record.name });
+      return runContentCommand(method, args, { modLibrary, contentIndex, worlds, studioRoot: path.join(dataRoot, "model-studio") });
+    }
+    case "content.read-layouts":
+      return store.readModelLayouts();
+    case "content.save-layout":
+      return store.saveModelLayout(args.mode, args.layout);
+    case "content.read-views":
+      return store.readModelViews();
+    case "content.save-views":
+      return store.saveModelViews(args.views);
+    case "content.import-project": {
+      const selected = await dialog.showOpenDialog(win, { title: "导入 Blockbench 工程", filters: [{ name: "Blockbench", extensions: ["bbmodel"] }], properties: ["openFile"] });
+      if (selected.canceled || !selected.filePaths[0]) return null;
+      return importModelProject(selected.filePaths[0], path.join(dataRoot, "model-studio"));
+    }
+    case "content.save-manifest":
+    case "content.read-geometry":
+    case "content.save-geometry":
+    case "content.list-models":
+    case "content.create-model":
+    case "content.delete-model":
+    case "content.list-textures":
+    case "content.read-texture":
+    case "content.save-texture":
+    case "content.create-texture":
+    case "content.list-animations":
+    case "content.list-controllers":
+    case "content.read-controller":
+    case "content.save-controller":
+    case "content.create-controller":
+    case "content.read-animation":
+    case "content.save-animation":
+    case "content.create-animation":
+    case "content.delete-animation":
+    case "content.rename-animation":
+    case "content.duplicate-animation": {
+      return runContentCommand(method, args, { modLibrary, contentIndex, worlds, studioRoot: path.join(dataRoot, "model-studio") });
+    }
+    case "content.export-project": {
+      const selectedWorld = await resolveWorld(worlds, args.worldId);
+      const bytes = await prepareModelProject(modLibrary, args, selectedWorld?.root || null, path.join(dataRoot, "model-studio"));
+      const selected = await dialog.showSaveDialog(win, { title: "导出 Blockbench 工程", defaultPath: "model.bbmodel", filters: [{ name: "Blockbench", extensions: ["bbmodel"] }] });
+      if (selected.canceled || !selected.filePath) return null;
+      return writeModelProject(selected.filePath, bytes);
     }
     case "world-actions.read":
       return {
@@ -864,6 +907,71 @@ async function dispatch(method, args, source = win) {
       return quickLaunch.remove(args.id);
     case "quick-launch.launch":
       return quickLaunch.launch(args.id);
+    case "skins.list":
+      return npcSkins.list();
+    case "skins.targets":
+      return npcSkins.targets();
+    case "skins.prepare": {
+      const picked = await dialog.showOpenDialog(win, {
+        title: "选择皮肤贴图",
+        filters: [{ name: "PNG 皮肤", extensions: ["png"] }],
+        properties: ["openFile", "multiSelections"],
+      });
+      if (picked.canceled) return [];
+      const staged = [];
+      try {
+        for (const file of picked.filePaths) {
+          await fileSelections.allow(file, "image");
+          staged.push(await npcSkins.stage(await fileSelections.readImage(file), path.basename(file)));
+        }
+        return staged;
+      } catch (error) {
+        await npcSkins.discard(staged.map((item) => item.token));
+        throw error;
+      }
+    }
+    case "skins.add":
+      return npcSkins.add(args.items);
+    case "skins.create":
+      return npcSkins.create(args);
+    case "skins.update":
+      return npcSkins.update(args.id, args);
+    case "skins.remove":
+      return npcSkins.remove(args.id);
+    case "skins.discard":
+      return npcSkins.discard(args.tokens);
+    case "skins.image":
+      return npcSkins.image(args.id);
+    case "skins.import": {
+      const picked = await dialog.showOpenDialog(win, {
+        title: "导入 NPC 皮肤拓展包",
+        filters: [{ name: "ZIP", extensions: ["zip"] }],
+        properties: ["openFile"],
+      });
+      if (picked.canceled || !picked.filePaths[0]) return null;
+      await fileSelections.allow(picked.filePaths[0], "archive");
+      await fileSelections.require(picked.filePaths[0], "archive", { consume: true });
+      return npcSkins.importZip(picked.filePaths[0]);
+    }
+    case "skins.export": {
+      const picked = await dialog.showSaveDialog(win, {
+        title: "导出 NPC 皮肤拓展包",
+        defaultPath: "npc-skin.zip",
+        filters: [{ name: "ZIP", extensions: ["zip"] }],
+      });
+      if (picked.canceled || !picked.filePath) return null;
+      return npcSkins.exportZip(picked.filePath);
+    }
+    case "skins.export-modern": {
+      const picked = await dialog.showOpenDialog(win, {
+        title: "选择新版皮肤导出目录",
+        properties: ["openDirectory"],
+      });
+      if (picked.canceled || !picked.filePaths[0]) return null;
+      await fileSelections.allow(picked.filePaths[0], "directory");
+      await fileSelections.require(picked.filePaths[0], "directory");
+      return npcSkins.exportModern(picked.filePaths[0]);
+    }
     case "worlds.sync-pack-versions":
       return worlds.syncPackVersions(args.worldId, args.confirmed === true, args.revision);
     case "worlds.inspect-pack-health":
@@ -1414,6 +1522,10 @@ else {
           sessions: launcher,
           debug: debuggerService,
           worlds,
+          modLibrary,
+          contentIndex,
+          studioRoot: path.join(dataRoot, "model-studio"),
+          skins: npcSkins,
           store,
           joiner: clientJoiner,
           profiles,

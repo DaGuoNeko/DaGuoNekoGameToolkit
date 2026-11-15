@@ -6,10 +6,9 @@ import { useWorldData } from "./use-world-data.jsx";
 import { MapPreview } from "./map-preview.jsx";
 import { WorldPacks } from "./world-packs.jsx";
 import { ArchitectureImport } from "./architecture-import.jsx";
-import { ContentBrowserV2 } from "../mods/mod-library.jsx";
 const noMarkers = [];
 
-export function WorldWorkspace({ world, worlds, initialTab = "overview", request, overview, actions, primaryAction, onBack, onSettings, onChanged, onImport, running, onActivity }) {
+export function WorldWorkspace({ world, worlds, initialTab = "overview", request, overview, actions, primaryAction, onBack, onSettings, onChanged, onImport, running, onActivity, onBrowseContent }) {
   const scope = world?.id || "external";
   const [tab, setTab] = useWorkspaceState("world-workspace:" + scope, initialTab);
   const [external, setExternal] = useWorkspaceState("external-world", { source: "", worldId: "" });
@@ -17,7 +16,6 @@ export function WorldWorkspace({ world, worlds, initialTab = "overview", request
   const [selected, setSelected] = useWorkspaceState("world-data-selected:" + scope, "");
   const [mapState, setMapState] = useWorkspaceState("world-map:" + scope, null);
   const [focus, setFocus] = useWorkspaceState("world-map-focus:" + scope, null);
-  const [pack, setPack] = useWorkspaceState("world-pack-content:" + scope, null);
   const [terrain, setTerrain] = useWorkspaceState("world-terrain:" + scope, null);
   useEffect(() => { if (request?.tab) { setTab(request.tab); setTerrain(null); } }, [request?.id]);
   const source = world ? { source: world.path, worldId: world.id } : external;
@@ -40,7 +38,7 @@ export function WorldWorkspace({ world, worlds, initialTab = "overview", request
       {tab === "map" && <MapPreview key={source.source} inline lockedSource={!!world} worldId={source.worldId} initialSource={source.source} worlds={worlds} onSource={setExternal} remembered={mapState} onRemember={value => { setMapState(value); setFocus(null); }} focus={focus} markers={data?.objects || noMarkers}
         initialDimension={focus?.dimension || source.dimension || mapState?.dimension || "overworld"} onObject={id => { setSelected(id); setTab("data"); }} onTerrain={setTerrain} onClose={world ? () => navigate("overview") : onBack} />}
       {tab === "data" && <WorldData key={source.source} {...source} data={data} load={dataLoad} onData={setSnapshot} selectedId={selected} onSelected={setSelected} onSource={setExternal} onLocate={object => { setFocus({ position: object.position, dimension: ["overworld", "nether", "the_end"][object.dimension] }); setTab("map"); }} />}
-      {tab === "packs" && world && (pack ? <><div className="workspace-actions"><Button onClick={() => setPack(null)}>返回存档模组</Button></div><ContentBrowserV2 key={pack.packId} request={{ worldId: world.id, worldName: world.name, packId: pack.packId, packName: pack.packName }} onManage={() => setPack(null)} /></> : <WorldPacks inline world={world} running={running} onChanged={onChanged} onImport={onImport} onContent={setPack} onClose={() => navigate("overview")} />)}
+      {tab === "packs" && world && <WorldPacks inline world={world} running={running} onChanged={onChanged} onImport={onImport} onContent={mod => onBrowseContent?.({ worldId: world.id, worldName: world.name, packId: (mod.packIds || [mod.packId]).filter(Boolean).join(","), packName: mod.name || mod.packName })} onClose={() => navigate("overview")} />}
       {tab === "settings" && world && <><section className="section"><h2>存档设置</h2><p>世界选项、启动配置绑定与自动操作归当前存档。启动配置是可复用模板，修改后影响下一次运行。</p><Button primary onClick={onSettings}>编辑存档设置</Button></section>{actions}</>}
     </>}
   </div>;

@@ -1,0 +1,92 @@
+const { _electron: electron } = require("playwright");
+const { buildSync } = require("esbuild");
+const assert = require("node:assert/strict");
+const fs = require("node:fs/promises"), path = require("node:path");
+const { artifactPath, artifactRoot } = require("./fixtures/artifacts.cjs");
+
+(async () => {
+  const data = artifactPath("data"), helper = artifactPath("build/process-inventory.cjs");
+  buildSync({ entryPoints: [require.resolve("../electron/domains/game/process-inventory.cjs")], bundle: true, platform: "node", format: "cjs", outfile: helper, logLevel: "silent" });
+  const env = { ...process.env, DGN_GAME_HEADLESS: "1", DGN_GAME_DATA_DIR: data }; delete env.ELECTRON_RUN_AS_NODE;
+  const app = await electron.launch({ cwd: path.resolve(__dirname, ".."), env, ...(process.env.DGN_GAME_TEST_EXE ? { executablePath: process.env.DGN_GAME_TEST_EXE, args: [] } : { args: ["."] }) });
+  let page; const errors = [];
+  const capture = async name => {
+    const png = await app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].webContents.capturePage()).toPNG().toString("base64"));
+    await fs.writeFile(artifactPath("outputs/" + name + ".png"), Buffer.from(png, "base64"));
+  };
+  try {
+    const result = await app.evaluate(({ app }, helper) => {
+      const path = process.mainModule.require("node:path");
+      const inventory = process.mainModule.require(helper).inventory;
+      const before = performance.now();
+      const own = inventory([path.basename(process.execPath)]).find(item => item.pid === process.pid);
+      return { packaged: app.isPackaged, found: !!own, pathMatches: own?.path.toLowerCase() === process.execPath.toLowerCase(), sidValid: /^S-\d-/.test(own?.ownerSid), sameOwner: own?.ownerSid === own?.currentSid, elapsed: performance.now() - before, fields: Object.keys(own || {}).sort() };
+    }, helper);
+    assert.equal(result.found, true); assert.equal(result.pathMatches, true); assert.equal(result.sameOwner, true); assert.equal(result.sidValid, true);
+    assert.deepEqual(result.fields, ["currentSid", "name", "ownerSid", "path", "pid"]);
+    if (process.env.DGN_GAME_TEST_EXE) assert.equal(result.packaged, true);
+    page = await app.firstWindow(); page.setDefaultTimeout(15000); page.on("pageerror", error => errors.push(error.message));
+    await app.evaluate(({ BrowserWindow }) => { const win = BrowserWindow.getAllWindows()[0]; win.webContents.setBackgroundThrottling(false); win.setSize(1440, 900); win.show(); win.focus(); });
+    await page.getByRole("heading", { name: "存档", exact: true }).waitFor();
+    await page.getByRole("button", { name: "模组与资源", exact: true }).click();
+    await page.getByRole("button", { name: "NPC皮肤", exact: true }).click();
+    await page.getByRole("button", { name: "新建皮肤", exact: true }).click();
+    const modal = page.getByRole("dialog");
+    await modal.getByLabel("人物名称", { exact: true }).fill("结构回归");
+    await modal.getByLabel("作者", { exact: true }).fill("fixture");
+    await modal.getByRole("combobox").first().click();
+    await page.getByRole("option").filter({ hasText: "customnpc:polar_bear_dlcnpc" }).click();
+    await modal.getByRole("button", { name: "开始绘制", exact: true }).click();
+    await page.getByLabel("整张贴图画板", { exact: true }).waitFor();
+    await page.waitForFunction(() => { const node = document.querySelector('canvas[aria-label="整张贴图画板"]'); return node && node.width > 1 && node.height > 1; });
+    assert.equal(await page.getByText("工具箱没有这个目标模型的几何体，不能做 3D 预览。中间可以直接改整张贴图。", { exact: true }).count(), 0);
+    assert.ok(await page.locator("canvas").count() >= 2);
+    await page.locator(".skin-bench .skin-3d-host[data-texture-source='default']").waitFor();
+    await capture("npc-default-preview");
+    await page.getByRole("button", { name: "重置视角", exact: true }).click();
+    await page.getByRole("button", { name: "返回", exact: true }).click();
+    await page.getByRole("button", { name: "预览 结构回归", exact: true }).click();
+    await page.locator(".modal .skin-3d-host[data-texture-source='default']").waitFor();
+    await page.getByRole("button", { name: "关闭弹窗", exact: true }).click();
+    await page.getByRole("button", { name: "新建皮肤", exact: true }).click();
+    const humanModal = page.getByRole("dialog");
+    await humanModal.getByLabel("人物名称", { exact: true }).fill("人型视角");
+    await humanModal.getByLabel("作者", { exact: true }).fill("fixture");
+    await humanModal.getByRole("button", { name: "开始绘制", exact: true }).click();
+    await page.getByLabel("皮肤工作台预览", { exact: true }).waitFor();
+    const scrollInfo = await page.locator(".skin-bench").evaluate(node => {
+      let scroll = node.parentElement;
+      while (scroll && scroll.scrollHeight <= scroll.clientHeight) scroll = scroll.parentElement;
+      if (scroll) scroll.scrollTop = scroll.scrollHeight;
+      return scroll?.className || "";
+    });
+    assert.ok(scrollInfo !== undefined);
+    await page.waitForTimeout(80);
+    const benchBar = await page.locator(".skin-bench-bar").boundingBox();
+    assert.ok(benchBar && benchBar.y >= 0 && benchBar.y < 180, "工作台顶栏滚动后仍应可见");
+    await page.getByRole("button", { name: "保存", exact: true }).waitFor();
+    await page.getByRole("button", { name: "重置视角", exact: true }).click();
+    const paintZoom = page.getByRole("group", { name: "贴图缩放", exact: true });
+    const paintZoomValue = paintZoom.locator("output[aria-label='贴图缩放']");
+    assert.equal(await paintZoomValue.innerText(), "100%");
+    for (let i = 0; i < 4; i++) await paintZoom.getByRole("button", { name: "放大贴图", exact: true }).click();
+    await page.waitForFunction(() => document.querySelector('output[aria-label="贴图缩放"]')?.textContent === "244%");
+    const paintStageBox = await page.locator(".skin-paint-stage").boundingBox();
+    assert.ok(paintStageBox);
+    await page.mouse.move(paintStageBox.x + 20, paintStageBox.y + 20);
+    await page.mouse.wheel(0, -100);
+    await page.waitForFunction(() => document.querySelector('output[aria-label="贴图缩放"]')?.textContent === "273%");
+    await paintZoom.getByRole("button", { name: "适应画板", exact: true }).click();
+    await page.waitForFunction(() => document.querySelector('output[aria-label="贴图缩放"]')?.textContent === "100%");
+    await paintZoom.getByRole("button", { name: "放大贴图", exact: true }).click();
+    await page.waitForFunction(() => document.querySelector('output[aria-label="贴图缩放"]')?.textContent === "125%");
+    await paintZoom.getByRole("button", { name: "适应画板", exact: true }).click();
+    await page.waitForFunction(() => document.querySelector('output[aria-label="贴图缩放"]')?.textContent === "100%");
+    await capture("skin-shared-assets");
+    assert.deepEqual(errors, []);
+    console.log("PASS packaged native process identity", JSON.stringify(result));
+    console.log("PASS NPC 原生入口新建非人型贴图、几何/画板加载，无 renderer 越层引用");
+    console.log(artifactRoot);
+  } catch (error) { console.error(error); if (page) await capture("failure").catch(() => {}); throw error; }
+  finally { const timer = setTimeout(() => app.process().kill(), 5000); try { await app.close(); } finally { clearTimeout(timer); } }
+})().catch(error => { console.error(error); process.exitCode = 1; });

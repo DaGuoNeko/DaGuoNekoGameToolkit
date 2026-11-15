@@ -99,3 +99,20 @@ test("mcstudio scan marks test worlds and pack directories without treating the 
   await assert.rejects(index.mod(work), /模组目录已变化/);
   assert.equal((await scanMcStudio(path.join(root, "missing"), path.join(root, "roaming"))).available, false);
 });
+
+test("a studio project with behavior and resource packs is one mod", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "dgn-studio-pair-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const local = path.join(root, "local");
+  const install = path.join(root, "install");
+  const project = path.join(install, "work", "account", "Cpp", "AddOn", "npc");
+  await writeJson(path.join(local, "Netease", "MCStudio", "config", "app", "app.conf"), {
+    X64EditorPath: path.join(install, "MCX64Editor", "editor.exe"),
+  });
+  await writeJson(path.join(project, "work.mcscfg"), { Name: "自定义NPC", UID: "npc" });
+  await writeJson(path.join(project, "npcB", "manifest.json"), { modules: [{ type: "data" }] });
+  await writeJson(path.join(project, "npcR", "manifest.json"), { modules: [{ type: "resources" }] });
+  const scanned = await scanMcStudio(local, path.join(root, "roaming"));
+  const importable = scanned.mods.filter(item => item.importable).map(item => item.directory);
+  assert.deepEqual(importable, [project]);
+});
